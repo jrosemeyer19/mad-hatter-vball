@@ -70,6 +70,9 @@ function App() {
           <Routes>
             <Route path="/" element={<TournamentList user={user} />} />
             <Route path="/tournament/:id" element={<TournamentDetail user={user} />} />
+            <Route path="/tournament/:id/setup" element={
+              user ? <TournamentSetup user={user} isEditing={true} /> : <Navigate to="/login" />
+            } />
             <Route 
               path="/login" 
               element={

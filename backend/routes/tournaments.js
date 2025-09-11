@@ -37,6 +37,46 @@ router.get('/history', authenticateToken, async (req, res) => {
   }
 });
 
+// Update tournament (authenticated users only)
+router.put('/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      name, date, location, courtsAvailable = 3, minPlayersPerTeam = 5,
+      matchesPerPlayer = 4, entryFee = 0, directorCost = 0, hasPowerMatch = false
+    } = req.body;
+    
+    if (!name || !date || !location) {
+      return res.status(400).json({ message: 'Name, date, and location are required' });
+    }
+    
+    // Check if tournament exists and is in setup phase
+    const tournamentCheck = await pool.query('SELECT status FROM tournaments WHERE id = $1', [id]);
+    if (tournamentCheck.rows.length === 0) {
+      return res.status(404).json({ message: 'Tournament not found' });
+    }
+    
+    if (tournamentCheck.rows[0].status !== 'setup') {
+      return res.status(400).json({ message: 'Can only edit tournaments in setup phase' });
+    }
+    
+    const result = await pool.query(`
+      UPDATE tournaments 
+      SET name = $1, date = $2, location = $3, courts_available = $4, 
+          min_players_per_team = $5, matches_per_player = $6, entry_fee = $7, 
+          director_cost = $8, has_power_match = $9
+      WHERE id = $10 
+      RETURNING *
+    `, [name, date, location, courtsAvailable, minPlayersPerTeam, matchesPerPlayer, 
+        entryFee, directorCost, hasPowerMatch, id]);
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error updating tournament:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // Create new tournament (authenticated users only)
 router.post('/', authenticateToken, async (req, res) => {
   const client = await pool.connect();

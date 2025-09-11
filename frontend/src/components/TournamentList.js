@@ -129,21 +129,43 @@ function TournamentList({ user }) {
                 </div>
               </Link>
               
-              {user && tournament.status !== 'completed' && (
-                <button
-                  className="btn btn-danger"
-                  style={{ 
-                    position: 'absolute', 
-                    top: '0.5rem', 
-                    right: '0.5rem',
-                    padding: '0.25rem 0.5rem',
-                    fontSize: '0.8rem'
-                  }}
-                  onClick={(e) => deleteTournament(tournament.id, tournament.name, e)}
-                  title="Delete Tournament"
-                >
-                  ×
-                </button>
+              {user && (
+                <div style={{ 
+                  position: 'absolute', 
+                  top: '0.5rem', 
+                  right: '0.5rem',
+                  display: 'flex',
+                  gap: '0.25rem'
+                }}>
+                  {tournament.status === 'setup' && (
+                    <Link
+                      to={`/tournament/${tournament.id}/setup`}
+                      className="btn btn-success"
+                      style={{ 
+                        padding: '0.25rem 0.5rem',
+                        fontSize: '0.8rem',
+                        textDecoration: 'none'
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      title="Continue Setup"
+                    >
+                      Setup
+                    </Link>
+                  )}
+                  {tournament.status !== 'completed' && (
+                    <button
+                      className="btn btn-danger"
+                      style={{ 
+                        padding: '0.25rem 0.5rem',
+                        fontSize: '0.8rem'
+                      }}
+                      onClick={(e) => deleteTournament(tournament.id, tournament.name, e)}
+                      title="Delete Tournament"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           ))}

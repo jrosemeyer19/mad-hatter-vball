@@ -191,6 +191,14 @@ function TournamentDetail({ user }) {
           <div>
             {user && tournament.status !== 'completed' && (
               <div className="flex gap-1">
+                {tournament.status === 'setup' && (
+                  <Link 
+                    to={`/tournament/${id}/setup`}
+                    className="btn btn-success"
+                  >
+                    Continue Setup
+                  </Link>
+                )}
                 {tournament.status === 'in_progress' && (
                   <>
                     {canGenerateNextRound() && (

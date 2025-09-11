@@ -263,7 +263,7 @@ function TournamentSetup() {
   return (
     <div style={{ maxWidth: '800px', margin: '0 auto' }}>
       <div className="card">
-        <h2>Add Players to Tournament</h2>
+        <h2>{isEditing ? 'Continue Tournament Setup' : 'Add Players to Tournament'}</h2>
         <p><strong>Tournament:</strong> {tournamentData.name}</p>
         
         {error && <div className="error-message">{error}</div>}
