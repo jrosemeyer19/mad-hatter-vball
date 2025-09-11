@@ -44,12 +44,13 @@ CREATE TABLE rounds (
     is_power_round BOOLEAN DEFAULT FALSE
 );
 
--- Teams table
+-- Teams table (UPDATED for bye team support)
 CREATE TABLE teams (
     id SERIAL PRIMARY KEY,
     round_id INTEGER REFERENCES rounds(id) ON DELETE CASCADE,
     team_number INTEGER NOT NULL,
-    court INTEGER NOT NULL
+    court INTEGER, -- Made nullable for bye teams
+    is_bye_team BOOLEAN DEFAULT FALSE -- New column for bye teams
 );
 
 -- Team players junction table
@@ -78,4 +79,9 @@ CREATE INDEX idx_tournaments_status ON tournaments(status);
 CREATE INDEX idx_players_tournament ON players(tournament_id);
 CREATE INDEX idx_rounds_tournament ON rounds(tournament_id);
 CREATE INDEX idx_teams_round ON teams(round_id);
+CREATE INDEX idx_teams_bye_team ON teams(is_bye_team); -- New index for bye teams
 CREATE INDEX idx_matches_round ON matches(round_id);
+
+-- Add comments for documentation
+COMMENT ON COLUMN teams.is_bye_team IS 'Indicates if this team represents players on bye (not playing this round)';
+COMMENT ON COLUMN teams.court IS 'Court number for playing teams, NULL for bye teams';
