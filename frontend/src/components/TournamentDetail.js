@@ -167,24 +167,34 @@ function TournamentDetail({ user }) {
             </p>
           </div>
           <div>
-            {user && tournament.status === 'in_progress' && (
+            {user && tournament.status !== 'completed' && (
               <div className="flex gap-1">
-                {canGenerateNextRound() && (
-                  <button 
-                    className="btn btn-primary"
-                    onClick={generateNextRound}
-                  >
-                    Generate Next Round
-                  </button>
+                {tournament.status === 'in_progress' && (
+                  <>
+                    {canGenerateNextRound() && (
+                      <button 
+                        className="btn btn-primary"
+                        onClick={generateNextRound}
+                      >
+                        Generate Next Round
+                      </button>
+                    )}
+                    {allRoundsComplete() && (
+                      <button 
+                        className="btn btn-success"
+                        onClick={completeTournament}
+                      >
+                        Complete Tournament
+                      </button>
+                    )}
+                  </>
                 )}
-                {allRoundsComplete() && (
-                  <button 
-                    className="btn btn-danger"
-                    onClick={completeTournament}
-                  >
-                    Complete Tournament
-                  </button>
-                )}
+                <button 
+                  className="btn btn-danger"
+                  onClick={deleteTournament}
+                >
+                  Delete Tournament
+                </button>
               </div>
             )}
           </div>

@@ -519,4 +519,39 @@ router.post('/:id/complete', authenticateToken, async (req, res) => {
   }
 });
 
+// Delete tournament (authenticated users only)
+router.delete('/:id', authenticateToken, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    
+    const { id } = req.params;
+    
+    // Check if tournament exists and get its status
+    const tournamentResult = await client.query('SELECT * FROM tournaments WHERE id = $1', [id]);
+    if (tournamentResult.rows.length === 0) {
+      return res.status(404).json({ message: 'Tournament not found' });
+    }
+    
+    const tournament = tournamentResult.rows[0];
+    
+    // Only allow deletion if tournament is not completed
+    if (tournament.status === 'completed') {
+      return res.status(400).json({ message: 'Cannot delete completed tournaments' });
+    }
+    
+    // Delete tournament (cascade will handle related records)
+    await client.query('DELETE FROM tournaments WHERE id = $1', [id]);
+    
+    await client.query('COMMIT');
+    res.json({ message: 'Tournament deleted successfully' });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error deleting tournament:', error);
+    res.status(500).json({ message: 'Server error' });
+  } finally {
+    client.release();
+  }
+});
+
 module.exports = router;

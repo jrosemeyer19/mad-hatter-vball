@@ -83,12 +83,11 @@ function TournamentList() {
       ) : (
         <div className="tournament-grid">
           {tournaments.map((tournament) => (
-            <Link
-              key={tournament.id}
-              to={`/tournament/${tournament.id}`}
-              style={{ textDecoration: 'none', color: 'inherit' }}
-            >
-              <div className="tournament-card">
+            <div key={tournament.id} className="tournament-card" style={{ position: 'relative' }}>
+              <Link
+                to={`/tournament/${tournament.id}`}
+                style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}
+              >
                 <div className="flex-between mb-1">
                   <h3>{tournament.name}</h3>
                   <span className={`tournament-status ${getStatusClass(tournament.status)}`}>
@@ -107,8 +106,25 @@ function TournamentList() {
                 <div style={{ fontSize: '0.9rem', color: '#7f8c8d' }}>
                   Click to view details and manage tournament
                 </div>
-              </div>
-            </Link>
+              </Link>
+              
+              {user && tournament.status !== 'completed' && (
+                <button
+                  className="btn btn-danger"
+                  style={{ 
+                    position: 'absolute', 
+                    top: '0.5rem', 
+                    right: '0.5rem',
+                    padding: '0.25rem 0.5rem',
+                    fontSize: '0.8rem'
+                  }}
+                  onClick={(e) => deleteTournament(tournament.id, tournament.name, e)}
+                  title="Delete Tournament"
+                >
+                  ×
+                </button>
+              )}
+            </div>
           ))}
         </div>
       )}
