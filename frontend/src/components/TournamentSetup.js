@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import axios from 'axios';
 
-function TournamentSetup() {
+function TournamentSetup({ isEditing = false }) {
+  const { id } = useParams(); // For editing existing tournaments
   const [tournamentData, setTournamentData] = useState({
     name: '',
     date: '',
@@ -23,12 +24,46 @@ function TournamentSetup() {
     isSetter: false
   });
   
-  const [step, setStep] = useState(1); // 1: Tournament Setup, 2: Add Players
+  const [step, setStep] = useState(isEditing ? 2 : 1); // Skip to step 2 if editing
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [tournamentId, setTournamentId] = useState(null);
+  const [tournamentId, setTournamentId] = useState(isEditing ? id : null);
   
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (isEditing && id) {
+      fetchTournamentData();
+    }
+  }, [isEditing, id]);
+
+  const fetchTournamentData = async () => {
+    try {
+      const response = await axios.get(`/api/tournaments/${id}`);
+      const tournament = response.data.tournament;
+      
+      if (tournament.status !== 'setup') {
+        setError('Can only edit tournaments in setup phase');
+        return;
+      }
+      
+      setTournamentData({
+        name: tournament.name,
+        date: tournament.date.split('T')[0], // Format date for input
+        location: tournament.location,
+        courtsAvailable: tournament.courts_available,
+        minPlayersPerTeam: tournament.min_players_per_team,
+        matchesPerPlayer: tournament.matches_per_player,
+        entryFee: tournament.entry_fee,
+        directorCost: tournament.director_cost,
+        hasPowerMatch: tournament.has_power_match
+      });
+      
+      setPlayers(response.data.players);
+    } catch (error) {
+      setError('Failed to load tournament data');
+    }
+  };
 
   const handleTournamentChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -52,11 +87,18 @@ function TournamentSetup() {
     setError('');
 
     try {
-      const response = await axios.post('/api/tournaments', tournamentData);
-      setTournamentId(response.data.id);
-      setStep(2);
+      if (isEditing) {
+        // Update existing tournament
+        await axios.put(`/api/tournaments/${tournamentId}`, tournamentData);
+        setStep(2);
+      } else {
+        // Create new tournament
+        const response = await axios.post('/api/tournaments', tournamentData);
+        setTournamentId(response.data.id);
+        setStep(2);
+      }
     } catch (error) {
-      setError(error.response?.data?.message || 'Failed to create tournament');
+      setError(error.response?.data?.message || 'Failed to save tournament');
     } finally {
       setLoading(false);
     }
@@ -126,7 +168,7 @@ function TournamentSetup() {
   if (step === 1) {
     return (
       <div className="card" style={{ maxWidth: '600px', margin: '0 auto' }}>
-        <h2>Create New Tournament</h2>
+        <h2>{isEditing ? 'Edit Tournament' : 'Create New Tournament'}</h2>
         
         {error && <div className="error-message">{error}</div>}
         
@@ -251,7 +293,7 @@ function TournamentSetup() {
             style={{ width: '100%' }}
             disabled={loading}
           >
-            {loading ? 'Creating...' : 'Create Tournament'}
+            {loading ? 'Saving...' : isEditing ? 'Save Changes' : 'Create Tournament'}
           </button>
         </form>
       </div>
