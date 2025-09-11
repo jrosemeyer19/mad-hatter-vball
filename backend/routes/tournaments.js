@@ -348,7 +348,7 @@ router.post('/:id/start', authenticateToken, async (req, res) => {
   }
 });
 
-// Submit match scores (no authentication required)
+// Submit match scores (no authentication required) - FIXED VERSION
 router.put('/:id/matches/:matchId/scores', async (req, res) => {
   const client = await pool.connect();
   try {
@@ -357,37 +357,47 @@ router.put('/:id/matches/:matchId/scores', async (req, res) => {
     const { matchId } = req.params;
     const { team1Game1, team1Game2, team2Game1, team2Game2 } = req.body;
     
-    // Validate scores
-    if ([team1Game1, team1Game2, team2Game1, team2Game2].some(score => 
-      score === null || score === undefined || score < 0 || score > 50)) {
-      return res.status(400).json({ message: 'Invalid scores' });
+    // Validate and convert scores to integers
+    const scores = [team1Game1, team1Game2, team2Game1, team2Game2];
+    if (scores.some(score => score === null || score === undefined || isNaN(Number(score)) || Number(score) < 0 || Number(score) > 50)) {
+      return res.status(400).json({ message: 'Invalid scores - must be numbers between 0 and 50' });
     }
     
-    // Update match scores
+    // Convert to integers to ensure proper typing
+    const t1g1 = parseInt(team1Game1, 10);
+    const t1g2 = parseInt(team1Game2, 10);
+    const t2g1 = parseInt(team2Game1, 10);
+    const t2g2 = parseInt(team2Game2, 10);
+    
+    // Update match scores with explicit integer casting
     await client.query(`
       UPDATE matches 
-      SET team1_game1_score = $1, team1_game2_score = $2, 
-          team2_game1_score = $3, team2_game2_score = $4, is_completed = true
-      WHERE id = $5
-    `, [team1Game1, team1Game2, team2Game1, team2Game2, matchId]);
+      SET team1_game1_score = $1::integer, team1_game2_score = $2::integer, 
+          team2_game1_score = $3::integer, team2_game2_score = $4::integer, 
+          is_completed = true
+      WHERE id = $5::integer
+    `, [t1g1, t1g2, t2g1, t2g2, parseInt(matchId, 10)]);
     
-    // Get team players to update their points
+    // Get team players to update their points with explicit casting
     const teamPlayersResult = await client.query(`
       SELECT tp.player_id, 
-        CASE WHEN tp.team_id = m.team1_id THEN $1 + $2 
-             ELSE $3 + $4 END as points_earned
+        CASE WHEN tp.team_id = m.team1_id 
+             THEN ($1::integer + $2::integer)
+             ELSE ($3::integer + $4::integer) 
+        END as points_earned
       FROM team_players tp
       JOIN matches m ON (tp.team_id = m.team1_id OR tp.team_id = m.team2_id)
-      WHERE m.id = $5
-    `, [team1Game1, team1Game2, team2Game1, team2Game2, matchId]);
+      WHERE m.id = $5::integer
+    `, [t1g1, t1g2, t2g1, t2g2, parseInt(matchId, 10)]);
     
-    // Update player points and match count
+    // Update player points and match count with explicit casting
     for (const player of teamPlayersResult.rows) {
       await client.query(`
         UPDATE players 
-        SET total_points = total_points + $1, matches_played = matches_played + 1
-        WHERE id = $2
-      `, [player.points_earned, player.player_id]);
+        SET total_points = total_points + $1::integer, 
+            matches_played = matches_played + 1
+        WHERE id = $2::integer
+      `, [parseInt(player.points_earned, 10), parseInt(player.player_id, 10)]);
     }
     
     await client.query('COMMIT');
@@ -395,7 +405,7 @@ router.put('/:id/matches/:matchId/scores', async (req, res) => {
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error updating scores:', error);
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ message: 'Server error updating scores' });
   } finally {
     client.release();
   }
