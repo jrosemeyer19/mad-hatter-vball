@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
 
-function TournamentList() {
+function TournamentList({ user }) {
   const [tournaments, setTournaments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -20,6 +20,27 @@ function TournamentList() {
       console.error('Error fetching tournaments:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const deleteTournament = async (tournamentId, tournamentName, e) => {
+    e.preventDefault(); // Prevent navigation to tournament detail
+    e.stopPropagation();
+
+    if (!user) {
+      alert('You must be logged in to delete tournaments');
+      return;
+    }
+
+    if (!window.confirm(`Are you sure you want to delete "${tournamentName}"? This cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      await axios.delete(`/api/tournaments/${tournamentId}`);
+      setTournaments(tournaments.filter(t => t.id !== tournamentId));
+    } catch (error) {
+      setError(error.response?.data?.message || 'Failed to delete tournament');
     }
   };
 
