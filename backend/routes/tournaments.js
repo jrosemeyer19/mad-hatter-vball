@@ -112,24 +112,24 @@ router.post('/', authenticateToken, async (req, res) => {
   }
 });
 
-// Get tournament results with payouts (for completed tournaments)
+// Get tournament results with payouts (for completed tournaments) - FIXED VERSION
 router.get('/:id/results', async (req, res) => {
   try {
     const { id } = req.params;
-    console.log('Getting results for tournament ID:', id); // Debug log
+    console.log('Getting results for tournament ID:', id);
     
     // Get tournament details
     const tournamentResult = await pool.query('SELECT * FROM tournaments WHERE id = $1', [id]);
     if (tournamentResult.rows.length === 0) {
-      console.log('Tournament not found:', id); // Debug log
+      console.log('Tournament not found:', id);
       return res.status(404).json({ message: 'Tournament not found' });
     }
     
     const tournament = tournamentResult.rows[0];
-    console.log('Tournament status:', tournament.status); // Debug log
+    console.log('Tournament status:', tournament.status);
     
     if (tournament.status !== 'completed') {
-      console.log('Tournament not completed, status:', tournament.status); // Debug log
+      console.log('Tournament not completed, status:', tournament.status);
       return res.status(400).json({ message: 'Tournament is not completed yet' });
     }
     
@@ -142,23 +142,60 @@ router.get('/:id/results', async (req, res) => {
       ORDER BY gender, total_points DESC
     `, [id]);
     
-    console.log('Standings found:', standingsResult.rows.length, 'players'); // Debug log
+    console.log('Standings found:', standingsResult.rows.length, 'players');
     
-    // Calculate payouts
-    const totalPool = (standingsResult.rows.length * tournament.entry_fee) - tournament.director_cost;
-    const payouts = {
-      first: Math.floor((totalPool * 0.30) / 5) * 5, // Round down to nearest $5
-      second: Math.floor((totalPool * 0.15) / 5) * 5,
-      third: Math.floor((totalPool * 0.05) / 5) * 5
-    };
+    // Calculate payouts - FIXED CALCULATION
+    const totalEntryFees = standingsResult.rows.length * parseFloat(tournament.entry_fee || 0);
+    const directorCost = parseFloat(tournament.director_cost || 0);
+    const totalPool = Math.max(0, totalEntryFees - directorCost);
     
-    console.log('Calculated payouts:', payouts, 'Total pool:', totalPool); // Debug log
+    console.log('Payout calculation:');
+    console.log('- Players:', standingsResult.rows.length);
+    console.log('- Entry fee per player:', tournament.entry_fee);
+    console.log('- Total entry fees:', totalEntryFees);
+    console.log('- Director cost:', directorCost);
+    console.log('- Total pool:', totalPool);
+    
+    let payouts;
+    
+    if (totalPool <= 0) {
+      // No money to distribute
+      payouts = {
+        first: 0,
+        second: 0,
+        third: 0
+      };
+      console.log('No prize pool - entry fee is $0 or too low');
+    } else {
+      // Calculate percentage-based payouts, rounded down to nearest $5
+      const firstPlace = totalPool * 0.30;
+      const secondPlace = totalPool * 0.15;
+      const thirdPlace = totalPool * 0.05;
+      
+      payouts = {
+        first: Math.floor(firstPlace / 5) * 5, // Round down to nearest $5
+        second: Math.floor(secondPlace / 5) * 5,
+        third: Math.floor(thirdPlace / 5) * 5
+      };
+      
+      console.log('Calculated payouts:');
+      console.log('- 1st place (30%):', payouts.first);
+      console.log('- 2nd place (15%):', payouts.second);
+      console.log('- 3rd place (5%):', payouts.third);
+      
+      // Calculate remaining money
+      const distributedMoney = (payouts.first + payouts.second + payouts.third) * 2; // Both male and female divisions
+      const remainingMoney = totalPool - distributedMoney;
+      console.log('- Money distributed:', distributedMoney);
+      console.log('- Remaining for director:', remainingMoney);
+    }
     
     const results = {
       tournament,
       standings: standingsResult.rows,
       payouts,
-      totalPool
+      totalPool,
+      hasPayouts: totalPool > 0
     };
     
     res.json(results);
@@ -544,7 +581,7 @@ router.put('/:id/matches/:matchId/scores', async (req, res) => {
   }
 });
 
-// Complete tournament
+// Complete tournament - ALSO FIXED
 router.post('/:id/complete', authenticateToken, async (req, res) => {
   const client = await pool.connect();
   try {
@@ -569,13 +606,30 @@ router.post('/:id/complete', authenticateToken, async (req, res) => {
       ORDER BY gender, total_points DESC
     `, [id]);
     
-    // Calculate payouts
-    const totalPool = (standingsResult.rows.length * tournament.entry_fee) - tournament.director_cost;
-    const payouts = {
-      first: Math.floor((totalPool * 0.30) / 5) * 5, // Round down to nearest $5
-      second: Math.floor((totalPool * 0.15) / 5) * 5,
-      third: Math.floor((totalPool * 0.05) / 5) * 5
-    };
+    // Calculate payouts using the same fixed logic
+    const totalEntryFees = standingsResult.rows.length * parseFloat(tournament.entry_fee || 0);
+    const directorCost = parseFloat(tournament.director_cost || 0);
+    const totalPool = Math.max(0, totalEntryFees - directorCost);
+    
+    let payouts;
+    
+    if (totalPool <= 0) {
+      payouts = {
+        first: 0,
+        second: 0,
+        third: 0
+      };
+    } else {
+      const firstPlace = totalPool * 0.30;
+      const secondPlace = totalPool * 0.15;
+      const thirdPlace = totalPool * 0.05;
+      
+      payouts = {
+        first: Math.floor(firstPlace / 5) * 5,
+        second: Math.floor(secondPlace / 5) * 5,
+        third: Math.floor(thirdPlace / 5) * 5
+      };
+    }
     
     // Update tournament status
     await client.query('UPDATE tournaments SET status = $1 WHERE id = $2', ['completed', id]);
@@ -586,7 +640,8 @@ router.post('/:id/complete', authenticateToken, async (req, res) => {
       message: 'Tournament completed successfully',
       standings: standingsResult.rows,
       payouts,
-      totalPool
+      totalPool,
+      hasPayouts: totalPool > 0
     });
   } catch (error) {
     await client.query('ROLLBACK');

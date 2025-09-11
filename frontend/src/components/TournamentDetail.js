@@ -19,26 +19,6 @@ function TournamentDetail({ user }) {
     fetchTournamentData();
   }, [id]);
 
-  const fetchTournamentData = async () => {
-    try {
-      const response = await axios.get(`/api/tournaments/${id}`);
-      setTournament(response.data.tournament);
-      setPlayers(response.data.players);
-      setRounds(response.data.rounds);
-      setMatches(response.data.matches);
-      
-      // If tournament is completed, fetch results automatically
-      if (response.data.tournament.status === 'completed') {
-        fetchTournamentResults();
-      }
-    } catch (error) {
-      setError('Failed to load tournament data');
-      console.error('Error fetching tournament:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const fetchTournamentResults = async () => {
     try {
       const response = await axios.get(`/api/tournaments/${id}/results`);
@@ -300,6 +280,29 @@ function TournamentDetail({ user }) {
       {completionResults && (
         <div className="card">
           <h2>Tournament Results</h2>
+          
+          {/* Prize Pool Information */}
+          <div style={{ 
+            backgroundColor: completionResults.hasPayouts ? '#d4edda' : '#fff3cd', 
+            border: `1px solid ${completionResults.hasPayouts ? '#c3e6cb' : '#ffeaa7'}`,
+            padding: '1rem', 
+            borderRadius: '4px', 
+            marginBottom: '1rem' 
+          }}>
+            <h4>Prize Pool Information</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+              <div><strong>Entry Fee per Player:</strong> ${completionResults.tournament.entry_fee}</div>
+              <div><strong>Total Players:</strong> {completionResults.standings.length}</div>
+              <div><strong>Director Cost:</strong> ${completionResults.tournament.director_cost}</div>
+              <div><strong>Total Prize Pool:</strong> ${completionResults.totalPool}</div>
+            </div>
+            {!completionResults.hasPayouts && (
+              <div style={{ marginTop: '0.5rem', fontStyle: 'italic', color: '#856404' }}>
+                No prize money to distribute (entry fee is $0 or insufficient to cover director costs)
+              </div>
+            )}
+          </div>
+
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
             <div>
               <h3>Male Results</h3>
@@ -309,7 +312,7 @@ function TournamentDetail({ user }) {
                     <th>Rank</th>
                     <th>Player</th>
                     <th>Points</th>
-                    <th>Payout</th>
+                    {completionResults.hasPayouts && <th>Payout</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -320,11 +323,13 @@ function TournamentDetail({ user }) {
                         <td>{player.rank}</td>
                         <td>{player.name}</td>
                         <td>{player.total_points}</td>
-                        <td>
-                          {player.rank === 1 ? `$${completionResults.payouts.first}` :
-                           player.rank === 2 ? `$${completionResults.payouts.second}` :
-                           player.rank === 3 ? `$${completionResults.payouts.third}` : '$0'}
-                        </td>
+                        {completionResults.hasPayouts && (
+                          <td>
+                            {player.rank === 1 ? `${completionResults.payouts.first}` :
+                             player.rank === 2 ? `${completionResults.payouts.second}` :
+                             player.rank === 3 ? `${completionResults.payouts.third}` : '$0'}
+                          </td>
+                        )}
                       </tr>
                     ))}
                 </tbody>
@@ -338,7 +343,7 @@ function TournamentDetail({ user }) {
                     <th>Rank</th>
                     <th>Player</th>
                     <th>Points</th>
-                    <th>Payout</th>
+                    {completionResults.hasPayouts && <th>Payout</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -349,20 +354,31 @@ function TournamentDetail({ user }) {
                         <td>{player.rank}</td>
                         <td>{player.name}</td>
                         <td>{player.total_points}</td>
-                        <td>
-                          {player.rank === 1 ? `$${completionResults.payouts.first}` :
-                           player.rank === 2 ? `$${completionResults.payouts.second}` :
-                           player.rank === 3 ? `$${completionResults.payouts.third}` : '$0'}
-                        </td>
+                        {completionResults.hasPayouts && (
+                          <td>
+                            {player.rank === 1 ? `${completionResults.payouts.first}` :
+                             player.rank === 2 ? `${completionResults.payouts.second}` :
+                             player.rank === 3 ? `${completionResults.payouts.third}` : '$0'}
+                          </td>
+                        )}
                       </tr>
                     ))}
                 </tbody>
               </table>
             </div>
           </div>
-          <div className="mt-2">
-            <p><strong>Total Prize Pool:</strong> ${completionResults.totalPool}</p>
-          </div>
+          
+          {completionResults.hasPayouts && (
+            <div className="mt-2">
+              <h4>Payout Summary</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
+                <div><strong>1st Place (Male & Female):</strong> ${completionResults.payouts.first} each</div>
+                <div><strong>2nd Place (Male & Female):</strong> ${completionResults.payouts.second} each</div>
+                <div><strong>3rd Place (Male & Female):</strong> ${completionResults.payouts.third} each</div>
+                <div><strong>Total Distributed:</strong> ${(completionResults.payouts.first + completionResults.payouts.second + completionResults.payouts.third) * 2}</div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -638,4 +654,24 @@ function TournamentDetail({ user }) {
   );
 }
 
-export default TournamentDetail;
+export default TournamentDetail;Data = async () => {
+    try {
+      const response = await axios.get(`/api/tournaments/${id}`);
+      setTournament(response.data.tournament);
+      setPlayers(response.data.players);
+      setRounds(response.data.rounds);
+      setMatches(response.data.matches);
+      
+      // If tournament is completed, fetch results automatically
+      if (response.data.tournament.status === 'completed') {
+        fetchTournamentResults();
+      }
+    } catch (error) {
+      setError('Failed to load tournament data');
+      console.error('Error fetching tournament:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchTournament
