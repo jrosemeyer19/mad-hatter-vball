@@ -26,11 +26,26 @@ function TournamentDetail({ user }) {
       setPlayers(response.data.players);
       setRounds(response.data.rounds);
       setMatches(response.data.matches);
+      
+      // If tournament is completed, fetch results automatically
+      if (response.data.tournament.status === 'completed') {
+        fetchTournamentResults();
+      }
     } catch (error) {
       setError('Failed to load tournament data');
       console.error('Error fetching tournament:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchTournamentResults = async () => {
+    try {
+      const response = await axios.get(`/api/tournaments/${id}/results`);
+      setCompletionResults(response.data);
+    } catch (error) {
+      console.error('Error fetching tournament results:', error);
+      // Don't set error for this since the main tournament data loaded successfully
     }
   };
 

@@ -224,13 +224,24 @@ function TournamentHistory() {
                     <td>{formatDateTime(tournament.created_at)}</td>
                     <td>${tournament.entry_fee}</td>
                     <td>
-                      <Link 
-                        to={`/tournament/${tournament.id}`}
-                        className="btn btn-primary"
-                        style={{ padding: '0.25rem 0.75rem', fontSize: '0.9rem' }}
-                      >
-                        View
-                      </Link>
+                      <div className="flex gap-1">
+                        <Link 
+                          to={`/tournament/${tournament.id}`}
+                          className="btn btn-primary"
+                          style={{ padding: '0.25rem 0.75rem', fontSize: '0.9rem' }}
+                        >
+                          View
+                        </Link>
+                        {user?.isSuperAdmin && (
+                          <button
+                            className="btn btn-danger"
+                            style={{ padding: '0.25rem 0.75rem', fontSize: '0.9rem' }}
+                            onClick={() => deleteTournament(tournament.id, tournament.name)}
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}

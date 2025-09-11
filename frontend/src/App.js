@@ -94,7 +94,7 @@ function App() {
             <Route 
               path="/history" 
               element={
-                user ? <TournamentHistory /> : <Navigate to="/login" />
+                user ? <TournamentHistory user={user} /> : <Navigate to="/login" />
               } 
             />
           </Routes>

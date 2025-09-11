@@ -112,6 +112,52 @@ router.post('/', authenticateToken, async (req, res) => {
   }
 });
 
+// Get tournament results with payouts (for completed tournaments)
+router.get('/:id/results', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Get tournament details
+    const tournamentResult = await pool.query('SELECT * FROM tournaments WHERE id = $1', [id]);
+    if (tournamentResult.rows.length === 0) {
+      return res.status(404).json({ message: 'Tournament not found' });
+    }
+    
+    const tournament = tournamentResult.rows[0];
+    
+    if (tournament.status !== 'completed') {
+      return res.status(400).json({ message: 'Tournament is not completed yet' });
+    }
+    
+    // Get final standings
+    const standingsResult = await pool.query(`
+      SELECT name, gender, total_points, matches_played,
+        RANK() OVER (PARTITION BY gender ORDER BY total_points DESC) as rank
+      FROM players 
+      WHERE tournament_id = $1
+      ORDER BY gender, total_points DESC
+    `, [id]);
+    
+    // Calculate payouts
+    const totalPool = (standingsResult.rows.length * tournament.entry_fee) - tournament.director_cost;
+    const payouts = {
+      first: Math.floor((totalPool * 0.30) / 5) * 5, // Round down to nearest $5
+      second: Math.floor((totalPool * 0.15) / 5) * 5,
+      third: Math.floor((totalPool * 0.05) / 5) * 5
+    };
+    
+    res.json({
+      tournament,
+      standings: standingsResult.rows,
+      payouts,
+      totalPool
+    });
+  } catch (error) {
+    console.error('Error fetching tournament results:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // Get tournament details
 router.get('/:id', async (req, res) => {
   try {
