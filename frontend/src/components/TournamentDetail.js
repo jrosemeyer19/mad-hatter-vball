@@ -181,6 +181,24 @@ function TournamentDetail({ user }) {
            });
   };
 
+  // Add the missing canGenerateNextRound function
+  const canGenerateNextRound = () => {
+    if (!tournament || !players.length) return false;
+    
+    // Check if current round is complete
+    const currentRoundComplete = allRoundsComplete();
+    
+    // Check if players still need matches
+    const playersNeedingMatches = players.filter(player => 
+      player.matches_played < tournament.matches_per_player
+    );
+    
+    // Need at least enough players for minimum teams
+    const hasEnoughPlayers = playersNeedingMatches.length >= tournament.min_players_per_team * 2;
+    
+    return currentRoundComplete && hasEnoughPlayers;
+  };
+
   if (loading) {
     return (
       <div className="flex-center" style={{ height: '200px' }}>
