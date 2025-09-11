@@ -369,6 +369,42 @@ router.put('/:id/matches/:matchId/scores', async (req, res) => {
     const t2g1 = parseInt(team2Game1, 10);
     const t2g2 = parseInt(team2Game2, 10);
     
+    // Check if match already has scores (for editing)
+    const existingMatchResult = await client.query(`
+      SELECT team1_game1_score, team1_game2_score, team2_game1_score, team2_game2_score, is_completed
+      FROM matches WHERE id = $1::integer
+    `, [parseInt(matchId, 10)]);
+    
+    const existingMatch = existingMatchResult.rows[0];
+    const isEditing = existingMatch && existingMatch.is_completed;
+    
+    // If editing, subtract old scores from player totals first
+    if (isEditing) {
+      const oldT1Total = (existingMatch.team1_game1_score || 0) + (existingMatch.team1_game2_score || 0);
+      const oldT2Total = (existingMatch.team2_game1_score || 0) + (existingMatch.team2_game2_score || 0);
+      
+      // Get team players and subtract old scores
+      const teamPlayersResult = await client.query(`
+        SELECT tp.player_id, 
+          CASE WHEN tp.team_id = m.team1_id 
+               THEN $1::integer
+               ELSE $2::integer 
+          END as old_points_to_subtract
+        FROM team_players tp
+        JOIN matches m ON (tp.team_id = m.team1_id OR tp.team_id = m.team2_id)
+        WHERE m.id = $3::integer
+      `, [oldT1Total, oldT2Total, parseInt(matchId, 10)]);
+      
+      // Subtract old points from each player
+      for (const player of teamPlayersResult.rows) {
+        await client.query(`
+          UPDATE players 
+          SET total_points = total_points - $1::integer
+          WHERE id = $2::integer
+        `, [parseInt(player.old_points_to_subtract, 10), parseInt(player.player_id, 10)]);
+      }
+    }
+    
     // Update match scores with explicit integer casting
     await client.query(`
       UPDATE matches 
@@ -378,7 +414,7 @@ router.put('/:id/matches/:matchId/scores', async (req, res) => {
       WHERE id = $5::integer
     `, [t1g1, t1g2, t2g1, t2g2, parseInt(matchId, 10)]);
     
-    // Get team players to update their points with explicit casting
+    // Get team players to add new points
     const teamPlayersResult = await client.query(`
       SELECT tp.player_id, 
         CASE WHEN tp.team_id = m.team1_id 
@@ -390,14 +426,24 @@ router.put('/:id/matches/:matchId/scores', async (req, res) => {
       WHERE m.id = $5::integer
     `, [t1g1, t1g2, t2g1, t2g2, parseInt(matchId, 10)]);
     
-    // Update player points and match count with explicit casting
+    // Add new points to each player (and increment match count only if not editing)
     for (const player of teamPlayersResult.rows) {
-      await client.query(`
-        UPDATE players 
-        SET total_points = total_points + $1::integer, 
-            matches_played = matches_played + 1
-        WHERE id = $2::integer
-      `, [parseInt(player.points_earned, 10), parseInt(player.player_id, 10)]);
+      if (isEditing) {
+        // Only update points, don't increment match count
+        await client.query(`
+          UPDATE players 
+          SET total_points = total_points + $1::integer
+          WHERE id = $2::integer
+        `, [parseInt(player.points_earned, 10), parseInt(player.player_id, 10)]);
+      } else {
+        // Add points and increment match count for new submissions
+        await client.query(`
+          UPDATE players 
+          SET total_points = total_points + $1::integer, 
+              matches_played = matches_played + 1
+          WHERE id = $2::integer
+        `, [parseInt(player.points_earned, 10), parseInt(player.player_id, 10)]);
+      }
     }
     
     await client.query('COMMIT');
