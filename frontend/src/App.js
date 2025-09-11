@@ -68,7 +68,7 @@ function App() {
         
         <main className="main-content">
           <Routes>
-            <Route path="/" element={<TournamentList />} />
+            <Route path="/" element={<TournamentList user={user} />} />
             <Route path="/tournament/:id" element={<TournamentDetail user={user} />} />
             <Route 
               path="/login" 
