@@ -387,12 +387,8 @@ function TournamentDetail({ user }) {
                               </div>
                               <ul className="player-list">
                                 {team.players.map((player) => (
-                                  <li 
-                                    key={player.id}
-                                    className={player.is_setter ? 'player-setter' : ''}
-                                  >
-                                    {player.name} ({player.gender}, {player.skill_level})
-                                    {player.is_setter && ' - Setter'}
+                                  <li key={player.id}>
+                                    {player.name}
                                   </li>
                                 ))}
                               </ul>
