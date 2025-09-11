@@ -24,12 +24,49 @@ function TournamentSetup({ isEditing = false }) {
     isSetter: false
   });
   
+  // New state for generate players feature
+  const [generateCount, setGenerateCount] = useState(20);
+  const [isGenerating, setIsGenerating] = useState(false);
+  
   const [step, setStep] = useState(isEditing ? 2 : 1); // Skip to step 2 if editing
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [tournamentId, setTournamentId] = useState(isEditing ? id : null);
   
   const navigate = useNavigate();
+
+  // Arrays for generating random player data
+  const maleNames = [
+    'James', 'John', 'Robert', 'Michael', 'William', 'David', 'Richard', 'Joseph',
+    'Thomas', 'Christopher', 'Charles', 'Daniel', 'Matthew', 'Anthony', 'Mark',
+    'Donald', 'Steven', 'Paul', 'Andrew', 'Joshua', 'Kenneth', 'Kevin', 'Brian',
+    'George', 'Timothy', 'Ronald', 'Jason', 'Edward', 'Jeffrey', 'Ryan', 'Jacob',
+    'Gary', 'Nicholas', 'Eric', 'Jonathan', 'Stephen', 'Larry', 'Justin', 'Scott',
+    'Brandon', 'Benjamin', 'Samuel', 'Gregory', 'Frank', 'Raymond', 'Alexander',
+    'Patrick', 'Jack', 'Dennis', 'Jerry', 'Tyler', 'Aaron', 'Jose', 'Henry'
+  ];
+
+  const femaleNames = [
+    'Mary', 'Patricia', 'Jennifer', 'Linda', 'Elizabeth', 'Barbara', 'Susan',
+    'Jessica', 'Sarah', 'Karen', 'Nancy', 'Lisa', 'Betty', 'Helen', 'Sandra',
+    'Donna', 'Carol', 'Ruth', 'Sharon', 'Michelle', 'Laura', 'Sarah', 'Kimberly',
+    'Deborah', 'Dorothy', 'Lisa', 'Nancy', 'Karen', 'Betty', 'Helen', 'Sandra',
+    'Donna', 'Carol', 'Ruth', 'Sharon', 'Michelle', 'Laura', 'Sarah', 'Kimberly',
+    'Amy', 'Angela', 'Ashley', 'Brenda', 'Emma', 'Olivia', 'Cynthia', 'Marie',
+    'Janet', 'Catherine', 'Frances', 'Christine', 'Samantha', 'Debra', 'Rachel'
+  ];
+
+  const lastNames = [
+    'Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis',
+    'Rodriguez', 'Martinez', 'Hernandez', 'Lopez', 'Gonzalez', 'Wilson', 'Anderson',
+    'Thomas', 'Taylor', 'Moore', 'Jackson', 'Martin', 'Lee', 'Perez', 'Thompson',
+    'White', 'Harris', 'Sanchez', 'Clark', 'Ramirez', 'Lewis', 'Robinson', 'Walker',
+    'Young', 'Allen', 'King', 'Wright', 'Scott', 'Torres', 'Nguyen', 'Hill',
+    'Flores', 'Green', 'Adams', 'Nelson', 'Baker', 'Hall', 'Rivera', 'Campbell'
+  ];
+
+  const skillLevels = ['A', 'BB', 'B'];
+  const genders = ['male', 'female'];
 
   useEffect(() => {
     if (isEditing && id) {
@@ -62,6 +99,93 @@ function TournamentSetup({ isEditing = false }) {
       setPlayers(response.data.players);
     } catch (error) {
       setError('Failed to load tournament data');
+    }
+  };
+
+  const getRandomElement = (array) => {
+    return array[Math.floor(Math.random() * array.length)];
+  };
+
+  const generateRandomPlayer = () => {
+    const gender = getRandomElement(genders);
+    const firstName = gender === 'male' ? getRandomElement(maleNames) : getRandomElement(femaleNames);
+    const lastName = getRandomElement(lastNames);
+    const name = `${firstName} ${lastName}`;
+    const skillLevel = getRandomElement(skillLevels);
+    // About 15% chance of being a setter
+    const isSetter = Math.random() < 0.15;
+
+    return {
+      name,
+      gender,
+      skillLevel,
+      isSetter
+    };
+  };
+
+  const generatePlayers = async () => {
+    if (generateCount < 1 || generateCount > 100) {
+      setError('Please enter a number between 1 and 100');
+      return;
+    }
+
+    setIsGenerating(true);
+    setError('');
+
+    try {
+      const newPlayers = [];
+      const existingNames = new Set(players.map(p => p.name.toLowerCase()));
+
+      for (let i = 0; i < generateCount; i++) {
+        let attempts = 0;
+        let player;
+        
+        // Try to generate a unique name (up to 50 attempts)
+        do {
+          player = generateRandomPlayer();
+          attempts++;
+        } while (existingNames.has(player.name.toLowerCase()) && attempts < 50);
+
+        // If we couldn't find a unique name after 50 attempts, add a number suffix
+        if (existingNames.has(player.name.toLowerCase())) {
+          let suffix = 1;
+          const baseName = player.name;
+          while (existingNames.has(`${baseName} ${suffix}`.toLowerCase())) {
+            suffix++;
+          }
+          player.name = `${baseName} ${suffix}`;
+        }
+
+        existingNames.add(player.name.toLowerCase());
+
+        // Add player to tournament via API
+        const response = await axios.post(`/api/tournaments/${tournamentId}/players`, player);
+        newPlayers.push(response.data);
+      }
+
+      setPlayers([...players, ...newPlayers]);
+    } catch (error) {
+      setError(error.response?.data?.message || 'Failed to generate players');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const clearAllPlayers = async () => {
+    if (!window.confirm('Are you sure you want to remove all players? This cannot be undone.')) {
+      return;
+    }
+
+    setError('');
+    
+    try {
+      // Remove all players one by one
+      for (const player of players) {
+        await axios.delete(`/api/tournaments/${tournamentId}/players/${player.id}`);
+      }
+      setPlayers([]);
+    } catch (error) {
+      setError('Failed to remove all players');
     }
   };
 
@@ -384,6 +508,54 @@ function TournamentSetup({ isEditing = false }) {
               <div><strong>B Level:</strong> {counts.skillB}</div>
               <div><strong>Min Needed:</strong> {tournamentData.minPlayersPerTeam * 2}</div>
             </div>
+          </div>
+        </div>
+
+        {/* New Generate Players Section */}
+        <div className="card" style={{ backgroundColor: '#f0f8ff', border: '2px solid #3498db' }}>
+          <h3>Generate Random Players</h3>
+          <p style={{ fontSize: '0.9rem', color: '#666', marginBottom: '1rem' }}>
+            Quickly populate your tournament with randomly generated players for testing or demonstrations.
+          </p>
+          
+          <div style={{ display: 'flex', gap: '1rem', alignItems: 'end', flexWrap: 'wrap' }}>
+            <div className="form-group" style={{ minWidth: '150px' }}>
+              <label htmlFor="generateCount">Number of Players:</label>
+              <input
+                type="number"
+                id="generateCount"
+                value={generateCount}
+                onChange={(e) => setGenerateCount(parseInt(e.target.value) || 0)}
+                min="1"
+                max="100"
+                style={{ width: '100%' }}
+              />
+            </div>
+            
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={generatePlayers}
+              disabled={isGenerating || !tournamentId}
+              style={{ height: 'fit-content' }}
+            >
+              {isGenerating ? 'Generating...' : 'Generate Players'}
+            </button>
+            
+            {players.length > 0 && (
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={clearAllPlayers}
+                style={{ height: 'fit-content' }}
+              >
+                Clear All Players
+              </button>
+            )}
+          </div>
+          
+          <div style={{ fontSize: '0.8rem', color: '#666', marginTop: '0.5rem' }}>
+            Random attributes: ~50% male/female, ~15% setters, balanced skill levels (A/BB/B)
           </div>
         </div>
       </div>
