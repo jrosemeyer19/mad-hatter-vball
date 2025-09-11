@@ -249,9 +249,6 @@ function TournamentDetail({ user }) {
           <div>
             <strong>Entry Fee:</strong> ${tournament.entry_fee}
           </div>
-          <div>
-            <strong>Power Match:</strong> {tournament.has_power_match ? 'Yes' : 'No'}
-          </div>
         </div>
       </div>
 
@@ -280,9 +277,9 @@ function TournamentDetail({ user }) {
                         <td>{player.name}</td>
                         <td>{player.total_points}</td>
                         <td>
-                          {player.rank === 1 ? `${completionResults.payouts.first}` :
-                           player.rank === 2 ? `${completionResults.payouts.second}` :
-                           player.rank === 3 ? `${completionResults.payouts.third}` : '$0'}
+                          {player.rank === 1 ? `$${completionResults.payouts.first}` :
+                           player.rank === 2 ? `$${completionResults.payouts.second}` :
+                           player.rank === 3 ? `$${completionResults.payouts.third}` : '$0'}
                         </td>
                       </tr>
                     ))}
@@ -309,9 +306,9 @@ function TournamentDetail({ user }) {
                         <td>{player.name}</td>
                         <td>{player.total_points}</td>
                         <td>
-                          {player.rank === 1 ? `${completionResults.payouts.first}` :
-                           player.rank === 2 ? `${completionResults.payouts.second}` :
-                           player.rank === 3 ? `${completionResults.payouts.third}` : '$0'}
+                          {player.rank === 1 ? `$${completionResults.payouts.first}` :
+                           player.rank === 2 ? `$${completionResults.payouts.second}` :
+                           player.rank === 3 ? `$${completionResults.payouts.third}` : '$0'}
                         </td>
                       </tr>
                     ))}
@@ -335,8 +332,6 @@ function TournamentDetail({ user }) {
                 <tr>
                   <th>Name</th>
                   <th>Gender</th>
-                  <th>Skill Level</th>
-                  <th>Setter</th>
                   <th>Matches Played</th>
                   <th>Total Points</th>
                 </tr>
@@ -348,8 +343,6 @@ function TournamentDetail({ user }) {
                     <tr key={player.id}>
                       <td>{player.name}</td>
                       <td>{player.gender}</td>
-                      <td>{player.skill_level}</td>
-                      <td>{player.is_setter ? 'Yes' : 'No'}</td>
                       <td>{player.matches_played}</td>
                       <td><strong>{player.total_points}</strong></td>
                     </tr>
@@ -459,7 +452,7 @@ function TournamentDetail({ user }) {
                                     </div>
                                   </div>
                                 </div>
-                              ) : user ? (
+                              ) : (
                                 <div className="mt-1">
                                   <strong>Enter Scores:</strong>
                                   <div className="score-inputs">
@@ -511,10 +504,6 @@ function TournamentDetail({ user }) {
                                   >
                                     Submit Scores
                                   </button>
-                                </div>
-                              ) : (
-                                <div className="mt-1">
-                                  <em>Scores pending - login to enter scores</em>
                                 </div>
                               )}
                             </div>
