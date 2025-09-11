@@ -13,7 +13,7 @@ function TournamentDetail({ user }) {
   const [error, setError] = useState('');
   const [scoreInputs, setScoreInputs] = useState({});
   const [completionResults, setCompletionResults] = useState(null);
-  const [editingMatch, setEditingMatch] = useState(null); // Track which match is being edited
+  const [editingMatch, setEditingMatch] = useState(null);
 
   useEffect(() => {
     fetchTournamentData();
@@ -45,7 +45,6 @@ function TournamentDetail({ user }) {
       setCompletionResults(response.data);
     } catch (error) {
       console.error('Error fetching tournament results:', error);
-      // Don't set error for this since the main tournament data loaded successfully
     }
   };
 
@@ -82,8 +81,8 @@ function TournamentDetail({ user }) {
         team2Game2: scores.team2Game2
       });
       
-      setEditingMatch(null); // Stop editing after successful submission
-      fetchTournamentData(); // Refresh data
+      setEditingMatch(null);
+      fetchTournamentData();
     } catch (error) {
       setError(error.response?.data?.message || 'Failed to submit scores');
     }
@@ -104,20 +103,6 @@ function TournamentDetail({ user }) {
 
   const cancelEditing = () => {
     setEditingMatch(null);
-  };
-
-  const generateNextRound = async () => {
-    if (!user) {
-      setError('You must be logged in to generate rounds');
-      return;
-    }
-
-    try {
-      await axios.post(`/api/tournaments/${id}/rounds/next`);
-      fetchTournamentData();
-    } catch (error) {
-      setError(error.response?.data?.message || 'Failed to generate next round');
-    }
   };
 
   const completeTournament = async () => {
@@ -155,7 +140,7 @@ function TournamentDetail({ user }) {
 
     try {
       await axios.delete(`/api/tournaments/${id}`);
-      navigate('/'); // Redirect to home page
+      navigate('/');
     } catch (error) {
       setError(error.response?.data?.message || 'Failed to delete tournament');
     }
@@ -181,22 +166,17 @@ function TournamentDetail({ user }) {
            });
   };
 
-  // Add the missing canGenerateNextRound function
-  const canGenerateNextRound = () => {
-    if (!tournament || !players.length) return false;
+  const getTournamentProgress = () => {
+    if (!rounds.length) return { completed: 0, total: 0, percentage: 0 };
     
-    // Check if current round is complete
-    const currentRoundComplete = allRoundsComplete();
+    const totalMatches = matches.length;
+    const completedMatches = matches.filter(m => m.is_completed).length;
     
-    // Check if players still need matches
-    const playersNeedingMatches = players.filter(player => 
-      player.matches_played < tournament.matches_per_player
-    );
-    
-    // Need at least enough players for minimum teams
-    const hasEnoughPlayers = playersNeedingMatches.length >= tournament.min_players_per_team * 2;
-    
-    return currentRoundComplete && hasEnoughPlayers;
+    return {
+      completed: completedMatches,
+      total: totalMatches,
+      percentage: totalMatches > 0 ? Math.round((completedMatches / totalMatches) * 100) : 0
+    };
   };
 
   if (loading) {
@@ -216,6 +196,8 @@ function TournamentDetail({ user }) {
     );
   }
 
+  const progress = getTournamentProgress();
+
   return (
     <div>
       <div className="card">
@@ -229,6 +211,9 @@ function TournamentDetail({ user }) {
                 {tournament.status.replace('_', ' ').toUpperCase()}
               </span>
             </p>
+            {tournament.status === 'in_progress' && (
+              <p><strong>Progress:</strong> {progress.completed}/{progress.total} matches completed ({progress.percentage}%)</p>
+            )}
           </div>
           <div>
             {tournament.status !== 'completed' && (
@@ -241,36 +226,24 @@ function TournamentDetail({ user }) {
                     Continue Setup
                   </Link>
                 )}
-                {tournament.status === 'in_progress' && (
-                  <>
-                    {user && canGenerateNextRound() && (
-                      <button 
-                        className="btn btn-primary"
-                        onClick={generateNextRound}
-                      >
-                        Generate Next Round
-                      </button>
-                    )}
-                    {user && allRoundsComplete() && (
-                      <button 
-                        className="btn btn-success"
-                        onClick={completeTournament}
-                      >
-                        Complete Tournament
-                      </button>
-                    )}
-                    {!user && allRoundsComplete() && (
-                      <div style={{ 
-                        padding: '0.75rem 1rem', 
-                        backgroundColor: '#e8f4f8', 
-                        border: '1px solid #bee5eb', 
-                        borderRadius: '4px',
-                        fontSize: '0.9rem'
-                      }}>
-                        All matches completed! Tournament admin can generate the next round.
-                      </div>
-                    )}
-                  </>
+                {tournament.status === 'in_progress' && user && allRoundsComplete() && (
+                  <button 
+                    className="btn btn-success"
+                    onClick={completeTournament}
+                  >
+                    Complete Tournament
+                  </button>
+                )}
+                {tournament.status === 'in_progress' && !user && allRoundsComplete() && (
+                  <div style={{ 
+                    padding: '0.75rem 1rem', 
+                    backgroundColor: '#e8f4f8', 
+                    border: '1px solid #bee5eb', 
+                    borderRadius: '4px',
+                    fontSize: '0.9rem'
+                  }}>
+                    All matches completed! Tournament admin can finalize results.
+                  </div>
                 )}
                 {user && (
                   <button 
@@ -304,7 +277,11 @@ function TournamentDetail({ user }) {
           <div>
             <strong>Entry Fee:</strong> ${tournament.entry_fee}
           </div>
-          {/* Debug button for completed tournaments */}
+          {rounds.length > 0 && (
+            <div>
+              <strong>Total Rounds:</strong> {rounds.length}
+            </div>
+          )}
           {tournament.status === 'completed' && (
             <div>
               <button 
@@ -427,18 +404,36 @@ function TournamentDetail({ user }) {
             .sort((a, b) => a.round_number - b.round_number)
             .map((round) => {
               const roundMatches = getRoundMatches(round.round_number);
+              const playingTeams = round.teams?.filter(team => !team.is_bye_team) || [];
+              const byeTeam = round.teams?.find(team => team.is_bye_team);
               
               return (
                 <div key={round.id} className="card round-section">
                   <h2>Round {round.round_number}</h2>
                   
-                  {/* Teams */}
+                  {/* Round Statistics */}
+                  <div style={{ 
+                    backgroundColor: '#f8f9fa', 
+                    padding: '1rem', 
+                    borderRadius: '4px', 
+                    marginBottom: '1rem',
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                    gap: '1rem'
+                  }}>
+                    <div><strong>Playing Teams:</strong> {playingTeams.length}</div>
+                    <div><strong>Matches:</strong> {roundMatches.length}</div>
+                    <div><strong>On Bye:</strong> {byeTeam?.players?.length || 0} players</div>
+                    <div><strong>Completed:</strong> {roundMatches.filter(m => m.is_completed).length}/{roundMatches.length}</div>
+                  </div>
+                  
+                  {/* Teams Grid - Including Bye Team */}
                   {round.teams && round.teams.length > 0 && (
                     <div>
                       <h3>Teams</h3>
                       <div className="teams-grid">
-                        {round.teams
-                          .filter(team => team && team.players)
+                        {/* Playing Teams */}
+                        {playingTeams
                           .sort((a, b) => a.team_number - b.team_number)
                           .map((team) => (
                             <div key={team.id} className="team-card">
@@ -446,14 +441,39 @@ function TournamentDetail({ user }) {
                                 Team {team.team_number} (Court {team.court})
                               </div>
                               <ul className="player-list">
-                                {team.players.map((player) => (
+                                {team.players?.map((player) => (
                                   <li key={player.id}>
                                     {player.name}
+                                    <span style={{ fontSize: '0.8rem', color: '#666', marginLeft: '0.5rem' }}>
+                                      ({player.skill_level}{player.is_setter ? ', Setter' : ''})
+                                    </span>
                                   </li>
-                                ))}
+                                )) || []}
                               </ul>
                             </div>
                           ))}
+                        
+                        {/* Bye Team */}
+                        {byeTeam && (
+                          <div className="team-card" style={{ 
+                            backgroundColor: '#fff3cd', 
+                            borderLeft: '4px solid #ffc107' 
+                          }}>
+                            <div className="team-header" style={{ color: '#856404' }}>
+                              On Bye ({byeTeam.players?.length || 0} players)
+                            </div>
+                            <ul className="player-list">
+                              {byeTeam.players?.map((player) => (
+                                <li key={player.id} style={{ color: '#856404' }}>
+                                  {player.name}
+                                  <span style={{ fontSize: '0.8rem', color: '#6c757d', marginLeft: '0.5rem' }}>
+                                    ({player.skill_level}{player.is_setter ? ', Setter' : ''})
+                                  </span>
+                                </li>
+                              )) || []}
+                            </ul>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}

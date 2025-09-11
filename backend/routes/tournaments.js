@@ -1,7 +1,7 @@
 const express = require('express');
 const pool = require('../database/db');
 const { authenticateToken } = require('../middleware/auth');
-const { generateTeams, balancePlayerMatches } = require('../utils/teamGenerator');
+const { generateTeams, generateAllRounds, balancePlayerMatches } = require('../utils/teamGenerator');
 
 const router = express.Router();
 
@@ -168,7 +168,7 @@ router.get('/:id/results', async (req, res) => {
   }
 });
 
-// Get tournament details
+// Get tournament details (updated to include bye teams)
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -186,7 +186,7 @@ router.get('/:id', async (req, res) => {
       SELECT * FROM players WHERE tournament_id = $1 ORDER BY name
     `, [id]);
     
-    // Get rounds with teams and matches
+    // Get rounds with teams (including bye teams) and matches
     const roundsResult = await pool.query(`
       SELECT r.*, 
         json_agg(
@@ -194,6 +194,7 @@ router.get('/:id', async (req, res) => {
             'id', t.id,
             'team_number', t.team_number,
             'court', t.court,
+            'is_bye_team', t.is_bye_team,
             'players', (
               SELECT json_agg(
                 json_build_object(
@@ -209,6 +210,9 @@ router.get('/:id', async (req, res) => {
               WHERE tp.team_id = t.id
             )
           )
+          ORDER BY 
+            CASE WHEN t.is_bye_team THEN 1 ELSE 0 END,
+            t.team_number
         ) as teams
       FROM rounds r
       LEFT JOIN teams t ON r.id = t.round_id
@@ -316,7 +320,7 @@ router.delete('/:id/players/:playerId', authenticateToken, async (req, res) => {
   }
 });
 
-// Start tournament (generate teams)
+// Start tournament (generate all teams and rounds at once)
 router.post('/:id/start', authenticateToken, async (req, res) => {
   const client = await pool.connect();
   try {
@@ -343,62 +347,89 @@ router.post('/:id/start', authenticateToken, async (req, res) => {
       return res.status(400).json({ message: 'Not enough players to start tournament' });
     }
     
-    // Generate first round
+    // Generate all rounds at once
     const settings = {
       courtsAvailable: tournament.courts_available,
       minPlayersPerTeam: tournament.min_players_per_team,
+      matchesPerPlayer: tournament.matches_per_player,
       hasPowerMatch: tournament.has_power_match
     };
     
-    const { teams, matches } = generateTeams(players, settings, 1);
+    const allRounds = generateAllRounds(players, settings);
     
-    // Create round
-    const roundResult = await client.query(`
-      INSERT INTO rounds (tournament_id, round_number) 
-      VALUES ($1, 1) RETURNING id
-    `, [id]);
-    const roundId = roundResult.rows[0].id;
+    console.log(`Generated ${allRounds.length} rounds for tournament ${id}`);
     
-    // Create teams and assign players
-    for (let i = 0; i < teams.length; i++) {
-      const teamResult = await client.query(`
-        INSERT INTO teams (round_id, team_number, court) 
-        VALUES ($1, $2, $3) RETURNING id
-      `, [roundId, i + 1, Math.floor(i / 2) + 1]);
+    // Create all rounds, teams, and matches in the database
+    for (const roundData of allRounds) {
+      // Create round
+      const roundResult = await client.query(`
+        INSERT INTO rounds (tournament_id, round_number) 
+        VALUES ($1, $2) RETURNING id
+      `, [id, roundData.roundNumber]);
+      const roundId = roundResult.rows[0].id;
       
-      const teamId = teamResult.rows[0].id;
-      
-      // Assign players to team
-      for (const player of teams[i].players) {
-        await client.query(`
-          INSERT INTO team_players (team_id, player_id) VALUES ($1, $2)
-        `, [teamId, player.id]);
+      // Create playing teams and assign players
+      for (let i = 0; i < roundData.teams.length; i++) {
+        const teamResult = await client.query(`
+          INSERT INTO teams (round_id, team_number, court) 
+          VALUES ($1, $2, $3) RETURNING id
+        `, [roundId, i + 1, Math.floor(i / 2) + 1]);
+        
+        const teamId = teamResult.rows[0].id;
+        
+        // Assign players to team
+        for (const player of roundData.teams[i].players) {
+          await client.query(`
+            INSERT INTO team_players (team_id, player_id) VALUES ($1, $2)
+          `, [teamId, player.id]);
+        }
       }
-    }
-    
-    // Create matches
-    for (const match of matches) {
-      const team1Index = teams.indexOf(match.team1);
-      const team2Index = teams.indexOf(match.team2);
       
-      await client.query(`
-        INSERT INTO matches (round_id, team1_id, team2_id, court) 
-        SELECT $1, t1.id, t2.id, $4
-        FROM teams t1, teams t2 
-        WHERE t1.round_id = $1 AND t1.team_number = $2
-        AND t2.round_id = $1 AND t2.team_number = $3
-      `, [roundId, team1Index + 1, team2Index + 1, match.court]);
+      // Create "On Bye" team if there are bye players
+      if (roundData.byePlayers && roundData.byePlayers.length > 0) {
+        const byeTeamResult = await client.query(`
+          INSERT INTO teams (round_id, team_number, court, is_bye_team) 
+          VALUES ($1, $2, NULL, true) RETURNING id
+        `, [roundId, roundData.teams.length + 1]);
+        
+        const byeTeamId = byeTeamResult.rows[0].id;
+        
+        // Assign bye players to bye team
+        for (const player of roundData.byePlayers) {
+          await client.query(`
+            INSERT INTO team_players (team_id, player_id) VALUES ($1, $2)
+          `, [byeTeamId, player.id]);
+        }
+      }
+      
+      // Create matches
+      for (const match of roundData.matches) {
+        const team1Index = roundData.teams.indexOf(match.team1);
+        const team2Index = roundData.teams.indexOf(match.team2);
+        
+        await client.query(`
+          INSERT INTO matches (round_id, team1_id, team2_id, court) 
+          SELECT $1, t1.id, t2.id, $4
+          FROM teams t1, teams t2 
+          WHERE t1.round_id = $1 AND t1.team_number = $2 AND t1.is_bye_team = false
+          AND t2.round_id = $1 AND t2.team_number = $3 AND t2.is_bye_team = false
+        `, [roundId, team1Index + 1, team2Index + 1, match.court]);
+      }
     }
     
     // Update tournament status
     await client.query('UPDATE tournaments SET status = $1 WHERE id = $2', ['in_progress', id]);
     
     await client.query('COMMIT');
-    res.json({ message: 'Tournament started successfully' });
+    res.json({ 
+      message: 'Tournament started successfully',
+      roundsGenerated: allRounds.length,
+      totalByePlayers: allRounds.reduce((sum, round) => sum + round.totalByePlayers, 0)
+    });
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error starting tournament:', error);
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ message: 'Server error: ' + error.message });
   } finally {
     client.release();
   }
@@ -508,132 +539,6 @@ router.put('/:id/matches/:matchId/scores', async (req, res) => {
     await client.query('ROLLBACK');
     console.error('Error updating scores:', error);
     res.status(500).json({ message: 'Server error updating scores' });
-  } finally {
-    client.release();
-  }
-});
-
-// Generate next round
-router.post('/:id/rounds/next', authenticateToken, async (req, res) => {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    
-    const { id } = req.params;
-    
-    // Get tournament details
-    const tournamentResult = await client.query('SELECT * FROM tournaments WHERE id = $1', [id]);
-    const tournament = tournamentResult.rows[0];
-    
-    // Get current round number
-    const roundResult = await client.query(`
-      SELECT MAX(round_number) as current_round FROM rounds WHERE tournament_id = $1
-    `, [id]);
-    const nextRoundNumber = (roundResult.rows[0].current_round || 0) + 1;
-    
-    // Get all players
-    const playersResult = await client.query('SELECT * FROM players WHERE tournament_id = $1', [id]);
-    const allPlayers = playersResult.rows;
-    
-    // Get existing rounds data for balance checking - simplified approach
-    const existingMatchesResult = await client.query(`
-      SELECT m.id as match_id, tp1.player_id as team1_player, tp2.player_id as team2_player
-      FROM rounds r
-      JOIN matches m ON r.id = m.round_id
-      JOIN team_players tp1 ON tp1.team_id = m.team1_id
-      JOIN team_players tp2 ON tp2.team_id = m.team2_id
-      WHERE r.tournament_id = $1 AND m.is_completed = true
-    `, [id]);
-    
-    // Count matches per player
-    const playerMatchCounts = {};
-    allPlayers.forEach(p => playerMatchCounts[p.id] = 0);
-    
-    // Group by match and count unique matches per player
-    const matchPlayerMap = {};
-    existingMatchesResult.rows.forEach(row => {
-      if (!matchPlayerMap[row.match_id]) {
-        matchPlayerMap[row.match_id] = new Set();
-      }
-      matchPlayerMap[row.match_id].add(row.team1_player);
-      matchPlayerMap[row.match_id].add(row.team2_player);
-    });
-    
-    // Count matches for each player
-    Object.values(matchPlayerMap).forEach(playerSet => {
-      playerSet.forEach(playerId => {
-        if (playerMatchCounts[playerId] !== undefined) {
-          playerMatchCounts[playerId]++;
-        }
-      });
-    });
-    
-    // Filter players who still need matches
-    const playersNeedingMatches = allPlayers.filter(player => 
-      playerMatchCounts[player.id] < tournament.matches_per_player
-    );
-    
-    if (playersNeedingMatches.length < tournament.min_players_per_team * 2) {
-      return res.status(400).json({ message: 'Not enough players need additional matches' });
-    }
-    
-    // Generate teams for next round
-    const settings = {
-      courtsAvailable: tournament.courts_available,
-      minPlayersPerTeam: tournament.min_players_per_team,
-      hasPowerMatch: tournament.has_power_match
-    };
-    
-    const { teams, matches, byePlayers, totalPlayingPlayers, totalByePlayers } = generateTeams(playersNeedingMatches, settings, nextRoundNumber);
-    
-    console.log(`Round ${nextRoundNumber}: ${totalPlayingPlayers} playing, ${totalByePlayers} bye players`);
-    if (byePlayers.length > 0) {
-      console.log('Bye players:', byePlayers.map(p => p.name).join(', '));
-    }
-    
-    // Create new round
-    const newRoundResult = await client.query(`
-      INSERT INTO rounds (tournament_id, round_number) 
-      VALUES ($1, $2) RETURNING id
-    `, [id, nextRoundNumber]);
-    const roundId = newRoundResult.rows[0].id;
-    
-    // Create teams and matches (similar to start tournament logic)
-    for (let i = 0; i < teams.length; i++) {
-      const teamResult = await client.query(`
-        INSERT INTO teams (round_id, team_number, court) 
-        VALUES ($1, $2, $3) RETURNING id
-      `, [roundId, i + 1, Math.floor(i / 2) + 1]);
-      
-      const teamId = teamResult.rows[0].id;
-      
-      for (const player of teams[i].players) {
-        await client.query(`
-          INSERT INTO team_players (team_id, player_id) VALUES ($1, $2)
-        `, [teamId, player.id]);
-      }
-    }
-    
-    // Create matches
-    for (const match of matches) {
-      const team1Index = teams.indexOf(match.team1);
-      const team2Index = teams.indexOf(match.team2);
-      
-      await client.query(`
-        INSERT INTO matches (round_id, team1_id, team2_id, court) 
-        SELECT $1, t1.id, t2.id, $4
-        FROM teams t1, teams t2 
-        WHERE t1.round_id = $1 AND t1.team_number = $2
-        AND t2.round_id = $1 AND t2.team_number = $3
-      `, [roundId, team1Index + 1, team2Index + 1, match.court]);
-    }
-    
-    await client.query('COMMIT');
-    res.json({ message: `Round ${nextRoundNumber} generated successfully` });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Error generating next round:', error);
-    res.status(500).json({ message: 'Server error' });
   } finally {
     client.release();
   }

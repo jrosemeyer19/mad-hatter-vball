@@ -1,4 +1,66 @@
-function generateTeams(players, settings, roundNumber) {
+function generateAllRounds(players, settings) {
+  const { courtsAvailable, minPlayersPerTeam, matchesPerPlayer, hasPowerMatch } = settings;
+  const maxPlayersPerTeam = 6; // Hard limit
+  
+  const allRounds = [];
+  const playerMatchCounts = {};
+  const playerOpponents = {}; // Track who has played against whom
+  
+  // Initialize tracking
+  players.forEach(p => {
+    playerMatchCounts[p.id] = 0;
+    playerOpponents[p.id] = new Set();
+  });
+  
+  let roundNumber = 1;
+  
+  // Generate rounds until all players have played their required matches
+  while (true) {
+    // Find players who still need matches
+    const playersNeedingMatches = players.filter(player => 
+      playerMatchCounts[player.id] < matchesPerPlayer
+    );
+    
+    if (playersNeedingMatches.length < minPlayersPerTeam * 2) {
+      break; // Not enough players for another round
+    }
+    
+    // Generate teams for this round
+    const roundData = generateTeamsForRound(
+      playersNeedingMatches, 
+      settings, 
+      roundNumber, 
+      playerOpponents
+    );
+    
+    // Update match counts and opponents
+    roundData.teams.forEach(team => {
+      team.players.forEach(player => {
+        playerMatchCounts[player.id]++;
+        
+        // Track opponents for this player
+        team.players.forEach(teammate => {
+          if (teammate.id !== player.id) {
+            playerOpponents[player.id].add(teammate.id);
+          }
+        });
+      });
+    });
+    
+    allRounds.push(roundData);
+    roundNumber++;
+    
+    // Safety check to prevent infinite loops
+    if (roundNumber > 20) {
+      console.warn('Maximum rounds reached, stopping generation');
+      break;
+    }
+  }
+  
+  return allRounds;
+}
+
+function generateTeamsForRound(players, settings, roundNumber, playerOpponents = {}) {
   const { courtsAvailable, minPlayersPerTeam, hasPowerMatch } = settings;
   const maxPlayersPerTeam = 6; // Hard limit
   
@@ -73,12 +135,18 @@ function generateTeams(players, settings, roundNumber) {
   const matches = createMatches(activeTeams, roundNumber, hasPowerMatch);
   
   return { 
+    roundNumber,
     teams: activeTeams, 
     matches, 
     byePlayers: byePlayersList,
     totalPlayingPlayers: playingPlayers,
     totalByePlayers: byePlayers
   };
+}
+
+function generateTeams(players, settings, roundNumber) {
+  // This function now just calls generateTeamsForRound for backward compatibility
+  return generateTeamsForRound(players, settings, roundNumber);
 }
 
 function distributeSetters(teams, setters, gender) {
@@ -215,4 +283,4 @@ function balancePlayerMatches(allPlayers, tournamentRounds, matchesPerPlayer) {
   );
 }
 
-module.exports = { generateTeams, balancePlayerMatches };
+module.exports = { generateTeams, generateAllRounds, generateTeamsForRound, balancePlayerMatches };
