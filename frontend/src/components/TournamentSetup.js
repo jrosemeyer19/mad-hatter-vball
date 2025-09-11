@@ -396,6 +396,15 @@ function TournamentSetup() {
             >
               {loading ? 'Starting Tournament...' : 'Start Tournament'}
             </button>
+            {isEditing && (
+              <Link 
+                to={`/tournament/${tournamentId}`}
+                className="btn btn-secondary"
+                style={{ marginLeft: '1rem' }}
+              >
+                Back to Tournament
+              </Link>
+            )}
           </div>
         )}
       </div>
