@@ -19,6 +19,26 @@ function TournamentDetail({ user }) {
     fetchTournamentData();
   }, [id]);
 
+  const fetchTournamentData = async () => {
+    try {
+      const response = await axios.get(`/api/tournaments/${id}`);
+      setTournament(response.data.tournament);
+      setPlayers(response.data.players);
+      setRounds(response.data.rounds);
+      setMatches(response.data.matches);
+      
+      // If tournament is completed, fetch results automatically
+      if (response.data.tournament.status === 'completed') {
+        fetchTournamentResults();
+      }
+    } catch (error) {
+      setError('Failed to load tournament data');
+      console.error('Error fetching tournament:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const fetchTournamentResults = async () => {
     try {
       const response = await axios.get(`/api/tournaments/${id}/results`);
@@ -325,9 +345,9 @@ function TournamentDetail({ user }) {
                         <td>{player.total_points}</td>
                         {completionResults.hasPayouts && (
                           <td>
-                            {player.rank === 1 ? `${completionResults.payouts.first}` :
-                             player.rank === 2 ? `${completionResults.payouts.second}` :
-                             player.rank === 3 ? `${completionResults.payouts.third}` : '$0'}
+                            {player.rank === 1 ? `$${completionResults.payouts.first}` :
+                             player.rank === 2 ? `$${completionResults.payouts.second}` :
+                             player.rank === 3 ? `$${completionResults.payouts.third}` : '$0'}
                           </td>
                         )}
                       </tr>
@@ -356,9 +376,9 @@ function TournamentDetail({ user }) {
                         <td>{player.total_points}</td>
                         {completionResults.hasPayouts && (
                           <td>
-                            {player.rank === 1 ? `${completionResults.payouts.first}` :
-                             player.rank === 2 ? `${completionResults.payouts.second}` :
-                             player.rank === 3 ? `${completionResults.payouts.third}` : '$0'}
+                            {player.rank === 1 ? `$${completionResults.payouts.first}` :
+                             player.rank === 2 ? `$${completionResults.payouts.second}` :
+                             player.rank === 3 ? `$${completionResults.payouts.third}` : '$0'}
                           </td>
                         )}
                       </tr>
@@ -654,24 +674,4 @@ function TournamentDetail({ user }) {
   );
 }
 
-export default TournamentDetail;Data = async () => {
-    try {
-      const response = await axios.get(`/api/tournaments/${id}`);
-      setTournament(response.data.tournament);
-      setPlayers(response.data.players);
-      setRounds(response.data.rounds);
-      setMatches(response.data.matches);
-      
-      // If tournament is completed, fetch results automatically
-      if (response.data.tournament.status === 'completed') {
-        fetchTournamentResults();
-      }
-    } catch (error) {
-      setError('Failed to load tournament data');
-      console.error('Error fetching tournament:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchTournament
+export default TournamentDetail;
