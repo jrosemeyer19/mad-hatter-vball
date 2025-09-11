@@ -433,26 +433,42 @@ router.post('/:id/rounds/next', authenticateToken, async (req, res) => {
     const playersResult = await client.query('SELECT * FROM players WHERE tournament_id = $1', [id]);
     const allPlayers = playersResult.rows;
     
-    // Get existing rounds data for balance checking
-    const existingRoundsResult = await client.query(`
-      SELECT r.round_number, 
-        json_agg(
-          json_build_object(
-            'team1', (SELECT json_agg(tp1.player_id) FROM team_players tp1 WHERE tp1.team_id = m.team1_id),
-            'team2', (SELECT json_agg(tp2.player_id) FROM team_players tp2 WHERE tp2.team_id = m.team2_id)
-          )
-        ) as matches
+    // Get existing rounds data for balance checking - simplified approach
+    const existingMatchesResult = await client.query(`
+      SELECT m.id as match_id, tp1.player_id as team1_player, tp2.player_id as team2_player
       FROM rounds r
       JOIN matches m ON r.id = m.round_id
-      WHERE r.tournament_id = $1
-      GROUP BY r.round_number
+      JOIN team_players tp1 ON tp1.team_id = m.team1_id
+      JOIN team_players tp2 ON tp2.team_id = m.team2_id
+      WHERE r.tournament_id = $1 AND m.is_completed = true
     `, [id]);
     
+    // Count matches per player
+    const playerMatchCounts = {};
+    allPlayers.forEach(p => playerMatchCounts[p.id] = 0);
+    
+    // Group by match and count unique matches per player
+    const matchPlayerMap = {};
+    existingMatchesResult.rows.forEach(row => {
+      if (!matchPlayerMap[row.match_id]) {
+        matchPlayerMap[row.match_id] = new Set();
+      }
+      matchPlayerMap[row.match_id].add(row.team1_player);
+      matchPlayerMap[row.match_id].add(row.team2_player);
+    });
+    
+    // Count matches for each player
+    Object.values(matchPlayerMap).forEach(playerSet => {
+      playerSet.forEach(playerId => {
+        if (playerMatchCounts[playerId] !== undefined) {
+          playerMatchCounts[playerId]++;
+        }
+      });
+    });
+    
     // Filter players who still need matches
-    const playersNeedingMatches = balancePlayerMatches(
-      allPlayers, 
-      existingRoundsResult.rows, 
-      tournament.matches_per_player
+    const playersNeedingMatches = allPlayers.filter(player => 
+      playerMatchCounts[player.id] < tournament.matches_per_player
     );
     
     if (playersNeedingMatches.length < tournament.min_players_per_team * 2) {

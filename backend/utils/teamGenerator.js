@@ -177,13 +177,35 @@ function balancePlayerMatches(allPlayers, tournamentRounds, matchesPerPlayer) {
   
   // Count matches from existing rounds
   tournamentRounds.forEach(round => {
-    round.matches.forEach(match => {
-      [...match.team1.players, ...match.team2.players].forEach(player => {
-        if (playerMatchCounts[player.id] !== undefined) {
-          playerMatchCounts[player.id]++;
+    if (round.matches && Array.isArray(round.matches)) {
+      round.matches.forEach(match => {
+        if (match && match.team1 && match.team2) {
+          // Handle different data structures
+          let team1Players = [];
+          let team2Players = [];
+          
+          if (Array.isArray(match.team1)) {
+            team1Players = match.team1;
+          } else if (match.team1.players && Array.isArray(match.team1.players)) {
+            team1Players = match.team1.players;
+          }
+          
+          if (Array.isArray(match.team2)) {
+            team2Players = match.team2;
+          } else if (match.team2.players && Array.isArray(match.team2.players)) {
+            team2Players = match.team2.players;
+          }
+          
+          // Count matches for each player
+          [...team1Players, ...team2Players].forEach(player => {
+            const playerId = typeof player === 'object' ? player.id : player;
+            if (playerMatchCounts[playerId] !== undefined) {
+              playerMatchCounts[playerId]++;
+            }
+          });
         }
       });
-    });
+    }
   });
   
   // Filter players who need more matches
