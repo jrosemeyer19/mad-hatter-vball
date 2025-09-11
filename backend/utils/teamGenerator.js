@@ -19,12 +19,14 @@ function generateTeams(players, settings, roundNumber) {
   const playersPerTeam = Math.floor(totalPlayers / teamsNeeded);
   const extraPlayers = totalPlayers % teamsNeeded;
   
-  // Create empty teams
+  // Create empty teams with gender tracking
   const teams = [];
   for (let i = 0; i < teamsNeeded; i++) {
     teams.push({
       players: [],
-      targetSize: playersPerTeam + (i < extraPlayers ? 1 : 0)
+      targetSize: playersPerTeam + (i < extraPlayers ? 1 : 0),
+      maleCount: 0,
+      femaleCount: 0
     });
   }
   
@@ -32,14 +34,8 @@ function generateTeams(players, settings, roundNumber) {
   distributeSetters(teams, femaleSetters, 'female');
   distributeSetters(teams, maleSetters, 'male');
   
-  // Distribute remaining players by skill level and gender
-  const remainingPlayers = [...females, ...males];
-  remainingPlayers.sort((a, b) => {
-    const skillOrder = { 'A': 3, 'BB': 2, 'B': 1 };
-    return skillOrder[b.skill_level] - skillOrder[a.skill_level];
-  });
-  
-  distributeRemainingPlayers(teams, remainingPlayers);
+  // Distribute remaining players with gender balance priority
+  distributePlayersWithGenderBalance(teams, [...females, ...males]);
   
   // Create matches
   const matches = createMatches(teams, roundNumber, hasPowerMatch);
