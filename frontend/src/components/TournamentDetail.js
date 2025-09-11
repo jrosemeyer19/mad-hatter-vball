@@ -370,7 +370,7 @@ function TournamentDetail({ user }) {
               
               return (
                 <div key={round.id} className="card round-section">
-                  <h2>Round {round.round_number} {round.is_power_round && '(Power Round)'}</h2>
+                  <h2>Round {round.round_number}</h2>
                   
                   {/* Teams */}
                   {round.teams && round.teams.length > 0 && (
