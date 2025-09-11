@@ -127,25 +127,6 @@ function TournamentDetail({ user }) {
     }
   };
 
-  const completeTournament = async () => {
-    if (!user) {
-      setError('You must be logged in to complete tournaments');
-      return;
-    }
-
-    if (!window.confirm('Are you sure you want to end this tournament? This cannot be undone.')) {
-      return;
-    }
-
-    try {
-      const response = await axios.post(`/api/tournaments/${id}/complete`);
-      setCompletionResults(response.data);
-      fetchTournamentData();
-    } catch (error) {
-      setError(error.response?.data?.message || 'Failed to complete tournament');
-    }
-  };
-
   const getTeamPlayers = (teamId, roundNumber) => {
     const round = rounds.find(r => r.round_number === roundNumber);
     if (!round || !round.teams) return [];
