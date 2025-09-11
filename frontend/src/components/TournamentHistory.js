@@ -125,7 +125,7 @@ function TournamentHistory({ user }) {
     <div>
       <div className="card">
         <h1>Tournament History</h1>
-        <p>View and manage all tournaments from the system.</p>
+        <p>View and manage all tournaments from the system.{user?.isSuperAdmin && ' Super admins can delete tournaments from this page.'}</p>
 
         {error && (
           <div className="error-message">
