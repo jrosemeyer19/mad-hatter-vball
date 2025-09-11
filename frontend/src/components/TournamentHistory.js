@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
 
-function TournamentHistory() {
+function TournamentHistory({ user }) {
   const [tournaments, setTournaments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -22,6 +22,26 @@ function TournamentHistory() {
       console.error('Error fetching tournament history:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const deleteTournament = async (tournamentId, tournamentName) => {
+    if (!user?.isSuperAdmin) {
+      setError('Only super admins can delete tournaments');
+      return;
+    }
+
+    const confirmMessage = `Are you sure you want to delete "${tournamentName}"? This will permanently remove all tournament data and cannot be undone.`;
+    
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+
+    try {
+      await axios.delete(`/api/tournaments/${tournamentId}`);
+      setTournaments(tournaments.filter(t => t.id !== tournamentId));
+    } catch (error) {
+      setError(error.response?.data?.message || 'Failed to delete tournament');
     }
   };
 
@@ -271,6 +291,7 @@ function TournamentHistory() {
               <li>Generate new rounds when ready</li>
               <li>Complete tournaments and view final standings</li>
               <li>Review historical tournament data</li>
+              {user?.isSuperAdmin && <li><strong>Delete tournaments (Super Admin only)</strong></li>}
             </ul>
           </div>
           <div>
@@ -280,6 +301,7 @@ function TournamentHistory() {
               <li>Player statistics are maintained across tournaments</li>
               <li>Complete match history is available</li>
               <li>Payout information is recorded for completed tournaments</li>
+              {user?.isSuperAdmin && <li><strong>Super Admins can delete any tournament</strong></li>}
             </ul>
           </div>
         </div>
