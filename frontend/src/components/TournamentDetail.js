@@ -13,6 +13,7 @@ function TournamentDetail({ user }) {
   const [error, setError] = useState('');
   const [scoreInputs, setScoreInputs] = useState({});
   const [completionResults, setCompletionResults] = useState(null);
+  const [editingMatch, setEditingMatch] = useState(null); // Track which match is being edited
 
   useEffect(() => {
     fetchTournamentData();
@@ -66,10 +67,28 @@ function TournamentDetail({ user }) {
         team2Game2: scores.team2Game2
       });
       
+      setEditingMatch(null); // Stop editing after successful submission
       fetchTournamentData(); // Refresh data
     } catch (error) {
       setError(error.response?.data?.message || 'Failed to submit scores');
     }
+  };
+
+  const startEditingMatch = (match) => {
+    setEditingMatch(match.id);
+    setScoreInputs({
+      ...scoreInputs,
+      [match.id]: {
+        team1Game1: match.team1_game1_score || 0,
+        team1Game2: match.team1_game2_score || 0,
+        team2Game1: match.team2_game1_score || 0,
+        team2Game2: match.team2_game2_score || 0
+      }
+    });
+  };
+
+  const cancelEditing = () => {
+    setEditingMatch(null);
   };
 
   const generateNextRound = async () => {
@@ -443,21 +462,30 @@ function TournamentDetail({ user }) {
                                 </div>
                               </div>
 
-                              {match.is_completed ? (
+                              {match.is_completed && editingMatch !== match.id ? (
                                 <div className="mt-1">
-                                  <strong>Final Scores:</strong>
-                                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem', marginTop: '0.5rem' }}>
+                                  <div className="flex-between" style={{ alignItems: 'center', marginBottom: '0.5rem' }}>
+                                    <strong>Final Scores:</strong>
+                                    <button
+                                      className="btn btn-secondary"
+                                      style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
+                                      onClick={() => startEditingMatch(match)}
+                                    >
+                                      Edit Scores
+                                    </button>
+                                  </div>
+                                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem' }}>
                                     <div className="text-center">
                                       <div style={{ fontSize: '0.8rem' }}>Team 1 Game 1</div>
                                       <div><strong>{match.team1_game1_score}</strong></div>
                                     </div>
                                     <div className="text-center">
-                                      <div style={{ fontSize: '0.8rem' }}>Team 1 Game 2</div>
-                                      <div><strong>{match.team1_game2_score}</strong></div>
-                                    </div>
-                                    <div className="text-center">
                                       <div style={{ fontSize: '0.8rem' }}>Team 2 Game 1</div>
                                       <div><strong>{match.team2_game1_score}</strong></div>
+                                    </div>
+                                    <div className="text-center">
+                                      <div style={{ fontSize: '0.8rem' }}>Team 1 Game 2</div>
+                                      <div><strong>{match.team1_game2_score}</strong></div>
                                     </div>
                                     <div className="text-center">
                                       <div style={{ fontSize: '0.8rem' }}>Team 2 Game 2</div>
@@ -467,7 +495,7 @@ function TournamentDetail({ user }) {
                                 </div>
                               ) : (
                                 <div className="mt-1">
-                                  <strong>Enter Scores:</strong>
+                                  <strong>{match.is_completed ? 'Edit Scores:' : 'Enter Scores:'}</strong>
                                   <div className="score-inputs">
                                     <div>
                                       <label style={{ fontSize: '0.8rem' }}>Team 1 Game 1</label>
@@ -477,16 +505,6 @@ function TournamentDetail({ user }) {
                                         max="50"
                                         value={matchScores.team1Game1 || ''}
                                         onChange={(e) => handleScoreChange(match.id, 'team1Game1', e.target.value)}
-                                      />
-                                    </div>
-                                    <div>
-                                      <label style={{ fontSize: '0.8rem' }}>Team 1 Game 2</label>
-                                      <input
-                                        type="number"
-                                        min="0"
-                                        max="50"
-                                        value={matchScores.team1Game2 || ''}
-                                        onChange={(e) => handleScoreChange(match.id, 'team1Game2', e.target.value)}
                                       />
                                     </div>
                                     <div>
@@ -500,6 +518,16 @@ function TournamentDetail({ user }) {
                                       />
                                     </div>
                                     <div>
+                                      <label style={{ fontSize: '0.8rem' }}>Team 1 Game 2</label>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        max="50"
+                                        value={matchScores.team1Game2 || ''}
+                                        onChange={(e) => handleScoreChange(match.id, 'team1Game2', e.target.value)}
+                                      />
+                                    </div>
+                                    <div>
                                       <label style={{ fontSize: '0.8rem' }}>Team 2 Game 2</label>
                                       <input
                                         type="number"
@@ -510,13 +538,28 @@ function TournamentDetail({ user }) {
                                       />
                                     </div>
                                   </div>
-                                  <button
-                                    className="btn btn-success mt-1"
-                                    onClick={() => submitScores(match.id)}
-                                    disabled={!Object.values(matchScores).every(score => score >= 0)}
-                                  >
-                                    Submit Scores
-                                  </button>
+                                  <div className="flex gap-1 mt-1">
+                                    <button
+                                      className="btn btn-success"
+                                      onClick={() => submitScores(match.id)}
+                                      disabled={!Object.values(matchScores).every(score => score >= 0)}
+                                    >
+                                      {match.is_completed ? 'Update Scores' : 'Submit Scores'}
+                                    </button>
+                                    {match.is_completed && (
+                                      <button
+                                        className="btn btn-secondary"
+                                        onClick={cancelEditing}
+                                      >
+                                        Cancel
+                                      </button>
+                                    )}
+                                  </div>
+                                  {!match.is_completed && (
+                                    <div style={{ fontSize: '0.8rem', color: '#7f8c8d', marginTop: '0.5rem' }}>
+                                      Anyone can enter scores - no login required
+                                    </div>
+                                  )}
                                 </div>
                               )}
                             </div>
