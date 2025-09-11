@@ -189,9 +189,9 @@ function TournamentDetail({ user }) {
             </p>
           </div>
           <div>
-            {user && tournament.status !== 'completed' && (
+            {tournament.status !== 'completed' && (
               <div className="flex gap-1">
-                {tournament.status === 'setup' && (
+                {tournament.status === 'setup' && user && (
                   <Link 
                     to={`/tournament/${id}/setup`}
                     className="btn btn-success"
@@ -201,7 +201,7 @@ function TournamentDetail({ user }) {
                 )}
                 {tournament.status === 'in_progress' && (
                   <>
-                    {canGenerateNextRound() && (
+                    {user && canGenerateNextRound() && (
                       <button 
                         className="btn btn-primary"
                         onClick={generateNextRound}
@@ -209,7 +209,7 @@ function TournamentDetail({ user }) {
                         Generate Next Round
                       </button>
                     )}
-                    {allRoundsComplete() && (
+                    {user && allRoundsComplete() && (
                       <button 
                         className="btn btn-success"
                         onClick={completeTournament}
@@ -217,14 +217,27 @@ function TournamentDetail({ user }) {
                         Complete Tournament
                       </button>
                     )}
+                    {!user && allRoundsComplete() && (
+                      <div style={{ 
+                        padding: '0.75rem 1rem', 
+                        backgroundColor: '#e8f4f8', 
+                        border: '1px solid #bee5eb', 
+                        borderRadius: '4px',
+                        fontSize: '0.9rem'
+                      }}>
+                        All matches completed! Tournament admin can generate the next round.
+                      </div>
+                    )}
                   </>
                 )}
-                <button 
-                  className="btn btn-danger"
-                  onClick={deleteTournament}
-                >
-                  Delete Tournament
-                </button>
+                {user && (
+                  <button 
+                    className="btn btn-danger"
+                    onClick={deleteTournament}
+                  >
+                    Delete Tournament
+                  </button>
+                )}
               </div>
             )}
           </div>
