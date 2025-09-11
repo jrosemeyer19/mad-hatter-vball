@@ -110,7 +110,7 @@ function generateAllRounds(players, settings) {
     allRounds.push(roundData);
     roundNumber++;
     
-    console.log(`Round ${roundNumber - 1}: ${selectedPlayers.length} playing, ${byePlayers.length} bye`);
+    console.log(`Round ${roundNumber - 1}: ${roundData.totalPlayingPlayers} playing (${roundData.teams.length} teams, ${roundData.matches.length} matches), ${roundData.totalByePlayers} bye`);
   }
   
   // Final validation
