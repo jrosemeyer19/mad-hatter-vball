@@ -252,14 +252,22 @@ function TournamentHistory({ user }) {
                         >
                           View
                         </Link>
+                        {/* Debug: Always show delete button for testing */}
                         {user?.isSuperAdmin && (
                           <button
                             className="btn btn-danger"
                             style={{ padding: '0.25rem 0.75rem', fontSize: '0.9rem' }}
                             onClick={() => deleteTournament(tournament.id, tournament.name)}
+                            title={`Delete ${tournament.name} (Super Admin Only)`}
                           >
                             Delete
                           </button>
+                        )}
+                        {/* Debug info - remove this after testing */}
+                        {user && (
+                          <small style={{ fontSize: '0.7rem', color: '#666' }}>
+                            User: {user.username}, Admin: {user.isSuperAdmin ? 'Yes' : 'No'}
+                          </small>
                         )}
                       </div>
                     </td>

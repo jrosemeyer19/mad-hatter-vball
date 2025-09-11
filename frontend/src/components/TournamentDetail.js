@@ -296,6 +296,18 @@ function TournamentDetail({ user }) {
           <div>
             <strong>Entry Fee:</strong> ${tournament.entry_fee}
           </div>
+          {/* Debug button for completed tournaments */}
+          {tournament.status === 'completed' && (
+            <div>
+              <button 
+                className="btn btn-secondary" 
+                onClick={fetchTournamentResults}
+                style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}
+              >
+                Load Results
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

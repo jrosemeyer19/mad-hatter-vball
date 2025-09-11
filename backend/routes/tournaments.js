@@ -116,16 +116,20 @@ router.post('/', authenticateToken, async (req, res) => {
 router.get('/:id/results', async (req, res) => {
   try {
     const { id } = req.params;
+    console.log('Getting results for tournament ID:', id); // Debug log
     
     // Get tournament details
     const tournamentResult = await pool.query('SELECT * FROM tournaments WHERE id = $1', [id]);
     if (tournamentResult.rows.length === 0) {
+      console.log('Tournament not found:', id); // Debug log
       return res.status(404).json({ message: 'Tournament not found' });
     }
     
     const tournament = tournamentResult.rows[0];
+    console.log('Tournament status:', tournament.status); // Debug log
     
     if (tournament.status !== 'completed') {
+      console.log('Tournament not completed, status:', tournament.status); // Debug log
       return res.status(400).json({ message: 'Tournament is not completed yet' });
     }
     
@@ -138,6 +142,8 @@ router.get('/:id/results', async (req, res) => {
       ORDER BY gender, total_points DESC
     `, [id]);
     
+    console.log('Standings found:', standingsResult.rows.length, 'players'); // Debug log
+    
     // Calculate payouts
     const totalPool = (standingsResult.rows.length * tournament.entry_fee) - tournament.director_cost;
     const payouts = {
@@ -146,15 +152,19 @@ router.get('/:id/results', async (req, res) => {
       third: Math.floor((totalPool * 0.05) / 5) * 5
     };
     
-    res.json({
+    console.log('Calculated payouts:', payouts, 'Total pool:', totalPool); // Debug log
+    
+    const results = {
       tournament,
       standings: standingsResult.rows,
       payouts,
       totalPool
-    });
+    };
+    
+    res.json(results);
   } catch (error) {
     console.error('Error fetching tournament results:', error);
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ message: 'Server error: ' + error.message });
   }
 });
 
