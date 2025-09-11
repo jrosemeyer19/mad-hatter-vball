@@ -105,6 +105,47 @@ function TournamentDetail({ user }) {
     }
   };
 
+  const deleteTournament = async () => {
+    if (!user) {
+      setError('You must be logged in to delete tournaments');
+      return;
+    }
+
+    const confirmMessage = tournament.status === 'in_progress' 
+      ? 'Are you sure you want to delete this in-progress tournament? All match data will be lost. This cannot be undone.'
+      : 'Are you sure you want to delete this tournament? This cannot be undone.';
+
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+
+    try {
+      await axios.delete(`/api/tournaments/${id}`);
+      navigate('/'); // Redirect to home page
+    } catch (error) {
+      setError(error.response?.data?.message || 'Failed to delete tournament');
+    }
+  };
+
+  const completeTournament = async () => {
+    if (!user) {
+      setError('You must be logged in to complete tournaments');
+      return;
+    }
+
+    if (!window.confirm('Are you sure you want to end this tournament? This cannot be undone.')) {
+      return;
+    }
+
+    try {
+      const response = await axios.post(`/api/tournaments/${id}/complete`);
+      setCompletionResults(response.data);
+      fetchTournamentData();
+    } catch (error) {
+      setError(error.response?.data?.message || 'Failed to complete tournament');
+    }
+  };
+
   const getTeamPlayers = (teamId, roundNumber) => {
     const round = rounds.find(r => r.round_number === roundNumber);
     if (!round || !round.teams) return [];
