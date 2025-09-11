@@ -173,16 +173,6 @@ function TournamentDetail({ user }) {
     return matches.filter(m => m.round_number === roundNumber);
   };
 
-  const canGenerateNextRound = () => {
-    if (!user || tournament?.status !== 'in_progress') return false;
-    
-    const currentRound = Math.max(...rounds.map(r => r.round_number));
-    const currentRoundMatches = getRoundMatches(currentRound);
-    
-    return currentRoundMatches.length > 0 && 
-           currentRoundMatches.every(m => m.is_completed);
-  };
-
   const allRoundsComplete = () => {
     return rounds.length > 0 && 
            rounds.every(round => {
