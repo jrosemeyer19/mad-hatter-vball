@@ -1,5 +1,6 @@
 function generateTeams(players, settings, roundNumber) {
   const { courtsAvailable, minPlayersPerTeam, hasPowerMatch } = settings;
+  const maxPlayersPerTeam = 6; // Hard limit
   
   // Separate players by gender and characteristics
   const femaleSetters = players.filter(p => p.gender === 'female' && p.is_setter);
@@ -7,40 +8,77 @@ function generateTeams(players, settings, roundNumber) {
   const females = players.filter(p => p.gender === 'female' && !p.is_setter);
   const males = players.filter(p => p.gender === 'male' && !p.is_setter);
   
-  // Calculate team distribution
   const totalPlayers = players.length;
   const maxTeams = courtsAvailable * 2;
-  const teamsNeeded = Math.min(maxTeams, Math.floor(totalPlayers / minPlayersPerTeam));
+  const maxPlayingPlayers = maxTeams * maxPlayersPerTeam;
+  
+  // Determine how many players can play this round
+  const playingPlayers = Math.min(totalPlayers, maxPlayingPlayers);
+  const byePlayers = totalPlayers - playingPlayers;
+  
+  // Calculate team distribution
+  let teamsNeeded = Math.min(maxTeams, Math.floor(playingPlayers / minPlayersPerTeam));
+  
+  // Make sure we can distribute players evenly with max 6 per team
+  while (teamsNeeded > 0 && playingPlayers / teamsNeeded > maxPlayersPerTeam) {
+    teamsNeeded--;
+  }
   
   if (teamsNeeded < 2) {
     throw new Error('Not enough players to form teams');
   }
   
-  const playersPerTeam = Math.floor(totalPlayers / teamsNeeded);
-  const extraPlayers = totalPlayers % teamsNeeded;
+  // Calculate players per team (aim for even distribution)
+  const basePlayersPerTeam = Math.floor(playingPlayers / teamsNeeded);
+  const extraPlayers = playingPlayers % teamsNeeded;
   
   // Create empty teams with gender tracking
   const teams = [];
   for (let i = 0; i < teamsNeeded; i++) {
     teams.push({
       players: [],
-      targetSize: playersPerTeam + (i < extraPlayers ? 1 : 0),
+      targetSize: Math.min(maxPlayersPerTeam, basePlayersPerTeam + (i < extraPlayers ? 1 : 0)),
       maleCount: 0,
       femaleCount: 0
     });
   }
   
+  // Select players for this round (prioritize players with fewer matches played)
+  const allPlayersWithPriority = [...players].sort((a, b) => {
+    // Priority: fewer matches played first, then by name for consistency
+    if (a.matches_played !== b.matches_played) {
+      return a.matches_played - b.matches_played;
+    }
+    return a.name.localeCompare(b.name);
+  });
+  
+  const selectedPlayers = allPlayersWithPriority.slice(0, playingPlayers);
+  const byePlayersList = allPlayersWithPriority.slice(playingPlayers);
+  
+  // Separate selected players by type
+  const selectedFemaleSetters = selectedPlayers.filter(p => p.gender === 'female' && p.is_setter);
+  const selectedMaleSetters = selectedPlayers.filter(p => p.gender === 'male' && p.is_setter);
+  const selectedFemales = selectedPlayers.filter(p => p.gender === 'female' && !p.is_setter);
+  const selectedMales = selectedPlayers.filter(p => p.gender === 'male' && !p.is_setter);
+  
   // Distribute female setters first (priority #1)
-  distributeSetters(teams, femaleSetters, 'female');
-  distributeSetters(teams, maleSetters, 'male');
+  distributeSetters(teams, selectedFemaleSetters, 'female');
+  distributeSetters(teams, selectedMaleSetters, 'male');
   
   // Distribute remaining players with gender balance priority
-  distributePlayersWithGenderBalance(teams, [...females, ...males]);
+  distributePlayersWithGenderBalance(teams, [...selectedFemales, ...selectedMales]);
   
-  // Create matches
-  const matches = createMatches(teams, roundNumber, hasPowerMatch);
+  // Create matches (only for teams that actually have players)
+  const activeTeams = teams.filter(team => team.players.length >= minPlayersPerTeam);
+  const matches = createMatches(activeTeams, roundNumber, hasPowerMatch);
   
-  return { teams, matches };
+  return { 
+    teams: activeTeams, 
+    matches, 
+    byePlayers: byePlayersList,
+    totalPlayingPlayers: playingPlayers,
+    totalByePlayers: byePlayers
+  };
 }
 
 function distributeSetters(teams, setters, gender) {
@@ -93,10 +131,6 @@ function distributePlayersWithGenderBalance(teams, players) {
 }
 
 function findBestTeamForGender(teams, gender, totalGenderCount, totalPlayers) {
-  // Calculate ideal gender distribution per team
-  const avgPlayersPerTeam = totalPlayers / teams.length;
-  const idealGenderPerTeam = (totalGenderCount / teams.length);
-  
   // Find team with lowest gender count that still has space
   const availableTeams = teams.filter(team => team.players.length < team.targetSize);
   
@@ -173,40 +207,7 @@ function shouldBePowerMatch(team1, team2) {
 function balancePlayerMatches(allPlayers, tournamentRounds, matchesPerPlayer) {
   // Track how many matches each player has played
   const playerMatchCounts = {};
-  allPlayers.forEach(p => playerMatchCounts[p.id] = 0);
-  
-  // Count matches from existing rounds
-  tournamentRounds.forEach(round => {
-    if (round.matches && Array.isArray(round.matches)) {
-      round.matches.forEach(match => {
-        if (match && match.team1 && match.team2) {
-          // Handle different data structures
-          let team1Players = [];
-          let team2Players = [];
-          
-          if (Array.isArray(match.team1)) {
-            team1Players = match.team1;
-          } else if (match.team1.players && Array.isArray(match.team1.players)) {
-            team1Players = match.team1.players;
-          }
-          
-          if (Array.isArray(match.team2)) {
-            team2Players = match.team2;
-          } else if (match.team2.players && Array.isArray(match.team2.players)) {
-            team2Players = match.team2.players;
-          }
-          
-          // Count matches for each player
-          [...team1Players, ...team2Players].forEach(player => {
-            const playerId = typeof player === 'object' ? player.id : player;
-            if (playerMatchCounts[playerId] !== undefined) {
-              playerMatchCounts[playerId]++;
-            }
-          });
-        }
-      });
-    }
-  });
+  allPlayers.forEach(p => playerMatchCounts[p.id] = p.matches_played || 0);
   
   // Filter players who need more matches
   return allPlayers.filter(player => 

@@ -584,7 +584,12 @@ router.post('/:id/rounds/next', authenticateToken, async (req, res) => {
       hasPowerMatch: tournament.has_power_match
     };
     
-    const { teams, matches } = generateTeams(playersNeedingMatches, settings, nextRoundNumber);
+    const { teams, matches, byePlayers, totalPlayingPlayers, totalByePlayers } = generateTeams(playersNeedingMatches, settings, nextRoundNumber);
+    
+    console.log(`Round ${nextRoundNumber}: ${totalPlayingPlayers} playing, ${totalByePlayers} bye players`);
+    if (byePlayers.length > 0) {
+      console.log('Bye players:', byePlayers.map(p => p.name).join(', '));
+    }
     
     // Create new round
     const newRoundResult = await client.query(`
