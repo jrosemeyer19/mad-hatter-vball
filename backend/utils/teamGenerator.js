@@ -53,23 +53,83 @@ function distributeSetters(teams, setters, gender) {
     const teamIndex = i % teams.length;
     if (teams[teamIndex].players.length < teams[teamIndex].targetSize) {
       teams[teamIndex].players.push(setters[i]);
+      if (gender === 'male') {
+        teams[teamIndex].maleCount++;
+      } else {
+        teams[teamIndex].femaleCount++;
+      }
     }
   }
 }
 
-function distributeRemainingPlayers(teams, players) {
-  // Sort teams by current size to fill smaller teams first
-  for (const player of players) {
-    teams.sort((a, b) => a.players.length - b.players.length);
-    
-    // Find the team with the least players that can still accept players
-    for (const team of teams) {
-      if (team.players.length < team.targetSize) {
-        team.players.push(player);
-        break;
-      }
+function distributePlayersWithGenderBalance(teams, players) {
+  // Separate by gender
+  const males = players.filter(p => p.gender === 'male');
+  const females = players.filter(p => p.gender === 'female');
+  
+  // Sort by skill level (highest first)
+  const skillOrder = { 'A': 3, 'BB': 2, 'B': 1 };
+  males.sort((a, b) => skillOrder[b.skill_level] - skillOrder[a.skill_level]);
+  females.sort((a, b) => skillOrder[b.skill_level] - skillOrder[a.skill_level]);
+  
+  // Calculate target gender distribution
+  const totalMales = males.length + teams.reduce((sum, team) => sum + team.maleCount, 0);
+  const totalFemales = females.length + teams.reduce((sum, team) => sum + team.femaleCount, 0);
+  const totalPlayers = totalMales + totalFemales;
+  
+  // Distribute males first (priority on gender balance)
+  for (const male of males) {
+    const bestTeam = findBestTeamForGender(teams, 'male', totalMales, totalPlayers);
+    if (bestTeam && bestTeam.players.length < bestTeam.targetSize) {
+      bestTeam.players.push(male);
+      bestTeam.maleCount++;
     }
   }
+  
+  // Distribute females
+  for (const female of females) {
+    const bestTeam = findBestTeamForGender(teams, 'female', totalFemales, totalPlayers);
+    if (bestTeam && bestTeam.players.length < bestTeam.targetSize) {
+      bestTeam.players.push(female);
+      bestTeam.femaleCount++;
+    }
+  }
+}
+
+function findBestTeamForGender(teams, gender, totalGenderCount, totalPlayers) {
+  // Calculate ideal gender distribution per team
+  const avgPlayersPerTeam = totalPlayers / teams.length;
+  const idealGenderPerTeam = (totalGenderCount / teams.length);
+  
+  // Find team with lowest gender count that still has space
+  const availableTeams = teams.filter(team => team.players.length < team.targetSize);
+  
+  if (availableTeams.length === 0) return null;
+  
+  // Sort by: 1) lowest gender count, 2) lowest total players, 3) skill balance
+  availableTeams.sort((a, b) => {
+    const aGenderCount = gender === 'male' ? a.maleCount : a.femaleCount;
+    const bGenderCount = gender === 'male' ? b.maleCount : b.femaleCount;
+    
+    // Primary: teams with fewer of this gender
+    if (aGenderCount !== bGenderCount) {
+      return aGenderCount - bGenderCount;
+    }
+    
+    // Secondary: teams with fewer total players
+    if (a.players.length !== b.players.length) {
+      return a.players.length - b.players.length;
+    }
+    
+    // Tertiary: balance overall gender ratio
+    const aRatio = a.maleCount / (a.players.length || 1);
+    const bRatio = b.maleCount / (b.players.length || 1);
+    const idealRatio = 0.5; // aim for 50/50
+    
+    return Math.abs(aRatio - idealRatio) - Math.abs(bRatio - idealRatio);
+  });
+  
+  return availableTeams[0];
 }
 
 function createMatches(teams, roundNumber, hasPowerMatch) {

@@ -301,11 +301,6 @@ body {
   font-size: 0.9rem;
 }
 
-.player-setter {
-  font-weight: 600;
-  color: #e74c3c;
-}
-
 .match-card {
   background: white;
   border: 1px solid #ddd;

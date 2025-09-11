@@ -308,8 +308,8 @@ router.post('/:id/start', authenticateToken, async (req, res) => {
   }
 });
 
-// Submit match scores
-router.put('/:id/matches/:matchId/scores', authenticateToken, async (req, res) => {
+// Submit match scores (no authentication required)
+router.put('/:id/matches/:matchId/scores', async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
