@@ -357,7 +357,7 @@ router.delete('/:id/players/:playerId', authenticateToken, async (req, res) => {
   }
 });
 
-// Start tournament (generate all teams and rounds at once) - FIXED WITH PROPER MAKEUP ROUND HANDLING
+// Start tournament (generate all teams and rounds at once) - FIXED TO NOT PRE-COUNT MATCHES
 router.post('/:id/start', authenticateToken, async (req, res) => {
   const client = await pool.connect();
   try {
@@ -399,10 +399,6 @@ router.post('/:id/start', authenticateToken, async (req, res) => {
     
     console.log(`\n=== Database Insertion ===`);
     console.log(`Generated ${allRounds.length} rounds for tournament ${id}`);
-    
-    // Keep track of actual match counts during database creation
-    const actualPlayerMatchCounts = {};
-    players.forEach(p => actualPlayerMatchCounts[p.id] = 0);
     
     // Create all rounds, teams, and matches in the database
     for (let roundIndex = 0; roundIndex < allRounds.length; roundIndex++) {
@@ -457,7 +453,7 @@ router.post('/:id/start', authenticateToken, async (req, res) => {
         }
       }
       
-      // Create matches and count them properly
+      // Create matches - but DON'T count them as played yet
       for (let matchIndex = 0; matchIndex < roundData.matches.length; matchIndex++) {
         const match = roundData.matches[matchIndex];
         const team1Index = roundData.teams.indexOf(match.team1);
@@ -466,51 +462,17 @@ router.post('/:id/start', authenticateToken, async (req, res) => {
         console.log(`    Match ${matchIndex + 1}: Team ${team1Index + 1} vs Team ${team2Index + 1} on Court ${match.court}`);
         
         // Insert match
-        const matchResult = await client.query(`
+        await client.query(`
           INSERT INTO matches (round_id, team1_id, team2_id, court) 
-          VALUES ($1, $2, $3, $4) RETURNING id
+          VALUES ($1, $2, $3, $4)
         `, [roundId, teamIdMap[team1Index], teamIdMap[team2Index], match.court]);
-        
-        // Update match counts for all players in both teams
-        match.team1.players.forEach(player => {
-          actualPlayerMatchCounts[player.id]++;
-        });
-        match.team2.players.forEach(player => {
-          actualPlayerMatchCounts[player.id]++;
-        });
       }
     }
     
-    // Update player match counts in database
-    console.log(`\n=== Updating Player Match Counts ===`);
-    for (const player of players) {
-      const actualMatches = actualPlayerMatchCounts[player.id];
-      console.log(`${player.name}: ${actualMatches} matches`);
-      
-      await client.query(`
-        UPDATE players 
-        SET matches_played = $1 
-        WHERE id = $2
-      `, [actualMatches, player.id]);
-    }
-    
-    // Final validation
-    console.log(`\n=== Final Validation ===`);
-    const playersWithIncompleteMatches = players.filter(p => 
-      actualPlayerMatchCounts[p.id] < tournament.matches_per_player
-    );
-    
-    if (playersWithIncompleteMatches.length > 0) {
-      console.error('ERROR: Some players still have incomplete matches:');
-      playersWithIncompleteMatches.forEach(p => {
-        console.error(`- ${p.name}: ${actualPlayerMatchCounts[p.id]}/${tournament.matches_per_player} matches`);
-      });
-      
-      // Don't fail the transaction, but log the issue
-      console.error('Tournament created but with incomplete matches. This should be investigated.');
-    } else {
-      console.log('✓ All players have completed their required matches!');
-    }
+    // CRITICAL FIX: DO NOT update player match counts here
+    // Let them start at 0 and increment only when matches are actually completed
+    console.log(`\n=== Tournament Started ===`);
+    console.log(`All players start with 0 matches played. Counts will increment as matches are completed.`);
     
     // Update tournament status
     await client.query('UPDATE tournaments SET status = $1 WHERE id = $2', ['in_progress', id]);
@@ -519,8 +481,7 @@ router.post('/:id/start', authenticateToken, async (req, res) => {
     res.json({ 
       message: 'Tournament started successfully',
       roundsGenerated: allRounds.length,
-      totalByePlayers: allRounds.reduce((sum, round) => sum + (round.totalByePlayers || 0), 0),
-      playersWithIncompleteMatches: playersWithIncompleteMatches.length
+      totalByePlayers: allRounds.reduce((sum, round) => sum + (round.totalByePlayers || 0), 0)
     });
   } catch (error) {
     await client.query('ROLLBACK');
@@ -578,11 +539,12 @@ router.put('/:id/matches/:matchId/scores', async (req, res) => {
         WHERE m.id = $3::integer
       `, [oldT1Total, oldT2Total, parseInt(matchId, 10)]);
       
-      // Subtract old points from each player
+      // Subtract old points from each player and decrement match count
       for (const player of teamPlayersResult.rows) {
         await client.query(`
           UPDATE players 
-          SET total_points = total_points - $1::integer
+          SET total_points = total_points - $1::integer,
+              matches_played = matches_played - 1
           WHERE id = $2::integer
         `, [parseInt(player.old_points_to_subtract, 10), parseInt(player.player_id, 10)]);
       }
@@ -597,7 +559,7 @@ router.put('/:id/matches/:matchId/scores', async (req, res) => {
       WHERE id = $5::integer
     `, [t1g1, t1g2, t2g1, t2g2, parseInt(matchId, 10)]);
     
-    // Get team players to add new points
+    // Get team players to add new points and increment match count
     const teamPlayersResult = await client.query(`
       SELECT tp.player_id, 
         CASE WHEN tp.team_id = m.team1_id 
@@ -609,24 +571,14 @@ router.put('/:id/matches/:matchId/scores', async (req, res) => {
       WHERE m.id = $5::integer
     `, [t1g1, t1g2, t2g1, t2g2, parseInt(matchId, 10)]);
     
-    // Add new points to each player (and increment match count only if not editing)
+    // Add new points to each player and increment match count
     for (const player of teamPlayersResult.rows) {
-      if (isEditing) {
-        // Only update points, don't increment match count
-        await client.query(`
-          UPDATE players 
-          SET total_points = total_points + $1::integer
-          WHERE id = $2::integer
-        `, [parseInt(player.points_earned, 10), parseInt(player.player_id, 10)]);
-      } else {
-        // Add points and increment match count for new submissions
-        await client.query(`
-          UPDATE players 
-          SET total_points = total_points + $1::integer, 
-              matches_played = matches_played + 1
-          WHERE id = $2::integer
-        `, [parseInt(player.points_earned, 10), parseInt(player.player_id, 10)]);
-      }
+      await client.query(`
+        UPDATE players 
+        SET total_points = total_points + $1::integer, 
+            matches_played = matches_played + 1
+        WHERE id = $2::integer
+      `, [parseInt(player.points_earned, 10), parseInt(player.player_id, 10)]);
     }
     
     await client.query('COMMIT');
