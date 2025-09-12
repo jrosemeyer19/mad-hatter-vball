@@ -357,7 +357,7 @@ router.delete('/:id/players/:playerId', authenticateToken, async (req, res) => {
   }
 });
 
-// Start tournament (generate all teams and rounds at once)
+// Start tournament (generate all teams and rounds at once) - FIXED WITH PROPER MAKEUP ROUND HANDLING
 router.post('/:id/start', authenticateToken, async (req, res) => {
   const client = await pool.connect();
   try {
@@ -392,12 +392,23 @@ router.post('/:id/start', authenticateToken, async (req, res) => {
       hasPowerMatch: tournament.has_power_match
     };
     
+    console.log(`\n=== Starting Tournament Generation ===`);
+    console.log(`Players: ${players.length}, Courts: ${settings.courtsAvailable}, Min per team: ${settings.minPlayersPerTeam}, Matches per player: ${settings.matchesPerPlayer}`);
+    
     const allRounds = generateAllRounds(players, settings);
     
+    console.log(`\n=== Database Insertion ===`);
     console.log(`Generated ${allRounds.length} rounds for tournament ${id}`);
     
+    // Keep track of actual match counts during database creation
+    const actualPlayerMatchCounts = {};
+    players.forEach(p => actualPlayerMatchCounts[p.id] = 0);
+    
     // Create all rounds, teams, and matches in the database
-    for (const roundData of allRounds) {
+    for (let roundIndex = 0; roundIndex < allRounds.length; roundIndex++) {
+      const roundData = allRounds[roundIndex];
+      console.log(`\nCreating Round ${roundData.roundNumber}: ${roundData.teams.length} teams, ${roundData.matches.length} matches`);
+      
       // Create round
       const roundResult = await client.query(`
         INSERT INTO rounds (tournament_id, round_number) 
@@ -406,16 +417,22 @@ router.post('/:id/start', authenticateToken, async (req, res) => {
       const roundId = roundResult.rows[0].id;
       
       // Create playing teams and assign players
+      const teamIdMap = {}; // Track team IDs for match creation
+      
       for (let i = 0; i < roundData.teams.length; i++) {
+        const team = roundData.teams[i];
         const teamResult = await client.query(`
-          INSERT INTO teams (round_id, team_number, court) 
-          VALUES ($1, $2, $3) RETURNING id
+          INSERT INTO teams (round_id, team_number, court, is_bye_team) 
+          VALUES ($1, $2, $3, false) RETURNING id
         `, [roundId, i + 1, Math.floor(i / 2) + 1]);
         
         const teamId = teamResult.rows[0].id;
+        teamIdMap[i] = teamId;
+        
+        console.log(`  Team ${i + 1}: ${team.players.length} players`);
         
         // Assign players to team
-        for (const player of roundData.teams[i].players) {
+        for (const player of team.players) {
           await client.query(`
             INSERT INTO team_players (team_id, player_id) VALUES ($1, $2)
           `, [teamId, player.id]);
@@ -424,6 +441,7 @@ router.post('/:id/start', authenticateToken, async (req, res) => {
       
       // Create "On Bye" team if there are bye players
       if (roundData.byePlayers && roundData.byePlayers.length > 0) {
+        console.log(`  Bye team: ${roundData.byePlayers.length} players`);
         const byeTeamResult = await client.query(`
           INSERT INTO teams (round_id, team_number, court, is_bye_team) 
           VALUES ($1, $2, NULL, true) RETURNING id
@@ -439,19 +457,59 @@ router.post('/:id/start', authenticateToken, async (req, res) => {
         }
       }
       
-      // Create matches
-      for (const match of roundData.matches) {
+      // Create matches and count them properly
+      for (let matchIndex = 0; matchIndex < roundData.matches.length; matchIndex++) {
+        const match = roundData.matches[matchIndex];
         const team1Index = roundData.teams.indexOf(match.team1);
         const team2Index = roundData.teams.indexOf(match.team2);
         
-        await client.query(`
+        console.log(`    Match ${matchIndex + 1}: Team ${team1Index + 1} vs Team ${team2Index + 1} on Court ${match.court}`);
+        
+        // Insert match
+        const matchResult = await client.query(`
           INSERT INTO matches (round_id, team1_id, team2_id, court) 
-          SELECT $1, t1.id, t2.id, $4
-          FROM teams t1, teams t2 
-          WHERE t1.round_id = $1 AND t1.team_number = $2 AND t1.is_bye_team = false
-          AND t2.round_id = $1 AND t2.team_number = $3 AND t2.is_bye_team = false
-        `, [roundId, team1Index + 1, team2Index + 1, match.court]);
+          VALUES ($1, $2, $3, $4) RETURNING id
+        `, [roundId, teamIdMap[team1Index], teamIdMap[team2Index], match.court]);
+        
+        // Update match counts for all players in both teams
+        match.team1.players.forEach(player => {
+          actualPlayerMatchCounts[player.id]++;
+        });
+        match.team2.players.forEach(player => {
+          actualPlayerMatchCounts[player.id]++;
+        });
       }
+    }
+    
+    // Update player match counts in database
+    console.log(`\n=== Updating Player Match Counts ===`);
+    for (const player of players) {
+      const actualMatches = actualPlayerMatchCounts[player.id];
+      console.log(`${player.name}: ${actualMatches} matches`);
+      
+      await client.query(`
+        UPDATE players 
+        SET matches_played = $1 
+        WHERE id = $2
+      `, [actualMatches, player.id]);
+    }
+    
+    // Final validation
+    console.log(`\n=== Final Validation ===`);
+    const playersWithIncompleteMatches = players.filter(p => 
+      actualPlayerMatchCounts[p.id] < tournament.matches_per_player
+    );
+    
+    if (playersWithIncompleteMatches.length > 0) {
+      console.error('ERROR: Some players still have incomplete matches:');
+      playersWithIncompleteMatches.forEach(p => {
+        console.error(`- ${p.name}: ${actualPlayerMatchCounts[p.id]}/${tournament.matches_per_player} matches`);
+      });
+      
+      // Don't fail the transaction, but log the issue
+      console.error('Tournament created but with incomplete matches. This should be investigated.');
+    } else {
+      console.log('✓ All players have completed their required matches!');
     }
     
     // Update tournament status
@@ -461,7 +519,8 @@ router.post('/:id/start', authenticateToken, async (req, res) => {
     res.json({ 
       message: 'Tournament started successfully',
       roundsGenerated: allRounds.length,
-      totalByePlayers: allRounds.reduce((sum, round) => sum + round.totalByePlayers, 0)
+      totalByePlayers: allRounds.reduce((sum, round) => sum + (round.totalByePlayers || 0), 0),
+      playersWithIncompleteMatches: playersWithIncompleteMatches.length
     });
   } catch (error) {
     await client.query('ROLLBACK');
