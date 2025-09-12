@@ -247,9 +247,9 @@ function generateRoundWithTargetSize(playersNeedingMatches, targetPlayerCount, s
     roundNumber,
     teams,
     matches,
-    byePlayers,
+    byePlayers: byePlayers || [], // Ensure byePlayers is always an array
     totalPlayingPlayers: playingPlayers.length,
-    totalByePlayers: byePlayers.length
+    totalByePlayers: (byePlayers || []).length
   };
 }
 

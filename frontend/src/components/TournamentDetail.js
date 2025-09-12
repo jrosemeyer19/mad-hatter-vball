@@ -465,7 +465,7 @@ function TournamentDetail({ user }) {
         </div>
       )}
 
-      {/* Rounds and Matches */}
+      {/* Rounds and Matches - ENHANCED WITH BETTER BYE DETECTION */}
       {rounds.length > 0 && (
         <div>
           {rounds
@@ -474,6 +474,28 @@ function TournamentDetail({ user }) {
               const roundMatches = getRoundMatches(round.round_number);
               const playingTeams = round.teams?.filter(team => !team.is_bye_team) || [];
               const byeTeam = round.teams?.find(team => team.is_bye_team);
+              
+              // Enhanced bye detection - also check for players who should be on bye
+              // based on tournament structure if no explicit bye team exists
+              const playersInMatches = playingTeams.reduce((acc, team) => {
+                return acc.concat(team.players || []);
+              }, []);
+              
+              // Calculate bye players - either from explicit bye team or missing from playing teams  
+              let byePlayers = [];
+              if (byeTeam && byeTeam.players) {
+                byePlayers = byeTeam.players;
+              } else {
+                // For rounds without explicit bye teams, check if all players are accounted for
+                const allTournamentPlayers = players.length;
+                const playingInThisRound = playersInMatches.length;
+                if (playingInThisRound < allTournamentPlayers) {
+                  // There are players on bye, but no explicit bye team was created
+                  // This might happen in the final round or due to algorithm issues
+                  const playingPlayerIds = new Set(playersInMatches.map(p => p.id));
+                  byePlayers = players.filter(p => !playingPlayerIds.has(p.id));
+                }
+              }
               
               return (
                 <div key={round.id} className="card round-section">
@@ -491,11 +513,11 @@ function TournamentDetail({ user }) {
                   }}>
                     <div><strong>Playing Teams:</strong> {playingTeams.length}</div>
                     <div><strong>Matches:</strong> {roundMatches.length}</div>
-                    <div><strong>On Bye:</strong> {byeTeam?.players?.length || 0} players</div>
+                    <div><strong>On Bye:</strong> {byePlayers.length} players</div>
                     <div><strong>Completed:</strong> {roundMatches.filter(m => m.is_completed).length}/{roundMatches.length}</div>
                   </div>
                   
-                  {/* Teams Grid - Including Bye Team */}
+                  {/* Teams Grid - Including Enhanced Bye Team Detection */}
                   {round.teams && round.teams.length > 0 && (
                     <div>
                       <h3>Teams</h3>
@@ -518,21 +540,21 @@ function TournamentDetail({ user }) {
                             </div>
                           ))}
                         
-                        {/* Bye Team */}
-                        {byeTeam && (
+                        {/* Bye Team - Enhanced to show even when not explicitly created */}
+                        {byePlayers.length > 0 && (
                           <div className="team-card" style={{ 
                             backgroundColor: '#fff3cd', 
                             borderLeft: '4px solid #ffc107' 
                           }}>
                             <div className="team-header" style={{ color: '#856404' }}>
-                              On Bye ({byeTeam.players?.length || 0} players)
+                              On Bye ({byePlayers.length} players)
                             </div>
                             <ul className="player-list">
-                              {byeTeam.players?.map((player) => (
+                              {byePlayers.map((player) => (
                                 <li key={player.id} style={{ color: '#856404' }}>
                                   {player.name}
                                 </li>
-                              )) || []}
+                              ))}
                             </ul>
                           </div>
                         )}

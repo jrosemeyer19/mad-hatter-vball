@@ -451,6 +451,8 @@ router.post('/:id/start', authenticateToken, async (req, res) => {
             INSERT INTO team_players (team_id, player_id) VALUES ($1, $2)
           `, [byeTeamId, player.id]);
         }
+      } else {
+        console.log(`  No bye players for round ${roundData.roundNumber}`);
       }
       
       // Create matches - but DON'T count them as played yet
