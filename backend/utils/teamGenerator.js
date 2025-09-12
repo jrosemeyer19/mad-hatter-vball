@@ -14,73 +14,111 @@ function generateAllRounds(players, settings) {
     playerByeCount[p.id] = 0;
   });
   
-  let roundNumber = 1;
-  const maxRounds = matchesPerPlayer + 2; // More reasonable limit
+  // CRITICAL: Calculate exactly how many rounds we need
+  const totalMatchesNeeded = players.length * matchesPerPlayer;
+  const matchesPerRound = courtsAvailable; // 3 courts = 3 matches per round
+  const playersPerMatch = 2 * ((minPlayersPerTeam + maxPlayersPerTeam) / 2); // Roughly 11 players per match on average
+  const playerMatchesPerRound = matchesPerRound * playersPerMatch; // ~33 player-matches per round
   
-  console.log(`\n=== Starting Tournament Generation ===`);
-  console.log(`Players: ${players.length}, Courts: ${courtsAvailable}, Min per team: ${minPlayersPerTeam}, Matches per player: ${matchesPerPlayer}`);
+  const requiredRounds = Math.ceil(totalMatchesNeeded / playerMatchesPerRound);
   
-  // Generate rounds until all players complete their matches
-  while (roundNumber <= maxRounds) {
+  console.log(`\n=== Tournament Math ===`);
+  console.log(`Players: ${players.length}`);
+  console.log(`Matches per player: ${matchesPerPlayer}`);
+  console.log(`Total player-matches needed: ${totalMatchesNeeded}`);
+  console.log(`Courts available: ${courtsAvailable}`);
+  console.log(`Estimated player-matches per round: ${playerMatchesPerRound}`);
+  console.log(`REQUIRED ROUNDS: ${requiredRounds}`);
+  
+  // Target players per round to spread matches evenly across required rounds
+  const targetPlayersPerRound = Math.floor(totalMatchesNeeded / requiredRounds);
+  
+  console.log(`Target players per round: ${targetPlayersPerRound}`);
+  
+  // Generate exactly the required number of rounds
+  for (let roundNumber = 1; roundNumber <= requiredRounds + 1; roundNumber++) {
     // Find players who still need matches
     const playersNeedingMatches = players.filter(player => 
       playerMatchCounts[player.id] < matchesPerPlayer
     );
     
     if (playersNeedingMatches.length === 0) {
-      console.log('All players have completed their required matches');
+      console.log(`\nAll players completed after ${roundNumber - 1} rounds`);
       break;
     }
     
     console.log(`\nRound ${roundNumber}: ${playersNeedingMatches.length} players still need matches`);
     
-    // Generate a round using available courts efficiently
-    const roundData = generateEfficientRound(
-      playersNeedingMatches, 
-      settings, 
+    // Calculate how many players to include this round
+    const remainingRounds = requiredRounds - roundNumber + 1;
+    let targetPlayersThisRound;
+    
+    if (remainingRounds <= 1) {
+      // Last round - include everyone who needs matches
+      targetPlayersThisRound = playersNeedingMatches.length;
+    } else {
+      // Distribute remaining players across remaining rounds
+      const avgPlayersNeeded = Math.ceil(playersNeedingMatches.length / remainingRounds);
+      // But don't go below what we can actually field on available courts
+      const minPlayersForCourts = courtsAvailable * 2 * minPlayersPerTeam;
+      const maxPlayersForCourts = courtsAvailable * 2 * maxPlayersPerTeam;
+      
+      targetPlayersThisRound = Math.min(
+        Math.max(avgPlayersNeeded, minPlayersForCourts),
+        Math.min(maxPlayersForCourts, playersNeedingMatches.length)
+      );
+    }
+    
+    console.log(`  Target players this round: ${targetPlayersThisRound} (${remainingRounds} rounds remaining)`);
+    
+    // Generate round with target player count
+    const roundData = generateRoundWithTargetSize(
+      playersNeedingMatches,
+      targetPlayersThisRound,
+      settings,
       roundNumber,
       playerMatchCounts,
-      playerByeCount,
-      matchesPerPlayer
+      playerByeCount
     );
     
     if (!roundData || roundData.matches.length === 0) {
-      console.log(`Cannot generate meaningful matches for round ${roundNumber}`);
+      console.log(`Cannot generate matches for round ${roundNumber}`);
       break;
     }
     
-    // Update tracking for this round
+    // Update tracking
     updatePlayerTracking(roundData, playerMatchCounts, playerOpponents, playerByeCount);
     
     allRounds.push(roundData);
-    console.log(`Round ${roundNumber}: ${roundData.totalPlayingPlayers} playing (${roundData.teams.length} teams, ${roundData.matches.length} matches), ${roundData.totalByePlayers} bye`);
-    
-    roundNumber++;
+    console.log(`Round ${roundNumber}: ${roundData.totalPlayingPlayers} playing, ${roundData.totalByePlayers} bye, ${roundData.matches.length} matches`);
   }
   
-  // Final validation and logging
+  // Final validation
   console.log('\n=== Final Validation ===');
-  const incompleteRounds = [];
+  const incompleteMatches = [];
+  
   players.forEach(player => {
     const matches = playerMatchCounts[player.id];
     const byes = playerByeCount[player.id];
-    if (matches !== matchesPerPlayer) {
-      console.warn(`${player.name}: ${matches} matches (expected ${matchesPerPlayer}), ${byes} byes`);
-      incompleteRounds.push(player.name);
+    
+    if (matches < matchesPerPlayer) {
+      incompleteMatches.push(`${player.name}: ${matches}/${matchesPerPlayer} matches`);
     }
   });
   
-  if (incompleteRounds.length === 0) {
+  if (incompleteMatches.length === 0) {
     console.log('✅ All players completed their required matches!');
   } else {
-    console.error('ERROR: Some players still have incomplete matches:');
-    incompleteRounds.forEach(name => console.error(`- ${name}: ${playerMatchCounts[players.find(p => p.name === name).id]}/${matchesPerPlayer} matches`));
+    console.log('ERROR: Some players still have incomplete matches:');
+    incompleteMatches.forEach(msg => console.log(`- ${msg}`));
   }
+  
+  console.log(`Total rounds generated: ${allRounds.length}`);
   
   return allRounds;
 }
 
-function generateEfficientRound(playersNeedingMatches, settings, roundNumber, matchCounts, byeCounts, maxMatches) {
+function generateRoundWithTargetSize(playersNeedingMatches, targetPlayerCount, settings, roundNumber, matchCounts, byeCounts) {
   const { courtsAvailable, minPlayersPerTeam } = settings;
   const maxPlayersPerTeam = 6;
   
@@ -91,107 +129,105 @@ function generateEfficientRound(playersNeedingMatches, settings, roundNumber, ma
     const aByes = byeCounts[a.id];
     const bByes = byeCounts[b.id];
     
-    // Priority 1: Players with fewer matches
     if (aMatches !== bMatches) {
       return aMatches - bMatches;
     }
     
-    // Priority 2: Players with more byes (they should get priority to play)
     if (aByes !== bByes) {
       return bByes - aByes;
     }
     
-    // Priority 3: Random for variety
     return Math.random() - 0.5;
   });
   
-  // Simple strategy: Use all courts, create even teams
+  // Find the best team configuration for our target player count
+  let bestConfig = null;
+  let bestScore = -1;
+  
   const maxTeams = courtsAvailable * 2;
   
-  // Calculate optimal team size
-  let bestConfig = null;
-  let maxPlayersIncluded = 0;
-  
-  // Try different team sizes to maximize player inclusion
-  for (let teamSize = minPlayersPerTeam; teamSize <= maxPlayersPerTeam; teamSize++) {
-    for (let numTeams = 2; numTeams <= maxTeams; numTeams += 2) {
-      const totalPlayersNeeded = numTeams * teamSize;
+  // Try different team configurations
+  for (let numTeams = 2; numTeams <= maxTeams; numTeams += 2) {
+    for (let teamSize = minPlayersPerTeam; teamSize <= maxPlayersPerTeam; teamSize++) {
+      const totalPlayers = numTeams * teamSize;
       
-      if (totalPlayersNeeded <= prioritizedPlayers.length && totalPlayersNeeded > maxPlayersIncluded) {
-        maxPlayersIncluded = totalPlayersNeeded;
-        bestConfig = {
-          numTeams,
-          teamSize,
-          totalPlayers: totalPlayersNeeded
-        };
-      }
-    }
-  }
-  
-  // If no perfect fit, try mixed team sizes
-  if (!bestConfig || maxPlayersIncluded < prioritizedPlayers.length - 4) {
-    for (let numTeams = 2; numTeams <= maxTeams; numTeams += 2) {
-      const baseSize = minPlayersPerTeam;
-      const maxExtra = maxPlayersPerTeam - baseSize;
-      
-      // Try adding extra players up to the limit
-      for (let extraPlayers = 0; extraPlayers <= numTeams * maxExtra; extraPlayers++) {
-        const totalPlayers = numTeams * baseSize + extraPlayers;
+      if (totalPlayers <= prioritizedPlayers.length) {
+        // Score this configuration based on how close it is to our target
+        const targetDiff = Math.abs(totalPlayers - targetPlayerCount);
+        const score = 1000 - targetDiff * 10; // Prefer closer to target
         
-        if (totalPlayers <= prioritizedPlayers.length && totalPlayers > maxPlayersIncluded) {
-          maxPlayersIncluded = totalPlayers;
+        if (score > bestScore) {
+          bestScore = score;
           bestConfig = {
             numTeams,
-            teamSize: 'mixed',
-            baseSize,
-            extraPlayers,
-            totalPlayers
+            teamSize,
+            totalPlayers,
+            type: 'equal'
           };
         }
       }
     }
   }
   
+  // Also try mixed team sizes
+  for (let numTeams = 2; numTeams <= maxTeams; numTeams += 2) {
+    const minTotal = numTeams * minPlayersPerTeam;
+    const maxTotal = numTeams * maxPlayersPerTeam;
+    
+    // Try to hit our target exactly with mixed sizes
+    if (targetPlayerCount >= minTotal && targetPlayerCount <= maxTotal && targetPlayerCount <= prioritizedPlayers.length) {
+      const score = 1100; // Slight preference for exact target match
+      
+      if (score > bestScore) {
+        bestScore = score;
+        bestConfig = {
+          numTeams,
+          totalPlayers: targetPlayerCount,
+          type: 'mixed'
+        };
+      }
+    }
+  }
+  
   if (!bestConfig) {
-    console.log('No valid team configuration found');
+    console.log('  No valid configuration found');
     return null;
   }
   
-  console.log(`  Using ${bestConfig.numTeams} teams, ${bestConfig.totalPlayers} players (${prioritizedPlayers.length - bestConfig.totalPlayers} bye)`);
+  console.log(`  Using ${bestConfig.numTeams} teams, ${bestConfig.totalPlayers} players (${bestConfig.type} sizes)`);
   
-  // Create the round with this configuration
+  // Create teams based on configuration
   const playingPlayers = prioritizedPlayers.slice(0, bestConfig.totalPlayers);
   const byePlayers = prioritizedPlayers.slice(bestConfig.totalPlayers);
   
-  // Create teams
   const teams = [];
   
-  if (bestConfig.teamSize === 'mixed') {
-    // Mixed team sizes - distribute players as evenly as possible
-    const playersPerTeam = new Array(bestConfig.numTeams).fill(bestConfig.baseSize);
-    
-    // Distribute extra players
-    for (let i = 0; i < bestConfig.extraPlayers; i++) {
-      playersPerTeam[i % bestConfig.numTeams]++;
-    }
-    
-    // Create teams
-    let playerIndex = 0;
-    for (let i = 0; i < bestConfig.numTeams; i++) {
-      const teamPlayers = playingPlayers.slice(playerIndex, playerIndex + playersPerTeam[i]);
-      teams.push({ players: teamPlayers });
-      playerIndex += playersPerTeam[i];
-    }
-  } else {
+  if (bestConfig.type === 'equal') {
     // Equal team sizes
     for (let i = 0; i < bestConfig.numTeams; i++) {
       const startIdx = i * bestConfig.teamSize;
       const endIdx = startIdx + bestConfig.teamSize;
       teams.push({ players: playingPlayers.slice(startIdx, endIdx) });
     }
+  } else {
+    // Mixed team sizes to hit exact target
+    const baseSize = minPlayersPerTeam;
+    const totalExtra = bestConfig.totalPlayers - (bestConfig.numTeams * baseSize);
+    
+    // Distribute players
+    let playerIndex = 0;
+    for (let i = 0; i < bestConfig.numTeams; i++) {
+      const extraForThisTeam = Math.floor(totalExtra * (i + 1) / bestConfig.numTeams) - Math.floor(totalExtra * i / bestConfig.numTeams);
+      const teamSize = baseSize + extraForThisTeam;
+      
+      teams.push({ 
+        players: playingPlayers.slice(playerIndex, playerIndex + teamSize) 
+      });
+      playerIndex += teamSize;
+    }
   }
   
-  // Balance teams by gender and skill
+  // Balance teams
   balanceTeams(teams);
   
   // Create matches
@@ -227,7 +263,7 @@ function balanceTeams(teams) {
   const femaleNonSetters = shuffleArray(allPlayers.filter(p => p.gender === 'female' && !p.is_setter));
   const maleNonSetters = shuffleArray(allPlayers.filter(p => p.gender === 'male' && !p.is_setter));
   
-  // Clear existing team assignments and initialize counters
+  // Clear existing team assignments
   teams.forEach(team => {
     team.players = [];
     team.maleCount = 0;
@@ -235,7 +271,7 @@ function balanceTeams(teams) {
     team.setterCount = 0;
   });
   
-  // Distribute players evenly across teams
+  // Distribute players evenly
   [femaleSetters, maleSetters, femaleNonSetters, maleNonSetters].forEach(players => {
     distributePlayersEvenly(teams, players, players.length > 0 ? players[0].gender : 'male', players.length > 0 ? players[0].is_setter : false);
   });
@@ -243,24 +279,20 @@ function balanceTeams(teams) {
 
 function distributePlayersEvenly(teams, players, gender, isSetter) {
   for (let i = 0; i < players.length; i++) {
-    // Find the best team for this player
     const sortedTeams = [...teams].sort((a, b) => {
-      // Priority 1: Team with fewer players
       if (a.players.length !== b.players.length) {
         return a.players.length - b.players.length;
       }
       
-      // Priority 2: Better gender balance
-      const aGenderCount = gender === 'male' ? a.maleCount : a.femaleCount;
-      const bGenderCount = gender === 'male' ? b.maleCount : b.femaleCount;
+      const aGenderCount = gender === 'male' ? (a.maleCount || 0) : (a.femaleCount || 0);
+      const bGenderCount = gender === 'male' ? (b.maleCount || 0) : (b.femaleCount || 0);
       
       if (aGenderCount !== bGenderCount) {
         return aGenderCount - bGenderCount;
       }
       
-      // Priority 3: Setter balance if this is a setter
-      if (isSetter && a.setterCount !== b.setterCount) {
-        return a.setterCount - b.setterCount;
+      if (isSetter && (a.setterCount || 0) !== (b.setterCount || 0)) {
+        return (a.setterCount || 0) - (b.setterCount || 0);
       }
       
       return 0;
@@ -270,19 +302,18 @@ function distributePlayersEvenly(teams, players, gender, isSetter) {
     selectedTeam.players.push(players[i]);
     
     if (gender === 'male') {
-      selectedTeam.maleCount++;
+      selectedTeam.maleCount = (selectedTeam.maleCount || 0) + 1;
     } else {
-      selectedTeam.femaleCount++;
+      selectedTeam.femaleCount = (selectedTeam.femaleCount || 0) + 1;
     }
     
     if (isSetter) {
-      selectedTeam.setterCount++;
+      selectedTeam.setterCount = (selectedTeam.setterCount || 0) + 1;
     }
   }
 }
 
 function updatePlayerTracking(roundData, matchCounts, opponents, byeCounts) {
-  // Update match counts ONLY for players who actually play matches
   roundData.teams.forEach(team => {
     const teamHasMatch = roundData.matches.some(match => 
       match.team1 === team || match.team2 === team
@@ -292,7 +323,6 @@ function updatePlayerTracking(roundData, matchCounts, opponents, byeCounts) {
       team.players.forEach(player => {
         matchCounts[player.id]++;
         
-        // Track opponents
         team.players.forEach(teammate => {
           if (teammate.id !== player.id) {
             opponents[player.id].add(teammate.id);
@@ -302,7 +332,6 @@ function updatePlayerTracking(roundData, matchCounts, opponents, byeCounts) {
     }
   });
   
-  // Update bye counts
   if (roundData.byePlayers) {
     roundData.byePlayers.forEach(player => {
       byeCounts[player.id]++;
@@ -319,7 +348,7 @@ function shuffleArray(array) {
   return shuffled;
 }
 
-// Keep existing legacy functions unchanged
+// Legacy compatibility functions (keep unchanged)
 function generateTeams(players, settings, roundNumber) {
   return generateTeamsForRound(players, 2, settings, roundNumber);
 }
@@ -333,17 +362,14 @@ function generateTeamsForRound(players, targetTeams, settings, roundNumber) {
     throw new Error(`Not enough players (${players.length}) for ${targetTeams} teams`);
   }
   
-  // Calculate players per team
   const basePlayersPerTeam = Math.floor(players.length / targetTeams);
   const extraPlayers = players.length % targetTeams;
   
-  // Separate and shuffle players by category
   const femaleSetters = shuffleArray([...players.filter(p => p.gender === 'female' && p.is_setter)]);
   const maleSetters = shuffleArray([...players.filter(p => p.gender === 'male' && p.is_setter)]);
   const femaleNonSetters = shuffleArray([...players.filter(p => p.gender === 'female' && !p.is_setter)]);
   const maleNonSetters = shuffleArray([...players.filter(p => p.gender === 'male' && !p.is_setter)]);
   
-  // Create teams
   const teams = [];
   for (let i = 0; i < targetTeams; i++) {
     teams.push({
@@ -355,27 +381,20 @@ function generateTeamsForRound(players, targetTeams, settings, roundNumber) {
     });
   }
   
-  // Distribute players evenly across teams
   distributePlayersEvenly(teams, femaleSetters, 'female', true);
   distributePlayersEvenly(teams, maleSetters, 'male', true);
   distributePlayersEvenly(teams, femaleNonSetters, 'female', false);
   distributePlayersEvenly(teams, maleNonSetters, 'male', false);
   
-  // Validate all teams have players
   const validTeams = teams.filter(team => team.players.length > 0);
-  if (validTeams.length !== targetTeams) {
-    console.warn(`Expected ${targetTeams} teams, got ${validTeams.length} valid teams`);
-  }
   
-  // Create matches by pairing teams
   const matches = [];
   for (let i = 0; i < validTeams.length; i += 2) {
     if (i + 1 < validTeams.length) {
-      const court = Math.floor(i / 2) + 1;
       matches.push({
         team1: validTeams[i],
         team2: validTeams[i + 1],
-        court: court,
+        court: Math.floor(i / 2) + 1,
         isPowerMatch: false
       });
     }
