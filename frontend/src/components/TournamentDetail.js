@@ -512,9 +512,6 @@ function TournamentDetail({ user }) {
                                 {team.players?.map((player) => (
                                   <li key={player.id}>
                                     {player.name}
-                                    <span style={{ fontSize: '0.8rem', color: '#666', marginLeft: '0.5rem' }}>
-                                      ({player.skill_level}{player.is_setter ? ', Setter' : ''})
-                                    </span>
                                   </li>
                                 )) || []}
                               </ul>
