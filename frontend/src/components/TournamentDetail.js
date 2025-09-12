@@ -332,26 +332,42 @@ function TournamentDetail({ user }) {
                     <th>Rank</th>
                     <th>Player</th>
                     <th>Points</th>
-                    {completionResults.hasPayouts && <th>Payout</th>}
+                    <th>Payout</th>
                   </tr>
                 </thead>
                 <tbody>
                   {completionResults.standings
                     .filter(p => p.gender === 'male')
-                    .map((player, index) => (
-                      <tr key={player.name}>
-                        <td>{player.rank}</td>
-                        <td>{player.name}</td>
-                        <td>{player.total_points}</td>
-                        {completionResults.hasPayouts && (
-                          <td>
-                            {player.rank === 1 ? `$${completionResults.payouts.first}` :
-                             player.rank === 2 ? `$${completionResults.payouts.second}` :
-                             player.rank === 3 ? `$${completionResults.payouts.third}` : '$0'}
-                          </td>
-                        )}
-                      </tr>
-                    ))}
+                    .map((player, index) => {
+                      // Simple payout calculation based on rank
+                      let payout = '$0';
+                      const rank = Number(player.rank);
+                      
+                      if (completionResults.hasPayouts) {
+                        switch (rank) {
+                          case 1:
+                            payout = `$${completionResults.payouts.first}`;
+                            break;
+                          case 2:
+                            payout = `$${completionResults.payouts.second}`;
+                            break;
+                          case 3:
+                            payout = `$${completionResults.payouts.third}`;
+                            break;
+                          default:
+                            payout = '$0';
+                        }
+                      }
+                      
+                      return (
+                        <tr key={player.name}>
+                          <td>{rank}</td>
+                          <td>{player.name}</td>
+                          <td>{player.total_points}</td>
+                          <td><strong>{payout}</strong></td>
+                        </tr>
+                      );
+                    })}
                 </tbody>
               </table>
             </div>
@@ -363,26 +379,42 @@ function TournamentDetail({ user }) {
                     <th>Rank</th>
                     <th>Player</th>
                     <th>Points</th>
-                    {completionResults.hasPayouts && <th>Payout</th>}
+                    <th>Payout</th>
                   </tr>
                 </thead>
                 <tbody>
                   {completionResults.standings
                     .filter(p => p.gender === 'female')
-                    .map((player, index) => (
-                      <tr key={player.name}>
-                        <td>{player.rank}</td>
-                        <td>{player.name}</td>
-                        <td>{player.total_points}</td>
-                        {completionResults.hasPayouts && (
-                          <td>
-                            {player.rank === 1 ? `$${completionResults.payouts.first}` :
-                             player.rank === 2 ? `$${completionResults.payouts.second}` :
-                             player.rank === 3 ? `$${completionResults.payouts.third}` : '$0'}
-                          </td>
-                        )}
-                      </tr>
-                    ))}
+                    .map((player, index) => {
+                      // Simple payout calculation based on rank
+                      let payout = '$0';
+                      const rank = Number(player.rank);
+                      
+                      if (completionResults.hasPayouts) {
+                        switch (rank) {
+                          case 1:
+                            payout = `$${completionResults.payouts.first}`;
+                            break;
+                          case 2:
+                            payout = `$${completionResults.payouts.second}`;
+                            break;
+                          case 3:
+                            payout = `$${completionResults.payouts.third}`;
+                            break;
+                          default:
+                            payout = '$0';
+                        }
+                      }
+                      
+                      return (
+                        <tr key={player.name}>
+                          <td>{rank}</td>
+                          <td>{player.name}</td>
+                          <td>{player.total_points}</td>
+                          <td><strong>{payout}</strong></td>
+                        </tr>
+                      );
+                    })}
                 </tbody>
               </table>
             </div>
@@ -502,9 +534,6 @@ function TournamentDetail({ user }) {
                               {byeTeam.players?.map((player) => (
                                 <li key={player.id} style={{ color: '#856404' }}>
                                   {player.name}
-                                  <span style={{ fontSize: '0.8rem', color: '#6c757d', marginLeft: '0.5rem' }}>
-                                    ({player.skill_level}{player.is_setter ? ', Setter' : ''})
-                                  </span>
                                 </li>
                               )) || []}
                             </ul>
