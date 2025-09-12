@@ -17,7 +17,7 @@ function generateAllRounds(players, settings) {
   let roundNumber = 1;
   const maxRounds = Math.ceil(matchesPerPlayer * 2); // Safety limit
   
-  // Generate rounds until all players have played their required matches
+  // Generate regular rounds until most players have completed their matches
   while (roundNumber <= maxRounds) {
     // Find players who still need matches
     const playersNeedingMatches = players.filter(player => 
@@ -29,8 +29,12 @@ function generateAllRounds(players, settings) {
       break;
     }
     
-    if (playersNeedingMatches.length < minPlayersPerTeam * 2) {
-      console.log(`Only ${playersNeedingMatches.length} players need matches, cannot form minimum teams`);
+    // Check if we can form minimum team sizes
+    const canFormMinimumTeams = playersNeedingMatches.length >= minPlayersPerTeam * 2;
+    
+    if (!canFormMinimumTeams) {
+      console.log(`Regular round generation complete. ${playersNeedingMatches.length} players still need matches.`);
+      // Break out of regular round generation - we'll handle remaining players separately
       break;
     }
     
@@ -48,92 +52,235 @@ function generateAllRounds(players, settings) {
       break;
     }
     
-    // Calculate how many players will actually play
-    const maxPlayersThisRound = actualTeams * maxPlayersPerTeam;
-    const optimalPlayersThisRound = actualTeams * minPlayersPerTeam;
-    
-    // Select players for this round - prioritize those with fewer matches and byes
-    const selectedPlayers = selectPlayersForRound(
-      playersNeedingMatches,
-      Math.min(maxPlayersThisRound, playersNeedingMatches.length),
-      actualTeams,
-      minPlayersPerTeam,
-      maxPlayersPerTeam,
+    // Generate regular round
+    const roundData = generateRegularRound(
+      playersNeedingMatches, 
+      actualTeams, 
+      settings, 
+      roundNumber,
       playerMatchCounts,
       playerByeCount,
       matchesPerPlayer
     );
     
-    if (selectedPlayers.length < minPlayersPerTeam * 2) {
-      console.log(`Not enough selected players: ${selectedPlayers.length}`);
-      break;
-    }
-    
-    // Generate teams and matches for this round
-    const roundData = generateTeamsForRound(
-      selectedPlayers,
-      actualTeams,
-      settings,
-      roundNumber
-    );
-    
-    // Validate that we have matches - every team should have an opponent
-    if (roundData.matches.length !== actualTeams / 2) {
-      console.error(`Round ${roundNumber}: Expected ${actualTeams / 2} matches, got ${roundData.matches.length}`);
-      break;
-    }
-    
-    // Update match counts ONLY for players who actually play matches
-    roundData.teams.forEach(team => {
-      const teamHasMatch = roundData.matches.some(match => 
-        match.team1 === team || match.team2 === team
-      );
-      
-      if (teamHasMatch) {
-        team.players.forEach(player => {
-          playerMatchCounts[player.id]++;
-          
-          // Track opponents
-          team.players.forEach(teammate => {
-            if (teammate.id !== player.id) {
-              playerOpponents[player.id].add(teammate.id);
-            }
-          });
-        });
-      }
-    });
-    
-    // Calculate bye players
-    const playingPlayerIds = new Set(selectedPlayers.map(p => p.id));
-    const byePlayers = playersNeedingMatches.filter(p => !playingPlayerIds.has(p.id));
-    
-    // Update bye counts
-    byePlayers.forEach(player => {
-      playerByeCount[player.id]++;
-    });
-    
-    // Add bye information to round data
-    roundData.byePlayers = byePlayers;
-    roundData.totalByePlayers = byePlayers.length;
+    // Update tracking for regular round
+    updatePlayerTracking(roundData, playerMatchCounts, playerOpponents, playerByeCount);
     
     allRounds.push(roundData);
-    
-    console.log(`Round ${roundNumber}: ${selectedPlayers.length} playing (${roundData.teams.length} teams, ${roundData.matches.length} matches), ${byePlayers.length} bye`);
+    console.log(`Round ${roundNumber}: ${roundData.totalPlayingPlayers} playing (${roundData.teams.length} teams, ${roundData.matches.length} matches), ${roundData.totalByePlayers} bye`);
     
     roundNumber++;
   }
   
+  // Handle remaining players who need matches with makeup rounds
+  const remainingPlayersNeedingMatches = players.filter(player => 
+    playerMatchCounts[player.id] < matchesPerPlayer
+  );
+  
+  if (remainingPlayersNeedingMatches.length > 0) {
+    console.log(`\nGenerating makeup rounds for ${remainingPlayersNeedingMatches.length} remaining players...`);
+    
+    const makeupRounds = generateMakeupRounds(
+      remainingPlayersNeedingMatches,
+      settings,
+      roundNumber,
+      playerMatchCounts,
+      playerOpponents,
+      playerByeCount,
+      matchesPerPlayer
+    );
+    
+    allRounds.push(...makeupRounds);
+  }
+  
   // Final validation and logging
   console.log('\n=== Tournament Generation Summary ===');
+  const incompleteRounds = [];
   players.forEach(player => {
     const matches = playerMatchCounts[player.id];
     const byes = playerByeCount[player.id];
     if (matches !== matchesPerPlayer) {
       console.warn(`${player.name}: ${matches} matches (expected ${matchesPerPlayer}), ${byes} byes`);
+      incompleteRounds.push(player.name);
     }
   });
   
+  if (incompleteRounds.length === 0) {
+    console.log('✓ All players completed their required matches!');
+  }
+  
   return allRounds;
+}
+
+function generateRegularRound(playersNeedingMatches, targetTeams, settings, roundNumber, matchCounts, byeCounts, maxMatches) {
+  const { minPlayersPerTeam, maxPlayersPerTeam } = { minPlayersPerTeam: settings.minPlayersPerTeam, maxPlayersPerTeam: 6 };
+  
+  // Calculate how many players will actually play
+  const maxPlayersThisRound = targetTeams * maxPlayersPerTeam;
+  const optimalPlayersThisRound = targetTeams * minPlayersPerTeam;
+  
+  // Select players for this round
+  const selectedPlayers = selectPlayersForRound(
+    playersNeedingMatches,
+    Math.min(maxPlayersThisRound, playersNeedingMatches.length),
+    targetTeams,
+    minPlayersPerTeam,
+    maxPlayersPerTeam,
+    matchCounts,
+    byeCounts,
+    maxMatches
+  );
+  
+  // Generate teams and matches for this round
+  const roundData = generateTeamsForRound(
+    selectedPlayers,
+    targetTeams,
+    settings,
+    roundNumber
+  );
+  
+  // Calculate bye players
+  const playingPlayerIds = new Set(selectedPlayers.map(p => p.id));
+  const byePlayers = playersNeedingMatches.filter(p => !playingPlayerIds.has(p.id));
+  
+  // Add bye information to round data
+  roundData.byePlayers = byePlayers;
+  roundData.totalByePlayers = byePlayers.length;
+  
+  return roundData;
+}
+
+function generateMakeupRounds(remainingPlayers, settings, startingRoundNumber, matchCounts, opponents, byeCounts, matchesPerPlayer) {
+  const makeupRounds = [];
+  let roundNumber = startingRoundNumber;
+  const workingMatchCounts = { ...matchCounts };
+  
+  // Continue until all remaining players have their required matches
+  while (true) {
+    const stillNeedingMatches = remainingPlayers.filter(player => 
+      workingMatchCounts[player.id] < matchesPerPlayer
+    );
+    
+    if (stillNeedingMatches.length === 0) {
+      break;
+    }
+    
+    // Create makeup round with flexible team sizes
+    const makeupRound = createMakeupRound(
+      stillNeedingMatches, 
+      settings, 
+      roundNumber, 
+      workingMatchCounts,
+      matchesPerPlayer
+    );
+    
+    if (makeupRound.matches.length === 0) {
+      // Can't create any more meaningful matches
+      break;
+    }
+    
+    // Update match counts for players who played
+    makeupRound.teams.forEach(team => {
+      const teamHasMatch = makeupRound.matches.some(match => 
+        match.team1 === team || match.team2 === team
+      );
+      
+      if (teamHasMatch) {
+        team.players.forEach(player => {
+          workingMatchCounts[player.id]++;
+        });
+      }
+    });
+    
+    makeupRounds.push(makeupRound);
+    console.log(`Makeup Round ${roundNumber}: ${makeupRound.totalPlayingPlayers} playing (${makeupRound.teams.length} teams, ${makeupRound.matches.length} matches), ${makeupRound.totalByePlayers} bye`);
+    
+    roundNumber++;
+    
+    // Safety check
+    if (makeupRounds.length > 5) {
+      console.warn('Maximum makeup rounds reached');
+      break;
+    }
+  }
+  
+  return makeupRounds;
+}
+
+function createMakeupRound(playersNeedingMatches, settings, roundNumber, matchCounts, matchesPerPlayer) {
+  const minTeamSize = 3; // Flexible minimum for makeup rounds
+  const maxTeamSize = 6;
+  
+  // Sort players by priority (fewer matches first)
+  const sortedPlayers = [...playersNeedingMatches].sort((a, b) => {
+    return matchCounts[a.id] - matchCounts[b.id];
+  });
+  
+  // Try different team configurations to maximize matches
+  let bestConfiguration = null;
+  let maxMatches = 0;
+  
+  // Try configurations from 2 teams up to maximum possible
+  const maxPossibleTeams = Math.floor(sortedPlayers.length / minTeamSize);
+  
+  for (let numTeams = 2; numTeams <= Math.min(maxPossibleTeams, settings.courtsAvailable * 2); numTeams += 2) {
+    const playersPerTeam = Math.floor(sortedPlayers.length / numTeams);
+    
+    if (playersPerTeam >= minTeamSize && playersPerTeam <= maxTeamSize) {
+      const totalPlayingPlayers = numTeams * playersPerTeam;
+      const possibleMatches = numTeams / 2;
+      
+      if (possibleMatches > maxMatches) {
+        maxMatches = possibleMatches;
+        bestConfiguration = {
+          numTeams,
+          playersPerTeam,
+          totalPlayingPlayers
+        };
+      }
+    }
+  }
+  
+  if (!bestConfiguration) {
+    // Fallback: just try to get as many players as possible into teams
+    const numTeams = 2;
+    const playersPerTeam = Math.floor(sortedPlayers.length / 2);
+    
+    if (playersPerTeam >= minTeamSize) {
+      bestConfiguration = {
+        numTeams: 2,
+        playersPerTeam,
+        totalPlayingPlayers: 2 * playersPerTeam
+      };
+    }
+  }
+  
+  if (!bestConfiguration) {
+    return {
+      roundNumber,
+      teams: [],
+      matches: [],
+      byePlayers: sortedPlayers,
+      totalPlayingPlayers: 0,
+      totalByePlayers: sortedPlayers.length
+    };
+  }
+  
+  // Create the makeup round with the best configuration
+  const playingPlayers = sortedPlayers.slice(0, bestConfiguration.totalPlayingPlayers);
+  const byePlayers = sortedPlayers.slice(bestConfiguration.totalPlayingPlayers);
+  
+  const roundData = generateTeamsForRound(
+    playingPlayers,
+    bestConfiguration.numTeams,
+    settings,
+    roundNumber
+  );
+  
+  roundData.byePlayers = byePlayers;
+  roundData.totalByePlayers = byePlayers.length;
+  
+  return roundData;
 }
 
 function selectPlayersForRound(playersNeedingMatches, maxPlayers, targetTeams, minPerTeam, maxPerTeam, matchCounts, byeCounts, maxMatches) {
@@ -224,9 +371,36 @@ function generateTeamsForRound(players, targetTeams, settings, roundNumber) {
     teams: validTeams,
     matches,
     totalPlayingPlayers: players.length,
-    byePlayers: [], // Will be set by calling function
+    byePlayers: [],
     totalByePlayers: 0
   };
+}
+
+function updatePlayerTracking(roundData, matchCounts, opponents, byeCounts) {
+  // Update match counts ONLY for players who actually play matches
+  roundData.teams.forEach(team => {
+    const teamHasMatch = roundData.matches.some(match => 
+      match.team1 === team || match.team2 === team
+    );
+    
+    if (teamHasMatch) {
+      team.players.forEach(player => {
+        matchCounts[player.id]++;
+        
+        // Track opponents
+        team.players.forEach(teammate => {
+          if (teammate.id !== player.id) {
+            opponents[player.id].add(teammate.id);
+          }
+        });
+      });
+    }
+  });
+  
+  // Update bye counts
+  roundData.byePlayers.forEach(player => {
+    byeCounts[player.id]++;
+  });
 }
 
 function distributePlayersEvenly(teams, players, gender, isSetter) {
