@@ -6,7 +6,7 @@ function Header({ user, onLogout }) {
     <header className="header">
       <h1>
         <Link to="/" style={{ color: 'white', textDecoration: 'none' }}>
-          Volleyball Tournament Manager
+          Jeff's Mad Hatter Machine
         </Link>
       </h1>
       
