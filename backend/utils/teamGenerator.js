@@ -199,10 +199,9 @@ function generateRoundFromPlayers(playingPlayers, byePlayers, settings, roundNum
   
   // Create teams with optimal size distribution for better matching
   const selectedPlayers = playingPlayers.slice(0, bestConfig.totalPlayers);
-  const teams = createOptimalTeamSizes(selectedPlayers, bestConfig);
+  const teams = createOptimalTeamSizes(selectedPlayers, bestConfig, minPlayersPerTeam);
   
   // Balance teams
-  balanceTeams(teams);
   balanceTeams(teams);
   
   // Create matches with intelligent team size pairing
@@ -222,8 +221,7 @@ function generateRoundFromPlayers(playingPlayers, byePlayers, settings, roundNum
   };
 }
 
-function createOptimalTeamSizes(players, config) {
-  const { minPlayersPerTeam } = { minPlayersPerTeam: 5 }; // From settings
+function createOptimalTeamSizes(players, config, minPlayersPerTeam) {
   const maxPlayersPerTeam = 6;
   
   if (config.type === 'equal') {
@@ -346,6 +344,8 @@ function calculateMatchupScore(largeTeams, mediumTeams, smallTeams) {
   
   return score;
 }
+
+function createOptimalMatches(teams) {
   if (teams.length % 2 !== 0) {
     console.error(`Cannot create matches with odd number of teams: ${teams.length}`);
     return [];
