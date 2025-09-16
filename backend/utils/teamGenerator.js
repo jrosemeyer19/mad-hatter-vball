@@ -259,49 +259,132 @@ function balanceTeams(teams) {
   const allPlayers = [];
   teams.forEach(team => allPlayers.push(...team.players));
   
-  const femaleSetters = shuffleArray(allPlayers.filter(p => p.gender === 'female' && p.is_setter));
-  const maleSetters = shuffleArray(allPlayers.filter(p => p.gender === 'male' && p.is_setter));
-  const femaleNonSetters = shuffleArray(allPlayers.filter(p => p.gender === 'female' && !p.is_setter));
-  const maleNonSetters = shuffleArray(allPlayers.filter(p => p.gender === 'male' && !p.is_setter));
+  // Organize players by gender, skill level, and setter status for better distribution
+  const playerGroups = {
+    femaleSettersA: shuffleArray(allPlayers.filter(p => p.gender === 'female' && p.is_setter && p.skill_level === 'A')),
+    femaleSettersBB: shuffleArray(allPlayers.filter(p => p.gender === 'female' && p.is_setter && p.skill_level === 'BB')),
+    femaleSettersB: shuffleArray(allPlayers.filter(p => p.gender === 'female' && p.is_setter && p.skill_level === 'B')),
+    
+    maleSettersA: shuffleArray(allPlayers.filter(p => p.gender === 'male' && p.is_setter && p.skill_level === 'A')),
+    maleSettersBB: shuffleArray(allPlayers.filter(p => p.gender === 'male' && p.is_setter && p.skill_level === 'BB')),
+    maleSettersB: shuffleArray(allPlayers.filter(p => p.gender === 'male' && p.is_setter && p.skill_level === 'B')),
+    
+    femaleNonSettersA: shuffleArray(allPlayers.filter(p => p.gender === 'female' && !p.is_setter && p.skill_level === 'A')),
+    femaleNonSettersBB: shuffleArray(allPlayers.filter(p => p.gender === 'female' && !p.is_setter && p.skill_level === 'BB')),
+    femaleNonSettersB: shuffleArray(allPlayers.filter(p => p.gender === 'female' && !p.is_setter && p.skill_level === 'B')),
+    
+    maleNonSettersA: shuffleArray(allPlayers.filter(p => p.gender === 'male' && !p.is_setter && p.skill_level === 'A')),
+    maleNonSettersBB: shuffleArray(allPlayers.filter(p => p.gender === 'male' && !p.is_setter && p.skill_level === 'BB')),
+    maleNonSettersB: shuffleArray(allPlayers.filter(p => p.gender === 'male' && !p.is_setter && p.skill_level === 'B'))
+  };
   
-  // Clear teams
+  // Clear teams and initialize enhanced counters
   teams.forEach(team => {
     team.players = [];
     team.maleCount = 0;
     team.femaleCount = 0;
     team.setterCount = 0;
+    // Add skill level counters
+    team.skillA = 0;
+    team.skillBB = 0;
+    team.skillB = 0;
+    // Add gender+skill counters for better balancing
+    team.maleA = 0;
+    team.maleBB = 0;
+    team.maleB = 0;
+    team.femaleA = 0;
+    team.femaleBB = 0;
+    team.femaleB = 0;
   });
   
-  // Distribute players
-  [femaleSetters, maleSetters, femaleNonSetters, maleNonSetters].forEach(players => {
-    distributePlayersEvenly(teams, players, players.length > 0 ? players[0].gender : 'male', players.length > 0 ? players[0].is_setter : false);
+  // Distribute players in priority order:
+  // 1. Female setters (most important for balance)
+  // 2. Male setters  
+  // 3. High skill non-setters (A level)
+  // 4. Medium skill non-setters (BB level)
+  // 5. Lower skill non-setters (B level)
+  
+  const distributionOrder = [
+    // Female setters first (highest priority)
+    { players: playerGroups.femaleSettersA, gender: 'female', skill: 'A', setter: true },
+    { players: playerGroups.femaleSettersBB, gender: 'female', skill: 'BB', setter: true },
+    { players: playerGroups.femaleSettersB, gender: 'female', skill: 'B', setter: true },
+    
+    // Male setters second
+    { players: playerGroups.maleSettersA, gender: 'male', skill: 'A', setter: true },
+    { players: playerGroups.maleSettersBB, gender: 'male', skill: 'BB', setter: true },
+    { players: playerGroups.maleSettersB, gender: 'male', skill: 'B', setter: true },
+    
+    // A-level non-setters (high skill distribution priority)
+    { players: playerGroups.femaleNonSettersA, gender: 'female', skill: 'A', setter: false },
+    { players: playerGroups.maleNonSettersA, gender: 'male', skill: 'A', setter: false },
+    
+    // BB-level non-setters
+    { players: playerGroups.femaleNonSettersBB, gender: 'female', skill: 'BB', setter: false },
+    { players: playerGroups.maleNonSettersBB, gender: 'male', skill: 'BB', setter: false },
+    
+    // B-level non-setters (lowest priority but still balanced)
+    { players: playerGroups.femaleNonSettersB, gender: 'female', skill: 'B', setter: false },
+    { players: playerGroups.maleNonSettersB, gender: 'male', skill: 'B', setter: false }
+  ];
+  
+  // Distribute each group using enhanced balancing
+  distributionOrder.forEach(group => {
+    distributePlayersWithSkillBalance(teams, group.players, group.gender, group.skill, group.setter);
   });
 }
 
-function distributePlayersEvenly(teams, players, gender, isSetter) {
+function distributePlayersWithSkillBalance(teams, players, gender, skillLevel, isSetter) {
   for (let i = 0; i < players.length; i++) {
+    const player = players[i];
+    
+    // Sort teams by multiple balancing criteria
     const sortedTeams = [...teams].sort((a, b) => {
+      // Priority 1: Team with fewer total players
       if (a.players.length !== b.players.length) {
         return a.players.length - b.players.length;
       }
       
+      // Priority 2: Better setter balance (if this is a setter)
+      if (isSetter && a.setterCount !== b.setterCount) {
+        return a.setterCount - b.setterCount;
+      }
+      
+      // Priority 3: Better skill level distribution for this specific skill
+      const aSkillCount = getSkillCount(a, skillLevel);
+      const bSkillCount = getSkillCount(b, skillLevel);
+      if (aSkillCount !== bSkillCount) {
+        return aSkillCount - bSkillCount;
+      }
+      
+      // Priority 4: Better gender+skill combination balance
+      const aGenderSkillCount = getGenderSkillCount(a, gender, skillLevel);
+      const bGenderSkillCount = getGenderSkillCount(b, gender, skillLevel);
+      if (aGenderSkillCount !== bGenderSkillCount) {
+        return aGenderSkillCount - bGenderSkillCount;
+      }
+      
+      // Priority 5: Better overall gender balance
       const aGenderCount = gender === 'male' ? (a.maleCount || 0) : (a.femaleCount || 0);
       const bGenderCount = gender === 'male' ? (b.maleCount || 0) : (b.femaleCount || 0);
-      
       if (aGenderCount !== bGenderCount) {
         return aGenderCount - bGenderCount;
       }
       
-      if (isSetter && (a.setterCount || 0) !== (b.setterCount || 0)) {
-        return (a.setterCount || 0) - (b.setterCount || 0);
+      // Priority 6: Overall skill balance
+      const aOverallSkill = (a.skillA || 0) * 3 + (a.skillBB || 0) * 2 + (a.skillB || 0) * 1;
+      const bOverallSkill = (b.skillA || 0) * 3 + (b.skillBB || 0) * 2 + (b.skillB || 0) * 1;
+      if (aOverallSkill !== bOverallSkill) {
+        return aOverallSkill - bOverallSkill;
       }
       
       return 0;
     });
     
     const selectedTeam = sortedTeams[0];
-    selectedTeam.players.push(players[i]);
+    selectedTeam.players.push(player);
     
+    // Update all counters
     if (gender === 'male') {
       selectedTeam.maleCount = (selectedTeam.maleCount || 0) + 1;
     } else {
@@ -310,6 +393,61 @@ function distributePlayersEvenly(teams, players, gender, isSetter) {
     
     if (isSetter) {
       selectedTeam.setterCount = (selectedTeam.setterCount || 0) + 1;
+    }
+    
+    // Update skill level counters
+    if (skillLevel === 'A') {
+      selectedTeam.skillA = (selectedTeam.skillA || 0) + 1;
+    } else if (skillLevel === 'BB') {
+      selectedTeam.skillBB = (selectedTeam.skillBB || 0) + 1;
+    } else if (skillLevel === 'B') {
+      selectedTeam.skillB = (selectedTeam.skillB || 0) + 1;
+    }
+    
+    // Update gender+skill counters
+    if (gender === 'male') {
+      if (skillLevel === 'A') {
+        selectedTeam.maleA = (selectedTeam.maleA || 0) + 1;
+      } else if (skillLevel === 'BB') {
+        selectedTeam.maleBB = (selectedTeam.maleBB || 0) + 1;
+      } else if (skillLevel === 'B') {
+        selectedTeam.maleB = (selectedTeam.maleB || 0) + 1;
+      }
+    } else {
+      if (skillLevel === 'A') {
+        selectedTeam.femaleA = (selectedTeam.femaleA || 0) + 1;
+      } else if (skillLevel === 'BB') {
+        selectedTeam.femaleBB = (selectedTeam.femaleBB || 0) + 1;
+      } else if (skillLevel === 'B') {
+        selectedTeam.femaleB = (selectedTeam.femaleB || 0) + 1;
+      }
+    }
+  }
+}
+
+function getSkillCount(team, skillLevel) {
+  switch (skillLevel) {
+    case 'A': return team.skillA || 0;
+    case 'BB': return team.skillBB || 0;
+    case 'B': return team.skillB || 0;
+    default: return 0;
+  }
+}
+
+function getGenderSkillCount(team, gender, skillLevel) {
+  if (gender === 'male') {
+    switch (skillLevel) {
+      case 'A': return team.maleA || 0;
+      case 'BB': return team.maleBB || 0;
+      case 'B': return team.maleB || 0;
+      default: return 0;
+    }
+  } else {
+    switch (skillLevel) {
+      case 'A': return team.femaleA || 0;
+      case 'BB': return team.femaleBB || 0;
+      case 'B': return team.femaleB || 0;
+      default: return 0;
     }
   }
 }
