@@ -700,4 +700,136 @@ router.delete('/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// Re-generate teams (authenticated users only) - NEW ROUTE
+router.post('/:id/regenerate', authenticateToken, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    
+    const { id } = req.params;
+    
+    // Get tournament and validate
+    const tournamentResult = await client.query('SELECT * FROM tournaments WHERE id = $1', [id]);
+    if (tournamentResult.rows.length === 0) {
+      return res.status(404).json({ message: 'Tournament not found' });
+    }
+    
+    const tournament = tournamentResult.rows[0];
+    if (tournament.status === 'completed') {
+      return res.status(400).json({ message: 'Cannot regenerate completed tournaments' });
+    }
+    
+    if (tournament.status === 'setup') {
+      return res.status(400).json({ message: 'Tournament has not been started yet' });
+    }
+    
+    console.log(`\n=== Regenerating Tournament ${id} ===`);
+    
+    // Step 1: Delete all existing rounds, teams, and matches (but keep players and their original data)
+    await client.query('DELETE FROM matches WHERE round_id IN (SELECT id FROM rounds WHERE tournament_id = $1)', [id]);
+    await client.query('DELETE FROM team_players WHERE team_id IN (SELECT id FROM teams WHERE round_id IN (SELECT id FROM rounds WHERE tournament_id = $1))', [id]);
+    await client.query('DELETE FROM teams WHERE round_id IN (SELECT id FROM rounds WHERE tournament_id = $1)', [id]);
+    await client.query('DELETE FROM rounds WHERE tournament_id = $1', [id]);
+    
+    // Step 2: Reset all player match counts and points to zero
+    await client.query('UPDATE players SET matches_played = 0, total_points = 0 WHERE tournament_id = $1', [id]);
+    
+    console.log('Cleared existing tournament structure and reset player stats');
+    
+    // Step 3: Get players for regeneration
+    const playersResult = await client.query('SELECT * FROM players WHERE tournament_id = $1', [id]);
+    const players = playersResult.rows;
+    
+    if (players.length < tournament.min_players_per_team * 2) {
+      return res.status(400).json({ message: 'Not enough players to regenerate tournament' });
+    }
+    
+    // Step 4: Generate new tournament structure
+    const settings = {
+      courtsAvailable: tournament.courts_available,
+      minPlayersPerTeam: tournament.min_players_per_team,
+      matchesPerPlayer: tournament.matches_per_player,
+      hasPowerMatch: tournament.has_power_match
+    };
+    
+    console.log(`Regenerating with ${players.length} players`);
+    const allRounds = generateAllRounds(players, settings);
+    console.log(`Generated ${allRounds.length} new rounds`);
+    
+    // Step 5: Create new rounds, teams, and matches in database
+    for (let roundIndex = 0; roundIndex < allRounds.length; roundIndex++) {
+      const roundData = allRounds[roundIndex];
+      
+      // Create round
+      const roundResult = await client.query(`
+        INSERT INTO rounds (tournament_id, round_number) 
+        VALUES ($1, $2) RETURNING id
+      `, [id, roundData.roundNumber]);
+      const roundId = roundResult.rows[0].id;
+      
+      // Create playing teams
+      const teamIdMap = {};
+      for (let i = 0; i < roundData.teams.length; i++) {
+        const team = roundData.teams[i];
+        const teamResult = await client.query(`
+          INSERT INTO teams (round_id, team_number, court, is_bye_team) 
+          VALUES ($1, $2, $3, false) RETURNING id
+        `, [roundId, i + 1, Math.floor(i / 2) + 1]);
+        
+        const teamId = teamResult.rows[0].id;
+        teamIdMap[i] = teamId;
+        
+        // Assign players to team
+        for (const player of team.players) {
+          await client.query(`
+            INSERT INTO team_players (team_id, player_id) VALUES ($1, $2)
+          `, [teamId, player.id]);
+        }
+      }
+      
+      // Create bye team if needed
+      if (roundData.byePlayers && roundData.byePlayers.length > 0) {
+        const byeTeamResult = await client.query(`
+          INSERT INTO teams (round_id, team_number, court, is_bye_team) 
+          VALUES ($1, $2, NULL, true) RETURNING id
+        `, [roundId, roundData.teams.length + 1]);
+        
+        const byeTeamId = byeTeamResult.rows[0].id;
+        
+        for (const player of roundData.byePlayers) {
+          await client.query(`
+            INSERT INTO team_players (team_id, player_id) VALUES ($1, $2)
+          `, [byeTeamId, player.id]);
+        }
+      }
+      
+      // Create matches
+      for (let matchIndex = 0; matchIndex < roundData.matches.length; matchIndex++) {
+        const match = roundData.matches[matchIndex];
+        const team1Index = roundData.teams.indexOf(match.team1);
+        const team2Index = roundData.teams.indexOf(match.team2);
+        
+        await client.query(`
+          INSERT INTO matches (round_id, team1_id, team2_id, court) 
+          VALUES ($1, $2, $3, $4)
+        `, [roundId, teamIdMap[team1Index], teamIdMap[team2Index], match.court]);
+      }
+    }
+    
+    await client.query('COMMIT');
+    console.log('Tournament regeneration completed successfully');
+    
+    res.json({ 
+      message: 'Tournament teams regenerated successfully',
+      roundsGenerated: allRounds.length
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error regenerating tournament:', error);
+    res.status(500).json({ message: 'Server error: ' + error.message });
+  } finally {
+    client.release();
+  }
+});
+
 module.exports = router;

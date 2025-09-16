@@ -147,6 +147,37 @@ function TournamentDetail({ user }) {
     }
   };
 
+  const regenerateTeams = async () => {
+    if (!user) {
+      setError('You must be logged in to regenerate teams');
+      return;
+    }
+
+    const confirmMessage = `Are you sure you want to regenerate all teams for this tournament?
+
+This will:
+- Delete ALL existing teams and matches
+- Reset all player scores to 0
+- Generate completely new team assignments
+- Lose all match results entered so far
+
+This action cannot be undone.`;
+
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await axios.post(`/api/tournaments/${id}/regenerate`);
+      await fetchTournamentData(); // Refresh the tournament data
+    } catch (error) {
+      setError(error.response?.data?.message || 'Failed to regenerate teams');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const getTeamPlayers = (teamId, roundNumber) => {
     const round = rounds.find(r => r.round_number === roundNumber);
     if (!round || !round.teams) return [];
@@ -226,6 +257,16 @@ function TournamentDetail({ user }) {
                   >
                     Continue Setup
                   </Link>
+                )}
+                {tournament.status === 'in_progress' && user && (
+                  <button 
+                    className="btn btn-secondary"
+                    onClick={regenerateTeams}
+                    disabled={loading}
+                    title="Regenerate all teams and matches"
+                  >
+                    Re-generate Teams
+                  </button>
                 )}
                 {tournament.status === 'in_progress' && user && allRoundsComplete() && (
                   <button 
