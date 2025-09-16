@@ -228,18 +228,8 @@ function generateRoundFromPlayers(playingPlayers, byePlayers, settings, roundNum
   // Balance teams
   balanceTeams(teams);
   
-  // Create matches
-  const matches = [];
-  for (let i = 0; i < teams.length; i += 2) {
-    if (i + 1 < teams.length) {
-      matches.push({
-        team1: teams[i],
-        team2: teams[i + 1],
-        court: Math.floor(i / 2) + 1,
-        isPowerMatch: false
-      });
-    }
-  }
+  // Create matches with intelligent team size pairing
+  const matches = createOptimalMatches(teams);
   
   // Add any remaining players to bye list
   const remainingPlayers = playingPlayers.slice(bestConfig.totalPlayers);
@@ -253,6 +243,72 @@ function generateRoundFromPlayers(playingPlayers, byePlayers, settings, roundNum
     totalPlayingPlayers: selectedPlayers.length,
     totalByePlayers: allByePlayers.length
   };
+}
+
+function createOptimalMatches(teams) {
+  if (teams.length % 2 !== 0) {
+    console.error(`Cannot create matches with odd number of teams: ${teams.length}`);
+    return [];
+  }
+  
+  // Group teams by size
+  const teamsBySize = {};
+  teams.forEach(team => {
+    const size = team.players.length;
+    if (!teamsBySize[size]) {
+      teamsBySize[size] = [];
+    }
+    teamsBySize[size].push(team);
+  });
+  
+  console.log(`  Team sizes: ${Object.keys(teamsBySize).map(size => `${teamsBySize[size].length}x${size}`).join(', ')}`);
+  
+  const matches = [];
+  const usedTeams = new Set();
+  let courtNumber = 1;
+  
+  // First pass: Create matches between teams of equal sizes
+  Object.keys(teamsBySize).forEach(size => {
+    const teamsOfThisSize = teamsBySize[size].filter(team => !usedTeams.has(team));
+    
+    // Pair teams of the same size
+    for (let i = 0; i < teamsOfThisSize.length - 1; i += 2) {
+      if (!usedTeams.has(teamsOfThisSize[i]) && !usedTeams.has(teamsOfThisSize[i + 1])) {
+        matches.push({
+          team1: teamsOfThisSize[i],
+          team2: teamsOfThisSize[i + 1],
+          court: courtNumber,
+          isPowerMatch: false
+        });
+        
+        usedTeams.add(teamsOfThisSize[i]);
+        usedTeams.add(teamsOfThisSize[i + 1]);
+        courtNumber++;
+        
+        console.log(`    Match ${matches.length}: ${size}v${size} on Court ${courtNumber - 1}`);
+      }
+    }
+  });
+  
+  // Second pass: Pair remaining teams (will be mixed sizes)
+  const remainingTeams = teams.filter(team => !usedTeams.has(team));
+  
+  for (let i = 0; i < remainingTeams.length - 1; i += 2) {
+    matches.push({
+      team1: remainingTeams[i],
+      team2: remainingTeams[i + 1],
+      court: courtNumber,
+      isPowerMatch: false
+    });
+    
+    courtNumber++;
+    
+    const size1 = remainingTeams[i].players.length;
+    const size2 = remainingTeams[i + 1].players.length;
+    console.log(`    Match ${matches.length}: ${size1}v${size2} on Court ${courtNumber - 1}`);
+  }
+  
+  return matches;
 }
 
 function balanceTeams(teams) {
@@ -452,6 +508,15 @@ function getGenderSkillCount(team, gender, skillLevel) {
   }
 }
 
+// Legacy function kept for compatibility in generateTeamsForRound
+function distributePlayersEvenly(teams, players, gender, isSetter) {
+  // Use the enhanced skill-based distribution for better balance
+  if (players.length > 0) {
+    const skillLevel = players[0].skill_level || 'B'; // Default to B if not specified
+    distributePlayersWithSkillBalance(teams, players, gender, skillLevel, isSetter);
+  }
+}
+
 function shuffleArray(array) {
   const shuffled = [...array];
   for (let i = shuffled.length - 1; i > 0; i--) {
@@ -501,17 +566,8 @@ function generateTeamsForRound(players, targetTeams, settings, roundNumber) {
   
   const validTeams = teams.filter(team => team.players.length > 0);
   
-  const matches = [];
-  for (let i = 0; i < validTeams.length; i += 2) {
-    if (i + 1 < validTeams.length) {
-      matches.push({
-        team1: validTeams[i],
-        team2: validTeams[i + 1],
-        court: Math.floor(i / 2) + 1,
-        isPowerMatch: false
-      });
-    }
-  }
+  // Use the new optimal match creation here too
+  const matches = createOptimalMatches(validTeams);
   
   return {
     roundNumber,
