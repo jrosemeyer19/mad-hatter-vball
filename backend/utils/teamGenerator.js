@@ -197,35 +197,12 @@ function generateRoundFromPlayers(playingPlayers, byePlayers, settings, roundNum
   
   console.log(`  Using ${bestConfig.numTeams} teams, ${bestConfig.totalPlayers}/${playingPlayers.length} players`);
   
-  // Create teams
+  // Create teams with optimal size distribution for better matching
   const selectedPlayers = playingPlayers.slice(0, bestConfig.totalPlayers);
-  const teams = [];
-  
-  if (bestConfig.type === 'equal') {
-    // Equal team sizes
-    for (let i = 0; i < bestConfig.numTeams; i++) {
-      const startIdx = i * bestConfig.teamSize;
-      const endIdx = startIdx + bestConfig.teamSize;
-      teams.push({ players: selectedPlayers.slice(startIdx, endIdx) });
-    }
-  } else {
-    // Mixed team sizes
-    const baseSize = minPlayersPerTeam;
-    const totalExtra = bestConfig.totalPlayers - (bestConfig.numTeams * baseSize);
-    
-    let playerIndex = 0;
-    for (let i = 0; i < bestConfig.numTeams; i++) {
-      const extraForThisTeam = Math.floor(totalExtra * (i + 1) / bestConfig.numTeams) - Math.floor(totalExtra * i / bestConfig.numTeams);
-      const teamSize = baseSize + extraForThisTeam;
-      
-      teams.push({ 
-        players: selectedPlayers.slice(playerIndex, playerIndex + teamSize) 
-      });
-      playerIndex += teamSize;
-    }
-  }
+  const teams = createOptimalTeamSizes(selectedPlayers, bestConfig);
   
   // Balance teams
+  balanceTeams(teams);
   balanceTeams(teams);
   
   // Create matches with intelligent team size pairing
@@ -245,7 +222,130 @@ function generateRoundFromPlayers(playingPlayers, byePlayers, settings, roundNum
   };
 }
 
-function createOptimalMatches(teams) {
+function createOptimalTeamSizes(players, config) {
+  const { minPlayersPerTeam } = { minPlayersPerTeam: 5 }; // From settings
+  const maxPlayersPerTeam = 6;
+  
+  if (config.type === 'equal') {
+    // Simple equal teams
+    const teams = [];
+    for (let i = 0; i < config.numTeams; i++) {
+      const startIdx = i * config.teamSize;
+      const endIdx = startIdx + config.teamSize;
+      teams.push({ players: players.slice(startIdx, endIdx) });
+    }
+    return teams;
+  }
+  
+  // Mixed team sizes - optimize for better matchup potential
+  const numTeams = config.numTeams;
+  const totalPlayers = config.totalPlayers;
+  
+  // Calculate how many teams of each size to create for optimal matching
+  const teamSizes = calculateOptimalTeamSizes(totalPlayers, numTeams, minPlayersPerTeam, maxPlayersPerTeam);
+  
+  console.log(`    Optimal team size distribution: ${teamSizes.map(size => `${size}`).join(', ')}`);
+  
+  // Create teams with the calculated sizes
+  const teams = [];
+  let playerIndex = 0;
+  
+  for (let i = 0; i < numTeams; i++) {
+    const teamSize = teamSizes[i];
+    teams.push({
+      players: players.slice(playerIndex, playerIndex + teamSize)
+    });
+    playerIndex += teamSize;
+  }
+  
+  return teams;
+}
+
+function calculateOptimalTeamSizes(totalPlayers, numTeams, minSize, maxSize) {
+  // Try to create team sizes that will result in the most even matchups
+  // Priority: maximize teams that can be paired evenly
+  
+  const teamSizes = new Array(numTeams).fill(minSize);
+  let remainingPlayers = totalPlayers - (numTeams * minSize);
+  
+  // Distribute extra players to create optimal pairing potential
+  // Strategy: try to create even numbers of each team size
+  
+  // First, figure out what sizes are possible
+  const possibleConfigurations = [];
+  
+  // Try different distributions of team sizes
+  for (let largeTeams = 0; largeTeams <= Math.min(numTeams, Math.floor(remainingPlayers / (maxSize - minSize))); largeTeams++) {
+    const playersInLargeTeams = largeTeams * (maxSize - minSize);
+    const playersLeft = remainingPlayers - playersInLargeTeams;
+    
+    // Can we distribute the remaining players evenly among the remaining teams?
+    const remainingTeams = numTeams - largeTeams;
+    if (playersLeft >= 0 && (remainingTeams === 0 || playersLeft <= remainingTeams)) {
+      // This is a valid configuration
+      const score = calculateMatchupScore(largeTeams, remainingTeams - playersLeft, playersLeft);
+      possibleConfigurations.push({
+        largeTeams,
+        mediumTeams: remainingTeams - playersLeft,
+        smallTeams: playersLeft,
+        score
+      });
+    }
+  }
+  
+  // Pick the configuration with the best matchup potential
+  possibleConfigurations.sort((a, b) => b.score - a.score);
+  const bestConfig = possibleConfigurations[0];
+  
+  if (!bestConfig) {
+    // Fallback: distribute evenly
+    for (let i = 0; i < remainingPlayers; i++) {
+      teamSizes[i % numTeams]++;
+    }
+  } else {
+    // Apply the optimal configuration
+    const sizes = [];
+    
+    // Add large teams (maxSize)
+    for (let i = 0; i < bestConfig.largeTeams; i++) {
+      sizes.push(maxSize);
+    }
+    
+    // Add medium teams (minSize + 1)
+    for (let i = 0; i < bestConfig.mediumTeams; i++) {
+      sizes.push(minSize + 1);
+    }
+    
+    // Add small teams (minSize)
+    for (let i = 0; i < bestConfig.smallTeams; i++) {
+      sizes.push(minSize);
+    }
+    
+    return sizes;
+  }
+  
+  return teamSizes;
+}
+
+function calculateMatchupScore(largeTeams, mediumTeams, smallTeams) {
+  // Score based on how many even pairings we can make
+  let score = 0;
+  
+  // Large teams (size 6) - pairs give us 6v6 matches
+  score += Math.floor(largeTeams / 2) * 100; // High score for 6v6 matches
+  
+  // Medium teams (size 5) - pairs give us 5v5 matches  
+  score += Math.floor(mediumTeams / 2) * 90; // High score for 5v5 matches
+  
+  // Small teams (size 5) - also pair for 5v5 matches
+  score += Math.floor(smallTeams / 2) * 90;
+  
+  // Bonus for having even numbers (no leftover teams)
+  if (largeTeams % 2 === 0) score += 10;
+  if ((mediumTeams + smallTeams) % 2 === 0) score += 10;
+  
+  return score;
+}
   if (teams.length % 2 !== 0) {
     console.error(`Cannot create matches with odd number of teams: ${teams.length}`);
     return [];
