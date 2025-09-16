@@ -14,6 +14,7 @@ function TournamentDetail({ user }) {
   const [scoreInputs, setScoreInputs] = useState({});
   const [completionResults, setCompletionResults] = useState(null);
   const [editingMatch, setEditingMatch] = useState(null);
+  const [showPlayerDetails, setShowPlayerDetails] = useState(false);
 
   useEffect(() => {
     fetchTournamentData();
@@ -293,6 +294,19 @@ function TournamentDetail({ user }) {
               </button>
             </div>
           )}
+          {/* Player Details Toggle - Only for authenticated users */}
+          {user && rounds.length > 0 && (
+            <div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem' }}>
+                <input
+                  type="checkbox"
+                  checked={showPlayerDetails}
+                  onChange={(e) => setShowPlayerDetails(e.target.checked)}
+                />
+                Show player details in teams
+              </label>
+            </div>
+          )}
         </div>
       </div>
 
@@ -534,6 +548,11 @@ function TournamentDetail({ user }) {
                                 {team.players?.map((player) => (
                                   <li key={player.id}>
                                     {player.name}
+                                    {showPlayerDetails && (
+                                      <div style={{ fontSize: '0.8rem', color: '#666', marginTop: '0.2rem' }}>
+                                        {player.gender} • {player.skill_level}{player.is_setter ? ' • Setter' : ''}
+                                      </div>
+                                    )}
                                   </li>
                                 )) || []}
                               </ul>
@@ -553,6 +572,11 @@ function TournamentDetail({ user }) {
                               {byePlayers.map((player) => (
                                 <li key={player.id} style={{ color: '#856404' }}>
                                   {player.name}
+                                  {showPlayerDetails && (
+                                    <div style={{ fontSize: '0.8rem', color: '#856404', opacity: 0.8, marginTop: '0.2rem' }}>
+                                      {player.gender} • {player.skill_level}{player.is_setter ? ' • Setter' : ''}
+                                    </div>
+                                  )}
                                 </li>
                               ))}
                             </ul>
@@ -582,7 +606,14 @@ function TournamentDetail({ user }) {
                                   <strong>Team 1</strong>
                                   <ul style={{ listStyle: 'none', fontSize: '0.9rem', marginTop: '0.5rem' }}>
                                     {team1Players.map(p => (
-                                      <li key={p.id}>{p.name}</li>
+                                      <li key={p.id}>
+                                        {p.name}
+                                        {showPlayerDetails && (
+                                          <div style={{ fontSize: '0.75rem', color: '#666', marginTop: '0.1rem' }}>
+                                            {p.gender} • {p.skill_level}{p.is_setter ? ' • Setter' : ''}
+                                          </div>
+                                        )}
+                                      </li>
                                     ))}
                                   </ul>
                                 </div>
@@ -595,7 +626,14 @@ function TournamentDetail({ user }) {
                                   <strong>Team 2</strong>
                                   <ul style={{ listStyle: 'none', fontSize: '0.9rem', marginTop: '0.5rem' }}>
                                     {team2Players.map(p => (
-                                      <li key={p.id}>{p.name}</li>
+                                      <li key={p.id}>
+                                        {p.name}
+                                        {showPlayerDetails && (
+                                          <div style={{ fontSize: '0.75rem', color: '#666', marginTop: '0.1rem' }}>
+                                            {p.gender} • {p.skill_level}{p.is_setter ? ' • Setter' : ''}
+                                          </div>
+                                        )}
+                                      </li>
                                     ))}
                                   </ul>
                                 </div>
