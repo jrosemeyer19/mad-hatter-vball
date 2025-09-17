@@ -15,6 +15,7 @@ function TournamentDetail({ user }) {
   const [completionResults, setCompletionResults] = useState(null);
   const [editingMatch, setEditingMatch] = useState(null);
   const [showPlayerDetails, setShowPlayerDetails] = useState(false);
+  const [showPayouts, setShowPayouts] = useState(false);
 
   useEffect(() => {
     fetchTournamentData();
@@ -351,143 +352,177 @@ This action cannot be undone.`;
         </div>
       </div>
 
-      {/* Tournament Completion Results */}
-      {completionResults && (
-        <div className="card">
-          <h2>Tournament Results</h2>
-          
-          {/* Prize Pool Information */}
-          <div style={{ 
-            backgroundColor: completionResults.hasPayouts ? '#d4edda' : '#fff3cd', 
-            border: `1px solid ${completionResults.hasPayouts ? '#c3e6cb' : '#ffeaa7'}`,
-            padding: '1rem', 
-            borderRadius: '4px', 
-            marginBottom: '1rem' 
-          }}>
-            <h4>Prize Pool Information</h4>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-              <div><strong>Entry Fee per Player:</strong> ${completionResults.tournament.entry_fee}</div>
-              <div><strong>Total Players:</strong> {completionResults.standings.length}</div>
-              <div><strong>Director Cost:</strong> ${completionResults.tournament.director_cost}</div>
-              <div><strong>Total Prize Pool:</strong> ${completionResults.totalPool}</div>
-            </div>
-            {!completionResults.hasPayouts && (
-              <div style={{ marginTop: '0.5rem', fontStyle: 'italic', color: '#856404' }}>
-                No prize money to distribute (entry fee is $0 or insufficient to cover director costs)
-              </div>
-            )}
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
-            <div>
-              <h3>Male Results</h3>
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Rank</th>
-                    <th>Player</th>
-                    <th>Points</th>
-                    <th>Payout</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {completionResults.standings
-                    .filter(p => p.gender === 'male')
-                    .map((player, index) => {
-                      // Simple payout calculation based on rank
-                      let payout = '$0';
-                      const rank = Number(player.rank);
-                      
-                      if (completionResults.hasPayouts) {
-                        switch (rank) {
-                          case 1:
-                            payout = `$${completionResults.payouts.first}`;
-                            break;
-                          case 2:
-                            payout = `$${completionResults.payouts.second}`;
-                            break;
-                          case 3:
-                            payout = `$${completionResults.payouts.third}`;
-                            break;
-                          default:
-                            payout = '$0';
-                        }
-                      }
-                      
-                      return (
-                        <tr key={player.name}>
-                          <td>{rank}</td>
-                          <td>{player.name}</td>
-                          <td>{player.total_points}</td>
-                          <td><strong>{payout}</strong></td>
-                        </tr>
-                      );
-                    })}
-                </tbody>
-              </table>
-            </div>
-            <div>
-              <h3>Female Results</h3>
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Rank</th>
-                    <th>Player</th>
-                    <th>Points</th>
-                    <th>Payout</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {completionResults.standings
-                    .filter(p => p.gender === 'female')
-                    .map((player, index) => {
-                      // Simple payout calculation based on rank
-                      let payout = '$0';
-                      const rank = Number(player.rank);
-                      
-                      if (completionResults.hasPayouts) {
-                        switch (rank) {
-                          case 1:
-                            payout = `$${completionResults.payouts.first}`;
-                            break;
-                          case 2:
-                            payout = `$${completionResults.payouts.second}`;
-                            break;
-                          case 3:
-                            payout = `$${completionResults.payouts.third}`;
-                            break;
-                          default:
-                            payout = '$0';
-                        }
-                      }
-                      
-                      return (
-                        <tr key={player.name}>
-                          <td>{rank}</td>
-                          <td>{player.name}</td>
-                          <td>{player.total_points}</td>
-                          <td><strong>{payout}</strong></td>
-                        </tr>
-                      );
-                    })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-          
-          {completionResults.hasPayouts && (
-            <div className="mt-2">
-              <h4>Payout Summary</h4>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
-                <div><strong>1st Place (Male & Female):</strong> ${completionResults.payouts.first} each</div>
-                <div><strong>2nd Place (Male & Female):</strong> ${completionResults.payouts.second} each</div>
-                <div><strong>3rd Place (Male & Female):</strong> ${completionResults.payouts.third} each</div>
-                <div><strong>Total Distributed:</strong> ${(completionResults.payouts.first + completionResults.payouts.second + completionResults.payouts.third) * 2}</div>
-              </div>
-            </div>
-          )}
+{/* Tournament Completion Results */}
+{completionResults && (
+  <div className="card">
+    <h2>Tournament Results</h2>
+    
+    {/* Prize Pool Information */}
+    <div style={{ 
+      backgroundColor: completionResults.hasPayouts ? '#d4edda' : '#fff3cd', 
+      border: `1px solid ${completionResults.hasPayouts ? '#c3e6cb' : '#ffeaa7'}`,
+      padding: '1rem', 
+      borderRadius: '4px', 
+      marginBottom: '1rem' 
+    }}>
+      <div className="flex-between" style={{ alignItems: 'center', marginBottom: '1rem' }}>
+        <h4>Prize Pool Information</h4>
+        {user && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem' }}>
+            <input
+              type="checkbox"
+              checked={showPayouts}
+              onChange={(e) => setShowPayouts(e.target.checked)}
+            />
+            Show payout columns (Admin only)
+          </label>
+        )}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+        <div><strong>Entry Fee per Player:</strong> ${completionResults.tournament.entry_fee}</div>
+        <div><strong>Total Players:</strong> {completionResults.standings.length}</div>
+        <div><strong>Director Cost:</strong> ${completionResults.tournament.director_cost}</div>
+        <div><strong>Total Prize Pool:</strong> ${completionResults.totalPool}</div>
+      </div>
+      {!completionResults.hasPayouts && (
+        <div style={{ marginTop: '0.5rem', fontStyle: 'italic', color: '#856404' }}>
+          No prize money to distribute (entry fee is $0 or insufficient to cover director costs)
         </div>
       )}
+    </div>
+
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
+      <div>
+        <h3>Male Results</h3>
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Rank</th>
+              <th>Player</th>
+              <th>Points</th>
+              <th>Points +/-</th>
+              {user && showPayouts && <th>Payout</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {completionResults.standings
+              .filter(p => p.gender === 'male')
+              .map((player, index) => {
+                // Simple payout calculation based on rank
+                let payout = '$0';
+                const rank = Number(player.rank);
+                
+                if (completionResults.hasPayouts) {
+                  switch (rank) {
+                    case 1:
+                      payout = `$${completionResults.payouts.first}`;
+                      break;
+                    case 2:
+                      payout = `$${completionResults.payouts.second}`;
+                      break;
+                    case 3:
+                      payout = `$${completionResults.payouts.third}`;
+                      break;
+                    default:
+                      payout = '$0';
+                  }
+                }
+                
+                return (
+                  <tr key={player.name}>
+                    <td>{rank}</td>
+                    <td>{player.name}</td>
+                    <td><strong>{player.total_points}</strong></td>
+                    <td>
+                      <strong 
+                        style={{ 
+                          color: player.point_differential > 0 ? '#27ae60' : 
+                                 player.point_differential < 0 ? '#e74c3c' : '#7f8c8d'
+                        }}
+                      >
+                        {player.point_differential > 0 ? '+' : ''}{player.point_differential}
+                      </strong>
+                    </td>
+                    {user && showPayouts && <td><strong>{payout}</strong></td>}
+                  </tr>
+                );
+              })}
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <h3>Female Results</h3>
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Rank</th>
+              <th>Player</th>
+              <th>Points</th>
+              <th>Points +/-</th>
+              {user && showPayouts && <th>Payout</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {completionResults.standings
+              .filter(p => p.gender === 'female')
+              .map((player, index) => {
+                // Simple payout calculation based on rank
+                let payout = '$0';
+                const rank = Number(player.rank);
+                
+                if (completionResults.hasPayouts) {
+                  switch (rank) {
+                    case 1:
+                      payout = `$${completionResults.payouts.first}`;
+                      break;
+                    case 2:
+                      payout = `$${completionResults.payouts.second}`;
+                      break;
+                    case 3:
+                      payout = `$${completionResults.payouts.third}`;
+                      break;
+                    default:
+                      payout = '$0';
+                  }
+                }
+                
+                return (
+                  <tr key={player.name}>
+                    <td>{rank}</td>
+                    <td>{player.name}</td>
+                    <td><strong>{player.total_points}</strong></td>
+                    <td>
+                      <strong 
+                        style={{ 
+                          color: player.point_differential > 0 ? '#27ae60' : 
+                                 player.point_differential < 0 ? '#e74c3c' : '#7f8c8d'
+                        }}
+                      >
+                        {player.point_differential > 0 ? '+' : ''}{player.point_differential}
+                      </strong>
+                    </td>
+                    {user && showPayouts && <td><strong>{payout}</strong></td>}
+                  </tr>
+                );
+              })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    
+    {completionResults.hasPayouts && user && showPayouts && (
+      <div className="mt-2">
+        <h4>Payout Summary</h4>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
+          <div><strong>1st Place (Male & Female):</strong> ${completionResults.payouts.first} each</div>
+          <div><strong>2nd Place (Male & Female):</strong> ${completionResults.payouts.second} each</div>
+          <div><strong>3rd Place (Male & Female):</strong> ${completionResults.payouts.third} each</div>
+          <div><strong>Total Distributed:</strong> ${(completionResults.payouts.first + completionResults.payouts.second + completionResults.payouts.third) * 2}</div>
+        </div>
+      </div>
+    )}
+  </div>
+)}
 
       {/* Players List */}
       {players.length > 0 && (
