@@ -102,70 +102,76 @@ function calculateTournamentStructure(totalPlayers, courtsAvailable, minPlayersP
     };
   }
   
-  // For larger tournaments, find the structure that gives the best bye distribution
+  // For larger tournaments, find the optimal structure
+  // The key insight: we want each player to get exactly matchesPerPlayer matches
+  // So total rounds should be close to matchesPerPlayer (not much more)
+  
   let bestStructure = null;
   let bestScore = -1;
   
-  // Try different team configurations (different average team sizes)
-  // Start with smaller teams to potentially get better bye distribution
-  for (let avgTeamSize = minPlayersPerTeam; avgTeamSize <= maxPlayersPerTeam; avgTeamSize += 0.5) {
-    const playersPerRound = Math.floor(maxTeamsPerRound * avgTeamSize);
+  // Try different players per round, but also try different round counts
+  // Focus on round counts close to matchesPerPlayer
+  for (let testRounds = matchesPerPlayer; testRounds <= matchesPerPlayer + 2; testRounds++) {
     
-    // Make sure we can actually form valid teams with this player count
-    if (!canFormValidTeams(playersPerRound, maxTeamsPerRound, minPlayersPerTeam, maxPlayersPerTeam)) {
-      continue;
-    }
-    
-    const byesPerRound = totalPlayers - playersPerRound;
-    
-    // Skip if we'd have negative or zero byes (shouldn't happen but safety check)
-    if (byesPerRound <= 0) continue;
-    
-    // Calculate rounds needed
-    const totalPlayerMatches = totalPlayers * matchesPerPlayer;
-    const totalRounds = Math.ceil(totalPlayerMatches / playersPerRound);
-    
-    // Calculate bye distribution
-    const totalByeSlots = totalRounds * byesPerRound;
-    const byeRoundsPerPlayer = Math.floor(totalByeSlots / totalPlayers);
-    const extraByePlayers = totalByeSlots % totalPlayers;
-    
-    // Calculate how close we get to perfect distribution (everyone gets exactly 1 bye)
-    const idealByeRoundsPerPlayer = 1;
-    const byeDistributionScore = 100 - Math.abs(byeRoundsPerPlayer - idealByeRoundsPerPlayer) * 50;
-    
-    // Calculate match balance (how close total generated matches is to target)
-    const totalMatchesGenerated = totalRounds * playersPerRound;
-    const matchBalanceScore = Math.max(0, 100 - Math.abs(totalMatchesGenerated - totalPlayerMatches));
-    
-    // Prefer configurations where more players get exactly the same number of byes
-    const equalityScore = 100 - (extraByePlayers / totalPlayers) * 50;
-    
-    // Court utilization score
-    const courtUtilizationScore = (playersPerRound / maxPlayersPerRound) * 100;
-    
-    // Combined score with heavy weight on bye distribution
-    const score = (byeDistributionScore * 3) + matchBalanceScore + equalityScore + (courtUtilizationScore * 0.5);
-    
-    console.log(`Testing: ${playersPerRound} players/round, ${byesPerRound} byes/round, ${byeRoundsPerPlayer} byes/player, score: ${score.toFixed(1)}`);
-    
-    if (score > bestScore) {
-      bestScore = score;
-      bestStructure = {
-        playersPerRound,
-        byesPerRound,
-        totalRounds,
-        byeRoundsPerPlayer,
-        extraByePlayers
-      };
+    // For each round count, try different team configurations
+    for (let avgTeamSize = minPlayersPerTeam; avgTeamSize <= maxPlayersPerTeam; avgTeamSize += 0.5) {
+      const playersPerRound = Math.floor(maxTeamsPerRound * avgTeamSize);
+      
+      // Make sure we can form valid teams
+      if (!canFormValidTeams(playersPerRound, maxTeamsPerRound, minPlayersPerTeam, maxPlayersPerTeam)) {
+        continue;
+      }
+      
+      const byesPerRound = totalPlayers - playersPerRound;
+      if (byesPerRound <= 0) continue;
+      
+      // Calculate total matches generated with this structure
+      const totalMatchesGenerated = testRounds * playersPerRound;
+      const targetMatches = totalPlayers * matchesPerPlayer;
+      
+      // We want to generate close to (but at least) the target matches
+      if (totalMatchesGenerated < targetMatches) continue; // Not enough matches
+      
+      const totalByeSlots = testRounds * byesPerRound;
+      const byeRoundsPerPlayer = Math.floor(totalByeSlots / totalPlayers);
+      const extraByePlayers = totalByeSlots % totalPlayers;
+      
+      // Score this configuration
+      // 1. Prefer fewer total rounds
+      const roundScore = Math.max(0, 100 - (testRounds - matchesPerPlayer) * 25);
+      
+      // 2. Prefer generating close to target matches (but not way over)
+      const matchOverage = totalMatchesGenerated - targetMatches;
+      const matchScore = Math.max(0, 100 - matchOverage * 2);
+      
+      // 3. Prefer even bye distribution
+      const byeEqualityScore = 100 - (extraByePlayers / totalPlayers) * 50;
+      
+      // 4. Court utilization
+      const courtScore = (playersPerRound / maxPlayersPerRound) * 50;
+      
+      const totalScore = roundScore + matchScore + byeEqualityScore + courtScore;
+      
+      console.log(`Testing: ${testRounds} rounds, ${playersPerRound} players/round, ${byesPerRound} byes/round, ${byeRoundsPerPlayer} byes/player, score: ${totalScore.toFixed(1)}`);
+      
+      if (totalScore > bestScore) {
+        bestScore = totalScore;
+        bestStructure = {
+          playersPerRound,
+          byesPerRound,
+          totalRounds: testRounds,
+          byeRoundsPerPlayer,
+          extraByePlayers
+        };
+      }
     }
   }
   
   return bestStructure || {
-    // Fallback to max capacity if no good structure found
+    // Fallback
     playersPerRound: maxPlayersPerRound,
     byesPerRound: totalPlayers - maxPlayersPerRound,
-    totalRounds: Math.ceil((totalPlayers * matchesPerPlayer) / maxPlayersPerRound),
+    totalRounds: matchesPerPlayer + 1,
     byeRoundsPerPlayer: 1,
     extraByePlayers: 0
   };
