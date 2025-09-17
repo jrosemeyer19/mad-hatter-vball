@@ -501,6 +501,7 @@ This action cannot be undone.`;
                   <th>Gender</th>
                   <th>Matches Played</th>
                   <th>Total Points</th>
+                  <th>Points +/-</th>
                 </tr>
               </thead>
               <tbody>
@@ -512,6 +513,16 @@ This action cannot be undone.`;
                       <td>{player.gender}</td>
                       <td>{player.matches_played}</td>
                       <td><strong>{player.total_points}</strong></td>
+                      <td>
+                        <strong 
+                          style={{ 
+                            color: player.point_differential > 0 ? '#27ae60' : 
+                                   player.point_differential < 0 ? '#e74c3c' : '#7f8c8d'
+                          }}
+                        >
+                          {player.point_differential > 0 ? '+' : ''}{player.point_differential}
+                        </strong>
+                      </td>
                     </tr>
                   ))}
               </tbody>
