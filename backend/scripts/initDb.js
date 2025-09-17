@@ -78,11 +78,45 @@ async function runMigrations() {
         `);
         console.log('✓ Added column comments');
         
-        console.log('Migration completed successfully!');
+        console.log('Bye team migration completed successfully!');
       } else {
         console.log('✓ Bye team support already exists');
       }
     }
+
+    // Check for point differential column
+    const playersExists = await checkTableExists('players');
+    if (playersExists) {
+      const differentialColumnExists = await checkColumnExists('players', 'point_differential');
+      
+      if (!differentialColumnExists) {
+        console.log('Adding point differential support to existing database...');
+        
+        // Add point_differential column
+        await pool.query(`
+          ALTER TABLE players 
+          ADD COLUMN point_differential INTEGER DEFAULT 0
+        `);
+        console.log('✓ Added point_differential column');
+        
+        // Add index for performance
+        await pool.query(`
+          CREATE INDEX IF NOT EXISTS idx_players_point_differential ON players(point_differential)
+        `);
+        console.log('✓ Added index on point_differential');
+        
+        // Add comment
+        await pool.query(`
+          COMMENT ON COLUMN players.point_differential IS 'Running total of point differential for the player (points scored minus points allowed)'
+        `);
+        console.log('✓ Added column comment');
+        
+        console.log('Point differential migration completed successfully!');
+      } else {
+        console.log('✓ Point differential support already exists');
+      }
+    }
+    
   } catch (error) {
     console.error('Error during migration:', error);
     throw error;
@@ -129,7 +163,7 @@ async function initializeDatabase() {
         console.log(`✓ Super admin user '${process.env.SUPER_ADMIN_USERNAME}' already exists`);
       }
     } else {
-      console.log('⚠ No super admin credentials in environment variables');
+      console.log('⚠  No super admin credentials in environment variables');
       console.log('Set SUPER_ADMIN_USERNAME and SUPER_ADMIN_PASSWORD in your .env file');
     }
     

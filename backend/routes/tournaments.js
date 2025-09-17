@@ -133,13 +133,13 @@ router.get('/:id/results', async (req, res) => {
       return res.status(400).json({ message: 'Tournament is not completed yet' });
     }
     
-    // Get final standings
+    // Get final standings with point differential
     const standingsResult = await pool.query(`
-      SELECT name, gender, total_points, matches_played,
-        RANK() OVER (PARTITION BY gender ORDER BY total_points DESC) as rank
+      SELECT name, gender, total_points, point_differential, matches_played,
+        RANK() OVER (PARTITION BY gender ORDER BY total_points DESC, point_differential DESC) as rank
       FROM players 
       WHERE tournament_id = $1
-      ORDER BY gender, total_points DESC
+      ORDER BY gender, total_points DESC, point_differential DESC
     `, [id]);
     
     console.log('Standings found:', standingsResult.rows.length, 'players');
@@ -494,7 +494,7 @@ router.post('/:id/start', authenticateToken, async (req, res) => {
   }
 });
 
-// Submit match scores (no authentication required) - FIXED VERSION
+// Submit match scores (no authentication required) - UPDATED WITH POINT DIFFERENTIAL
 router.put('/:id/matches/:matchId/scores', async (req, res) => {
   const client = await pool.connect();
   try {
@@ -524,31 +524,42 @@ router.put('/:id/matches/:matchId/scores', async (req, res) => {
     const existingMatch = existingMatchResult.rows[0];
     const isEditing = existingMatch && existingMatch.is_completed;
     
-    // If editing, subtract old scores from player totals first
+    // If editing, subtract old scores and differentials from player totals first
     if (isEditing) {
       const oldT1Total = (existingMatch.team1_game1_score || 0) + (existingMatch.team1_game2_score || 0);
       const oldT2Total = (existingMatch.team2_game1_score || 0) + (existingMatch.team2_game2_score || 0);
+      const oldT1Differential = oldT1Total - oldT2Total;
+      const oldT2Differential = oldT2Total - oldT1Total;
       
-      // Get team players and subtract old scores
+      // Get team players and subtract old scores and differentials
       const teamPlayersResult = await client.query(`
         SELECT tp.player_id, 
           CASE WHEN tp.team_id = m.team1_id 
                THEN $1::integer
                ELSE $2::integer 
-          END as old_points_to_subtract
+          END as old_points_to_subtract,
+          CASE WHEN tp.team_id = m.team1_id 
+               THEN $3::integer
+               ELSE $4::integer 
+          END as old_differential_to_subtract
         FROM team_players tp
         JOIN matches m ON (tp.team_id = m.team1_id OR tp.team_id = m.team2_id)
-        WHERE m.id = $3::integer
-      `, [oldT1Total, oldT2Total, parseInt(matchId, 10)]);
+        WHERE m.id = $5::integer
+      `, [oldT1Total, oldT2Total, oldT1Differential, oldT2Differential, parseInt(matchId, 10)]);
       
-      // Subtract old points from each player and decrement match count
+      // Subtract old points, differential, and decrement match count
       for (const player of teamPlayersResult.rows) {
         await client.query(`
           UPDATE players 
           SET total_points = total_points - $1::integer,
+              point_differential = point_differential - $2::integer,
               matches_played = matches_played - 1
-          WHERE id = $2::integer
-        `, [parseInt(player.old_points_to_subtract, 10), parseInt(player.player_id, 10)]);
+          WHERE id = $3::integer
+        `, [
+          parseInt(player.old_points_to_subtract, 10), 
+          parseInt(player.old_differential_to_subtract, 10),
+          parseInt(player.player_id, 10)
+        ]);
       }
     }
     
@@ -561,26 +572,41 @@ router.put('/:id/matches/:matchId/scores', async (req, res) => {
       WHERE id = $5::integer
     `, [t1g1, t1g2, t2g1, t2g2, parseInt(matchId, 10)]);
     
-    // Get team players to add new points and increment match count
+    // Calculate new totals and differentials
+    const newT1Total = t1g1 + t1g2;
+    const newT2Total = t2g1 + t2g2;
+    const newT1Differential = newT1Total - newT2Total; // Team 1's perspective
+    const newT2Differential = newT2Total - newT1Total; // Team 2's perspective
+    
+    // Get team players to add new points, differential, and increment match count
     const teamPlayersResult = await client.query(`
       SELECT tp.player_id, 
         CASE WHEN tp.team_id = m.team1_id 
              THEN ($1::integer + $2::integer)
              ELSE ($3::integer + $4::integer) 
-        END as points_earned
+        END as points_earned,
+        CASE WHEN tp.team_id = m.team1_id 
+             THEN $5::integer
+             ELSE $6::integer 
+        END as differential_earned
       FROM team_players tp
       JOIN matches m ON (tp.team_id = m.team1_id OR tp.team_id = m.team2_id)
-      WHERE m.id = $5::integer
-    `, [t1g1, t1g2, t2g1, t2g2, parseInt(matchId, 10)]);
+      WHERE m.id = $7::integer
+    `, [t1g1, t1g2, t2g1, t2g2, newT1Differential, newT2Differential, parseInt(matchId, 10)]);
     
-    // Add new points to each player and increment match count
+    // Add new points, differential, and increment match count
     for (const player of teamPlayersResult.rows) {
       await client.query(`
         UPDATE players 
         SET total_points = total_points + $1::integer, 
+            point_differential = point_differential + $2::integer,
             matches_played = matches_played + 1
-        WHERE id = $2::integer
-      `, [parseInt(player.points_earned, 10), parseInt(player.player_id, 10)]);
+        WHERE id = $3::integer
+      `, [
+        parseInt(player.points_earned, 10), 
+        parseInt(player.differential_earned, 10),
+        parseInt(player.player_id, 10)
+      ]);
     }
     
     await client.query('COMMIT');
@@ -610,13 +636,13 @@ router.post('/:id/complete', authenticateToken, async (req, res) => {
     
     const tournament = tournamentResult.rows[0];
     
-    // Get final standings
+    // Get final standings with point differential
     const standingsResult = await client.query(`
-      SELECT name, gender, total_points, matches_played,
-        RANK() OVER (PARTITION BY gender ORDER BY total_points DESC) as rank
+      SELECT name, gender, total_points, point_differential, matches_played,
+        RANK() OVER (PARTITION BY gender ORDER BY total_points DESC, point_differential DESC) as rank
       FROM players 
       WHERE tournament_id = $1
-      ORDER BY gender, total_points DESC
+      ORDER BY gender, total_points DESC, point_differential DESC
     `, [id]);
     
     // Calculate payouts using the same fixed logic
@@ -731,8 +757,8 @@ router.post('/:id/regenerate', authenticateToken, async (req, res) => {
     await client.query('DELETE FROM teams WHERE round_id IN (SELECT id FROM rounds WHERE tournament_id = $1)', [id]);
     await client.query('DELETE FROM rounds WHERE tournament_id = $1', [id]);
     
-    // Step 2: Reset all player match counts and points to zero
-    await client.query('UPDATE players SET matches_played = 0, total_points = 0 WHERE tournament_id = $1', [id]);
+    // Step 2: Reset all player match counts, points, and point differentials to zero
+    await client.query('UPDATE players SET matches_played = 0, total_points = 0, point_differential = 0 WHERE tournament_id = $1', [id]);
     
     console.log('Cleared existing tournament structure and reset player stats');
     
