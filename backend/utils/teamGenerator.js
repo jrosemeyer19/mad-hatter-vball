@@ -102,13 +102,24 @@ function calculateTournamentStructure(totalPlayers, courtsAvailable, minPlayersP
     };
   }
   
-  // For larger tournaments, optimize the structure
+  // For larger tournaments, find the structure that gives the best bye distribution
   let bestStructure = null;
   let bestScore = -1;
   
-  // Try different players per round configurations
-  for (let playersPerRound = maxPlayersPerRound; playersPerRound >= maxTeamsPerRound * minPlayersPerTeam; playersPerRound -= 6) {
+  // Try different team configurations (different average team sizes)
+  // Start with smaller teams to potentially get better bye distribution
+  for (let avgTeamSize = minPlayersPerTeam; avgTeamSize <= maxPlayersPerTeam; avgTeamSize += 0.5) {
+    const playersPerRound = Math.floor(maxTeamsPerRound * avgTeamSize);
+    
+    // Make sure we can actually form valid teams with this player count
+    if (!canFormValidTeams(playersPerRound, maxTeamsPerRound, minPlayersPerTeam, maxPlayersPerTeam)) {
+      continue;
+    }
+    
     const byesPerRound = totalPlayers - playersPerRound;
+    
+    // Skip if we'd have negative or zero byes (shouldn't happen but safety check)
+    if (byesPerRound <= 0) continue;
     
     // Calculate rounds needed
     const totalPlayerMatches = totalPlayers * matchesPerPlayer;
@@ -119,14 +130,24 @@ function calculateTournamentStructure(totalPlayers, courtsAvailable, minPlayersP
     const byeRoundsPerPlayer = Math.floor(totalByeSlots / totalPlayers);
     const extraByePlayers = totalByeSlots % totalPlayers;
     
-    // Check if everyone gets their target matches
-    const totalMatchesGenerated = totalRounds * playersPerRound;
-    const matchBalance = Math.abs(totalMatchesGenerated - totalPlayerMatches);
+    // Calculate how close we get to perfect distribution (everyone gets exactly 1 bye)
+    const idealByeRoundsPerPlayer = 1;
+    const byeDistributionScore = 100 - Math.abs(byeRoundsPerPlayer - idealByeRoundsPerPlayer) * 50;
     
-    // Score this configuration (lower match imbalance is better)
-    const utilizationScore = (playersPerRound / maxPlayersPerRound) * 100;
-    const balanceScore = Math.max(0, 100 - matchBalance);
-    const score = utilizationScore + balanceScore;
+    // Calculate match balance (how close total generated matches is to target)
+    const totalMatchesGenerated = totalRounds * playersPerRound;
+    const matchBalanceScore = Math.max(0, 100 - Math.abs(totalMatchesGenerated - totalPlayerMatches));
+    
+    // Prefer configurations where more players get exactly the same number of byes
+    const equalityScore = 100 - (extraByePlayers / totalPlayers) * 50;
+    
+    // Court utilization score
+    const courtUtilizationScore = (playersPerRound / maxPlayersPerRound) * 100;
+    
+    // Combined score with heavy weight on bye distribution
+    const score = (byeDistributionScore * 3) + matchBalanceScore + equalityScore + (courtUtilizationScore * 0.5);
+    
+    console.log(`Testing: ${playersPerRound} players/round, ${byesPerRound} byes/round, ${byeRoundsPerPlayer} byes/player, score: ${score.toFixed(1)}`);
     
     if (score > bestScore) {
       bestScore = score;
@@ -140,7 +161,40 @@ function calculateTournamentStructure(totalPlayers, courtsAvailable, minPlayersP
     }
   }
   
-  return bestStructure;
+  return bestStructure || {
+    // Fallback to max capacity if no good structure found
+    playersPerRound: maxPlayersPerRound,
+    byesPerRound: totalPlayers - maxPlayersPerRound,
+    totalRounds: Math.ceil((totalPlayers * matchesPerPlayer) / maxPlayersPerRound),
+    byeRoundsPerPlayer: 1,
+    extraByePlayers: 0
+  };
+}
+
+function canFormValidTeams(totalPlayers, maxTeams, minTeamSize, maxTeamSize) {
+  if (totalPlayers < minTeamSize * 2) return false; // Need at least 2 teams
+  
+  // Try to see if we can distribute players into valid team sizes
+  for (let numTeams = 2; numTeams <= maxTeams; numTeams += 2) { // Even number of teams
+    const avgTeamSize = totalPlayers / numTeams;
+    
+    if (avgTeamSize >= minTeamSize && avgTeamSize <= maxTeamSize) {
+      // Check if we can actually create this configuration
+      const baseSize = Math.floor(avgTeamSize);
+      const remainder = totalPlayers % numTeams;
+      
+      // All teams get baseSize, some get baseSize + 1
+      const smallTeamSize = baseSize;
+      const largeTeamSize = baseSize + 1;
+      
+      if (smallTeamSize >= minTeamSize && smallTeamSize <= maxTeamSize &&
+          largeTeamSize >= minTeamSize && largeTeamSize <= maxTeamSize) {
+        return true;
+      }
+    }
+  }
+  
+  return false;
 }
 
 function createBalancedByeRotation(players, structure) {
