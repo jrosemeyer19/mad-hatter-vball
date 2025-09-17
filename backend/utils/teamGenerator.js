@@ -8,11 +8,11 @@ function generateAllRounds(players, settings) {
   // Calculate tournament structure based on player count
   const tournamentStructure = calculateTournamentStructure(players.length, courtsAvailable, minPlayersPerTeam, maxPlayersPerTeam, matchesPerPlayer);
   
-  console.log(`\n=== Tournament Structure ===`);
+  console.log(`\n=== Final Tournament Structure ===`);
   console.log(`Players per round: ${tournamentStructure.playersPerRound}`);
   console.log(`Byes per round: ${tournamentStructure.byesPerRound}`);
   console.log(`Total rounds: ${tournamentStructure.totalRounds}`);
-  console.log(`Bye rounds per player: ${tournamentStructure.byeRoundsPerPlayer} (${tournamentStructure.extraByePlayers} players get +1)`);
+  console.log(`Effective courts: ${tournamentStructure.effectiveCourts}`);
   
   // Generate bye assignments
   const byeAssignments = createBalancedByeRotation(players, tournamentStructure);
@@ -40,7 +40,7 @@ function generateAllRounds(players, settings) {
     const roundData = generateRoundFromPlayers(
       playersPlayingThisRound,
       playersOnByeThisRound,
-      settings,
+      { ...settings, courtsAvailable: tournamentStructure.effectiveCourts },
       roundNumber
     );
     
@@ -63,7 +63,7 @@ function generateAllRounds(players, settings) {
     });
     
     allRounds.push(roundData);
-    console.log(`Round ${roundNumber} complete: ${roundData.matches.length} matches on ${courtsAvailable} courts`);
+    console.log(`Round ${roundNumber} complete: ${roundData.matches.length} matches on ${tournamentStructure.effectiveCourts} courts`);
   }
   
   // Final validation
@@ -88,34 +88,54 @@ function generateAllRounds(players, settings) {
 }
 
 function calculateTournamentStructure(totalPlayers, courtsAvailable, minPlayersPerTeam, maxPlayersPerTeam, matchesPerPlayer) {
-  const maxTeamsPerRound = courtsAvailable * 2;
-  const maxPlayersPerRound = maxTeamsPerRound * maxPlayersPerTeam;
+  console.log(`\n=== Calculating Tournament Structure ===`);
+  console.log(`Total players: ${totalPlayers}, Available courts: ${courtsAvailable}`);
   
-  // For smaller tournaments (≤max capacity), everyone can play every round
+  // First, determine how many courts we can actually use based on player count
+  let effectiveCourts = courtsAvailable;
+  let maxTeamsPerRound = courtsAvailable * 2;
+  let maxPlayersPerRound = maxTeamsPerRound * maxPlayersPerTeam;
+  let minPlayersPerRound = maxTeamsPerRound * minPlayersPerTeam;
+  
+  // If we don't have enough players to use all courts with minimum team sizes, reduce courts
+  while (totalPlayers < minPlayersPerRound && effectiveCourts > 1) {
+    effectiveCourts--;
+    maxTeamsPerRound = effectiveCourts * 2;
+    maxPlayersPerRound = maxTeamsPerRound * maxPlayersPerTeam;
+    minPlayersPerRound = maxTeamsPerRound * minPlayersPerTeam;
+    console.log(`Reduced to ${effectiveCourts} courts due to player constraints`);
+  }
+  
+  console.log(`Using ${effectiveCourts} courts (${maxTeamsPerRound} teams max, ${minPlayersPerRound}-${maxPlayersPerRound} players per round)`);
+  
+  // For smaller tournaments (≤effective capacity), everyone can play every round
   if (totalPlayers <= maxPlayersPerRound) {
+    console.log(`All ${totalPlayers} players can play every round`);
     return {
       playersPerRound: totalPlayers,
       byesPerRound: 0,
       totalRounds: matchesPerPlayer,
       byeRoundsPerPlayer: 0,
-      extraByePlayers: 0
+      extraByePlayers: 0,
+      effectiveCourts
     };
   }
   
   // For larger tournaments, find the optimal structure
-  // The key insight: we want each player to get exactly matchesPerPlayer matches
-  // So total rounds should be close to matchesPerPlayer (not much more)
-  
   let bestStructure = null;
   let bestScore = -1;
   
-  // Try different players per round, but also try different round counts
-  // Focus on round counts close to matchesPerPlayer
+  // Try different round counts (prefer fewer rounds)
   for (let testRounds = matchesPerPlayer; testRounds <= matchesPerPlayer + 2; testRounds++) {
     
-    // For each round count, try different team configurations
+    // Try different team configurations within our court constraints
     for (let avgTeamSize = minPlayersPerTeam; avgTeamSize <= maxPlayersPerTeam; avgTeamSize += 0.5) {
       const playersPerRound = Math.floor(maxTeamsPerRound * avgTeamSize);
+      
+      // Make sure this is within our constraints
+      if (playersPerRound < minPlayersPerRound || playersPerRound > maxPlayersPerRound) {
+        continue;
+      }
       
       // Make sure we can form valid teams
       if (!canFormValidTeams(playersPerRound, maxTeamsPerRound, minPlayersPerTeam, maxPlayersPerTeam)) {
@@ -123,36 +143,26 @@ function calculateTournamentStructure(totalPlayers, courtsAvailable, minPlayersP
       }
       
       const byesPerRound = totalPlayers - playersPerRound;
-      if (byesPerRound <= 0) continue;
+      if (byesPerRound < 0) continue;
       
-      // Calculate total matches generated with this structure
+      // Calculate total matches generated
       const totalMatchesGenerated = testRounds * playersPerRound;
       const targetMatches = totalPlayers * matchesPerPlayer;
       
-      // We want to generate close to (but at least) the target matches
-      if (totalMatchesGenerated < targetMatches) continue; // Not enough matches
+      // Must generate at least target matches
+      if (totalMatchesGenerated < targetMatches) continue;
       
       const totalByeSlots = testRounds * byesPerRound;
-      const byeRoundsPerPlayer = Math.floor(totalByeSlots / totalPlayers);
-      const extraByePlayers = totalByeSlots % totalPlayers;
       
       // Score this configuration
-      // 1. Prefer fewer total rounds
       const roundScore = Math.max(0, 100 - (testRounds - matchesPerPlayer) * 25);
-      
-      // 2. Prefer generating close to target matches (but not way over)
       const matchOverage = totalMatchesGenerated - targetMatches;
       const matchScore = Math.max(0, 100 - matchOverage * 2);
+      const courtUtilizationScore = (effectiveCourts / courtsAvailable) * 30; // Bonus for using more courts
       
-      // 3. Prefer even bye distribution
-      const byeEqualityScore = 100 - (extraByePlayers / totalPlayers) * 50;
+      const totalScore = roundScore + matchScore + courtUtilizationScore;
       
-      // 4. Court utilization
-      const courtScore = (playersPerRound / maxPlayersPerRound) * 50;
-      
-      const totalScore = roundScore + matchScore + byeEqualityScore + courtScore;
-      
-      console.log(`Testing: ${testRounds} rounds, ${playersPerRound} players/round, ${byesPerRound} byes/round, ${byeRoundsPerPlayer} byes/player, score: ${totalScore.toFixed(1)}`);
+      console.log(`Testing: ${testRounds} rounds, ${playersPerRound} players/round, ${byesPerRound} byes/round, score: ${totalScore.toFixed(1)}`);
       
       if (totalScore > bestScore) {
         bestScore = totalScore;
@@ -160,21 +170,129 @@ function calculateTournamentStructure(totalPlayers, courtsAvailable, minPlayersP
           playersPerRound,
           byesPerRound,
           totalRounds: testRounds,
-          byeRoundsPerPlayer,
-          extraByePlayers
+          byeRoundsPerPlayer: Math.floor(totalByeSlots / totalPlayers),
+          extraByePlayers: totalByeSlots % totalPlayers,
+          effectiveCourts
         };
       }
     }
   }
   
   return bestStructure || {
-    // Fallback
-    playersPerRound: maxPlayersPerRound,
-    byesPerRound: totalPlayers - maxPlayersPerRound,
-    totalRounds: matchesPerPlayer + 1,
-    byeRoundsPerPlayer: 1,
-    extraByePlayers: 0
+    // Fallback - use what we can
+    playersPerRound: Math.min(totalPlayers, maxPlayersPerRound),
+    byesPerRound: Math.max(0, totalPlayers - maxPlayersPerRound),
+    totalRounds: matchesPerPlayer,
+    byeRoundsPerPlayer: 0,
+    extraByePlayers: 0,
+    effectiveCourts
   };
+}
+
+function createBalancedByeRotation(players, structure) {
+  const { totalRounds, playersPerRound } = structure;
+  const totalPlayers = players.length;
+  
+  console.log(`\n=== Creating Bye Rotation ===`);
+  console.log(`${totalRounds} rounds with ${playersPerRound} players per round`);
+  
+  // Special case: if playersPerRound equals totalPlayers, no byes needed
+  if (playersPerRound >= totalPlayers) {
+    console.log('No byes needed - everyone plays every round');
+    const byeAssignments = [];
+    for (let i = 0; i < totalRounds; i++) {
+      byeAssignments.push([]);
+    }
+    return byeAssignments;
+  }
+  
+  // Calculate target total byes (ideally 1 per player for small tournaments)
+  const byesPerRound = totalPlayers - playersPerRound;
+  const maxPossibleByes = totalRounds * byesPerRound;
+  const targetTotalByes = Math.min(totalPlayers, maxPossibleByes);
+  
+  console.log(`Target total byes: ${targetTotalByes}, Max possible: ${maxPossibleByes}`);
+  
+  const byeAssignments = [];
+  const shuffledPlayers = shuffleArray([...players]);
+  const playerByeCount = {};
+  
+  // Initialize player bye counts
+  shuffledPlayers.forEach(player => {
+    playerByeCount[player.id] = 0;
+  });
+  
+  let totalByesAssigned = 0;
+  
+  // Assign byes round by round
+  for (let roundIndex = 0; roundIndex < totalRounds; roundIndex++) {
+    const byesRemaining = targetTotalByes - totalByesAssigned;
+    const roundsRemaining = totalRounds - roundIndex;
+    
+    // How many byes should we assign this round?
+    let byesThisRound = Math.min(byesPerRound, byesRemaining);
+    
+    // If this is the last round, assign exactly what's remaining
+    if (roundIndex === totalRounds - 1) {
+      byesThisRound = Math.min(byesRemaining, byesPerRound);
+    } else if (roundsRemaining > 1) {
+      // Try to distribute remaining byes evenly across remaining rounds
+      byesThisRound = Math.min(byesPerRound, Math.ceil(byesRemaining / roundsRemaining));
+    }
+    
+    console.log(`Round ${roundIndex + 1}: Planning ${byesThisRound} byes`);
+    
+    // Select players for bye
+    const byePlayersThisRound = [];
+    
+    // Prioritize players who haven't had a bye yet
+    const playersNeedingByes = shuffledPlayers
+      .filter(player => playerByeCount[player.id] === 0)
+      .slice(0, byesThisRound);
+    
+    playersNeedingByes.forEach(player => {
+      byePlayersThisRound.push(player);
+      playerByeCount[player.id]++;
+      totalByesAssigned++;
+    });
+    
+    // If we need more byes, add players with fewest byes
+    while (byePlayersThisRound.length < byesThisRound && totalByesAssigned < targetTotalByes) {
+      const availablePlayers = shuffledPlayers
+        .filter(player => !byePlayersThisRound.some(p => p.id === player.id))
+        .sort((a, b) => playerByeCount[a.id] - playerByeCount[b.id]);
+      
+      if (availablePlayers.length > 0) {
+        const player = availablePlayers[0];
+        byePlayersThisRound.push(player);
+        playerByeCount[player.id]++;
+        totalByesAssigned++;
+      } else {
+        break;
+      }
+    }
+    
+    byeAssignments.push(byePlayersThisRound);
+    console.log(`Round ${roundIndex + 1}: ${byePlayersThisRound.length} actual byes`);
+  }
+  
+  // Validation
+  console.log(`\n=== Bye Validation ===`);
+  console.log(`Total byes assigned: ${totalByesAssigned}`);
+  
+  let playersWithCorrectByes = 0;
+  shuffledPlayers.forEach(player => {
+    const byeCount = playerByeCount[player.id];
+    if (byeCount === 1 || (totalByesAssigned > totalPlayers && byeCount <= 2)) {
+      playersWithCorrectByes++;
+    } else {
+      console.warn(`${player.name}: ${byeCount} bye rounds`);
+    }
+  });
+  
+  console.log(`Players with reasonable bye counts: ${playersWithCorrectByes}/${totalPlayers}`);
+  
+  return byeAssignments;
 }
 
 function canFormValidTeams(totalPlayers, maxTeams, minTeamSize, maxTeamSize) {
@@ -201,130 +319,6 @@ function canFormValidTeams(totalPlayers, maxTeams, minTeamSize, maxTeamSize) {
   }
   
   return false;
-}
-
-function createBalancedByeRotation(players, structure) {
-  const { totalRounds, playersPerRound } = structure;
-  const totalPlayers = players.length;
-  
-  // Calculate how many total bye slots we need across all rounds
-  // Goal: Each player gets exactly 1 bye across the entire tournament
-  const targetTotalByes = totalPlayers;
-  
-  console.log(`Creating flexible bye rotation:`);
-  console.log(`- ${totalRounds} rounds with ${playersPerRound} players playing per round`);
-  console.log(`- Target total byes: ${targetTotalByes} (1 per player)`);
-  
-  const byeAssignments = [];
-  const shuffledPlayers = shuffleArray([...players]);
-  const playerByeCount = {};
-  
-  // Initialize player bye counts
-  shuffledPlayers.forEach(player => {
-    playerByeCount[player.id] = 0;
-  });
-  
-  // Distribute byes across rounds to reach exactly the target total
-  let totalByesAssigned = 0;
-  
-  for (let roundIndex = 0; roundIndex < totalRounds; roundIndex++) {
-    const byesNeeded = totalPlayers - playersPerRound;
-    const byesRemaining = targetTotalByes - totalByesAssigned;
-    const roundsRemaining = totalRounds - roundIndex;
-    
-    // Calculate how many byes to assign this round
-    // Try to distribute remaining byes evenly across remaining rounds
-    let byesThisRound = Math.min(byesNeeded, Math.ceil(byesRemaining / roundsRemaining));
-    
-    // But make sure we can still form valid teams with remaining players
-    const playersAfterByes = totalPlayers - byesThisRound;
-    const minPlayersForTeams = 10; // Need at least 2 teams of 5
-    
-    if (playersAfterByes < minPlayersForTeams) {
-      byesThisRound = totalPlayers - minPlayersForTeams;
-    }
-    
-    // Final adjustment: if this is the last round, assign exactly what's needed
-    if (roundIndex === totalRounds - 1) {
-      byesThisRound = byesRemaining;
-    }
-    
-    console.log(`Round ${roundIndex + 1}: Planning ${byesThisRound} byes (${byesRemaining} total remaining)`);
-    
-    // Select players for bye this round
-    const byePlayersThisRound = [];
-    
-    // Get players who haven't had a bye yet, prioritized
-    const playersNeedingByes = shuffledPlayers
-      .filter(player => playerByeCount[player.id] === 0)
-      .slice(0, byesThisRound);
-    
-    // Add them to bye list
-    playersNeedingByes.forEach(player => {
-      byePlayersThisRound.push(player);
-      playerByeCount[player.id]++;
-      totalByesAssigned++;
-    });
-    
-    // If we need more byes and ran out of players with 0 byes, 
-    // add players who have had the fewest byes
-    while (byePlayersThisRound.length < byesThisRound && totalByesAssigned < targetTotalByes) {
-      const availablePlayers = shuffledPlayers
-        .filter(player => !byePlayersThisRound.some(p => p.id === player.id))
-        .sort((a, b) => playerByeCount[a.id] - playerByeCount[b.id]);
-      
-      if (availablePlayers.length > 0) {
-        const player = availablePlayers[0];
-        byePlayersThisRound.push(player);
-        playerByeCount[player.id]++;
-        totalByesAssigned++;
-      } else {
-        break; // Safety break
-      }
-    }
-    
-    byeAssignments.push(byePlayersThisRound);
-    console.log(`Round ${roundIndex + 1}: ${byePlayersThisRound.length} players on bye`);
-  }
-  
-  // Validation
-  console.log(`\n=== Bye Assignment Validation ===`);
-  let playersWithOneBye = 0;
-  let playersWithZeroByes = 0;
-  let playersWithMultipleByes = 0;
-  
-  shuffledPlayers.forEach(player => {
-    const byeCount = playerByeCount[player.id];
-    if (byeCount === 0) {
-      playersWithZeroByes++;
-      console.warn(`${player.name}: 0 bye rounds`);
-    } else if (byeCount === 1) {
-      playersWithOneBye++;
-    } else {
-      playersWithMultipleByes++;
-      console.warn(`${player.name}: ${byeCount} bye rounds`);
-    }
-  });
-  
-  console.log(`Total bye assignments: ${totalByesAssigned}`);
-  console.log(`Players with 0 byes: ${playersWithZeroByes}`);
-  console.log(`Players with 1 bye: ${playersWithOneBye}`);
-  console.log(`Players with 2+ byes: ${playersWithMultipleByes}`);
-  
-  if (playersWithZeroByes === 0) {
-    console.log('✅ Perfect bye distribution - everyone gets at least one bye!');
-  }
-  
-  return byeAssignments;
-}
-
-function createNoByeRounds(matchesPerPlayer) {
-  // Create empty bye assignments for each round when no byes are needed
-  const rounds = [];
-  for (let i = 0; i < matchesPerPlayer; i++) {
-    rounds.push([]); // Empty array = no players on bye
-  }
-  return rounds;
 }
 
 function generateRoundFromPlayers(playingPlayers, byePlayers, settings, roundNumber) {
