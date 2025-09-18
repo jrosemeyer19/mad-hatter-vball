@@ -246,8 +246,35 @@ function createFlexibleByeRotation(players, structure) {
     playerByeCount[player.id] = 0;
   });
   
+  // Calculate bye counts needed per round
+  const byeCountsPerRound = roundConfigs.map(config => totalPlayers - config.playersPerRound);
+  
+  console.log(`Bye counts per round (before reordering): ${byeCountsPerRound.join(', ')}`);
+  
+  // MODIFICATION: Reorder rounds so the round with most byes comes last
+  const roundIndices = Array.from({ length: totalRounds }, (_, i) => i);
+  
+  // Sort round indices by bye count (ascending), so rounds with fewer byes come first
+  // This puts the round with the most byes at the end
+  roundIndices.sort((a, b) => {
+    const aByeCount = byeCountsPerRound[a];
+    const bByeCount = byeCountsPerRound[b];
+    if (aByeCount !== bByeCount) {
+      return aByeCount - bByeCount; // Ascending order - fewer byes first
+    }
+    // If bye counts are equal, maintain original order
+    return a - b;
+  });
+  
+  // Reorder the round configurations to match our preferred order
+  const reorderedRoundConfigs = roundIndices.map(i => roundConfigs[i]);
+  const reorderedByeCounts = roundIndices.map(i => byeCountsPerRound[i]);
+  
+  console.log(`Round order after reordering: ${roundIndices.map(i => i + 1).join(', ')}`);
+  console.log(`Bye counts per round (after reordering): ${reorderedByeCounts.join(', ')}`);
+  
   // Calculate total byes needed and target distribution
-  const totalByesNeeded = roundConfigs.reduce((sum, config) => sum + (totalPlayers - config.playersPerRound), 0);
+  const totalByesNeeded = reorderedByeCounts.reduce((sum, count) => sum + count, 0);
   const baseByesPerPlayer = Math.floor(totalByesNeeded / totalPlayers);
   const extraByeSlots = totalByesNeeded % totalPlayers;
   
@@ -260,10 +287,9 @@ function createFlexibleByeRotation(players, structure) {
     playerTargetByes[player.id] = baseByesPerPlayer + (index < extraByeSlots ? 1 : 0);
   });
   
-  // Assign byes round by round
+  // Assign byes round by round using our reordered configuration
   for (let roundIndex = 0; roundIndex < totalRounds; roundIndex++) {
-    const config = roundConfigs[roundIndex];
-    const byesThisRound = totalPlayers - config.playersPerRound;
+    const byesThisRound = reorderedByeCounts[roundIndex];
     
     console.log(`Round ${roundIndex + 1}: Need ${byesThisRound} byes`);
     
@@ -300,6 +326,10 @@ function createFlexibleByeRotation(players, structure) {
   });
   
   console.log(`Players with correct bye counts: ${correctPlayers}/${totalPlayers}`);
+  
+  // Log final bye distribution for verification
+  console.log(`Final bye distribution by round: ${byeAssignments.map(round => round.length).join(', ')}`);
+  
   return byeAssignments;
 }
 
