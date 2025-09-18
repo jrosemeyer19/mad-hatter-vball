@@ -16,7 +16,7 @@ function generateAllRounds(players, settings) {
   // Generate bye assignments based on round configurations
   const byeAssignments = createFlexibleByeRotation(players, tournamentStructure);
   
-  // Generate rounds
+  // Generate rounds with original settings but reduced courts
   const allRounds = [];
   const playerMatchCounts = {};
   
@@ -35,11 +35,15 @@ function generateAllRounds(players, settings) {
     console.log(`\n=== Generating Round ${roundNumber} ===`);
     console.log(`Playing: ${playersPlayingThisRound.length}, Bye: ${playersOnByeThisRound.length}`);
     
-    // Generate teams and matches for playing players
+    // Generate teams and matches for playing players - USE REDUCED COURTS BUT ORIGINAL TEAM SIZE
     const roundData = generateRoundFromPlayers(
       playersPlayingThisRound,
       playersOnByeThisRound,
-      { ...settings, courtsAvailable: tournamentStructure.effectiveCourts },
+      { 
+        ...settings, 
+        courtsAvailable: tournamentStructure.effectiveCourts
+        // Keep original minPlayersPerTeam - don't override it
+      },
       roundNumber
     );
     
@@ -90,24 +94,50 @@ function calculateOptimalTournamentStructure(totalPlayers, courtsAvailable, minP
   console.log(`\n=== Calculating Optimal Tournament Structure ===`);
   console.log(`Total players: ${totalPlayers}, Available courts: ${courtsAvailable}`);
   
-  // Determine effective courts based on player count
-  let effectiveCourts = courtsAvailable;
-  let maxTeamsPerRound = courtsAvailable * 2;
-  let maxPlayersPerRound = maxTeamsPerRound * maxPlayersPerTeam;
-  let minPlayersPerRound = maxTeamsPerRound * minPlayersPerTeam;
+  // CRITICAL FIX: Check if we have enough players for the absolute minimum requirements
+  const absoluteMinimumPlayers = minPlayersPerTeam * 2; // Need at least 2 teams
   
-  // Reduce courts if we don't have enough players
-  while (totalPlayers < minPlayersPerRound && effectiveCourts > 1) {
+  if (totalPlayers < absoluteMinimumPlayers) {
+    console.error(`❌ FATAL: Not enough players for tournament!`);
+    console.error(`   Need minimum: ${absoluteMinimumPlayers} players (2 teams × ${minPlayersPerTeam} players)`);
+    console.error(`   Have: ${totalPlayers} players`);
+    throw new Error(`Cannot create tournament with ${totalPlayers} players - need at least ${absoluteMinimumPlayers}`);
+  }
+  
+  // Determine effective courts - NEVER change minimum team size, only reduce courts
+  let effectiveCourts = courtsAvailable;
+  
+  // Calculate the maximum teams we can support with current constraints
+  let maxPossibleTeams = effectiveCourts * 2;
+  let minPlayersNeeded = maxPossibleTeams * minPlayersPerTeam;
+  
+  // ADAPTIVE LOGIC: Only reduce courts, never change minimum team size
+  while (totalPlayers < minPlayersNeeded && effectiveCourts > 1) {
     effectiveCourts--;
-    maxTeamsPerRound = effectiveCourts * 2;
-    maxPlayersPerRound = maxTeamsPerRound * maxPlayersPerTeam;
-    minPlayersPerRound = maxTeamsPerRound * minPlayersPerTeam;
+    maxPossibleTeams = effectiveCourts * 2;
+    minPlayersNeeded = maxPossibleTeams * minPlayersPerTeam;
     console.log(`Reduced to ${effectiveCourts} courts due to player constraints`);
   }
   
-  console.log(`Using ${effectiveCourts} courts (${maxTeamsPerRound} teams max, ${minPlayersPerRound}-${maxPlayersPerRound} players per round)`);
+  // Final validation - if still not enough players even with 1 court, tournament is impossible
+  if (totalPlayers < minPlayersNeeded) {
+    console.error(`❌ FATAL: Cannot create valid teams even with 1 court!`);
+    console.error(`   Need: ${minPlayersNeeded} players for ${maxPossibleTeams} teams of ${minPlayersPerTeam}+ each`);
+    console.error(`   Have: ${totalPlayers} players`);
+    throw new Error(`Cannot create tournament: ${totalPlayers} players insufficient for minimum team sizes`);
+  }
   
-  // For smaller tournaments, everyone can play every round
+  const maxTeamsPerRound = effectiveCourts * 2;
+  const maxPlayersPerRound = maxTeamsPerRound * maxPlayersPerTeam;
+  const minPlayersPerRound = maxTeamsPerRound * minPlayersPerTeam;
+  
+  console.log(`Final configuration:`);
+  console.log(`- Courts: ${effectiveCourts} (reduced from ${courtsAvailable})`);
+  console.log(`- Teams per round: ${maxTeamsPerRound}`);
+  console.log(`- Players per round: ${minPlayersPerRound}-${maxPlayersPerRound}`);
+  console.log(`- Min team size: ${minPlayersPerTeam} (unchanged)`);
+  
+  // For tournaments where everyone can play every round
   if (totalPlayers <= maxPlayersPerRound) {
     console.log(`All ${totalPlayers} players can play every round`);
     return {
@@ -117,12 +147,19 @@ function calculateOptimalTournamentStructure(totalPlayers, courtsAvailable, minP
     };
   }
   
-  // For larger tournaments, find the minimum rounds with mixed configurations
+  // For larger tournaments, use the existing logic
   const targetPlayerMatches = totalPlayers * matchesPerPlayer;
   console.log(`Target total player-matches: ${targetPlayerMatches}`);
   
   // Generate possible round configurations
-  const possibleRoundConfigs = generatePossibleRoundConfigs(minPlayersPerRound, maxPlayersPerRound, maxTeamsPerRound, minPlayersPerTeam, maxPlayersPerTeam);
+  const possibleRoundConfigs = generatePossibleRoundConfigs(
+    minPlayersPerRound, 
+    maxPlayersPerRound, 
+    maxTeamsPerRound, 
+    minPlayersPerTeam, 
+    maxPlayersPerTeam
+  );
+  
   console.log(`Generated ${possibleRoundConfigs.length} possible round configurations`);
   
   // Try to find minimum rounds using mixed configurations
@@ -146,10 +183,12 @@ function calculateOptimalTournamentStructure(totalPlayers, courtsAvailable, minP
   }
   
   // Fallback
-  console.log('No optimal solution found, using fallback');
+  console.log('Using fallback configuration');
   return {
-    totalRounds: matchesPerPlayer + 1,
-    roundConfigs: Array(matchesPerPlayer + 1).fill({ playersPerRound: Math.min(totalPlayers, maxPlayersPerRound) }),
+    totalRounds: matchesPerPlayer,
+    roundConfigs: Array(matchesPerPlayer).fill({ 
+      playersPerRound: Math.min(totalPlayers, maxPlayersPerRound) 
+    }),
     effectiveCourts
   };
 }
