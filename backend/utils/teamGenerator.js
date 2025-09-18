@@ -112,9 +112,6 @@ function calculateOptimalStructure(totalPlayers, settings) {
 }
 
 function canFormTeams(totalPlayers, maxTeams, minPerTeam, maxPerTeam) {
-  // Must have even number of teams for matches
-  if (maxTeams % 2 !== 0) return false;
-  
   // Try different even team counts up to maxTeams
   for (let teamCount = 2; teamCount <= maxTeams; teamCount += 2) {
     const avgTeamSize = totalPlayers / teamCount;
@@ -126,12 +123,22 @@ function canFormTeams(totalPlayers, maxTeams, minPerTeam, maxPerTeam) {
       const remainder = totalPlayers % teamCount;
       
       const smallTeamSize = baseSize;
-      const largeTeamSize = baseSize + 1;
+      const largeTeamSize = baseSize + (remainder > 0 ? 1 : 0);
       
-      // Verify both small and large team sizes are valid
-      if (smallTeamSize >= minPerTeam && smallTeamSize <= maxPerTeam &&
-          largeTeamSize >= minPerTeam && largeTeamSize <= maxPerTeam) {
-        return true;
+      // Verify both team sizes are valid (handle case where all teams are same size)
+      const allTeamsSameSize = remainder === 0;
+      
+      if (allTeamsSameSize) {
+        // All teams have exactly baseSize players
+        if (baseSize >= minPerTeam && baseSize <= maxPerTeam) {
+          return true;
+        }
+      } else {
+        // Some teams have baseSize, others have baseSize + 1
+        if (smallTeamSize >= minPerTeam && smallTeamSize <= maxPerTeam &&
+            largeTeamSize >= minPerTeam && largeTeamSize <= maxPerTeam) {
+          return true;
+        }
       }
     }
   }
