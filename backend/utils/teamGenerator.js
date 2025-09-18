@@ -100,25 +100,54 @@ function calculateTournamentStructure(players, settings) {
   while (courtsToUse >= 1) {
     const teamsPerRound = courtsToUse * 2;
     const minPlayersNeeded = teamsPerRound * settings.minPlayersPerTeam;
-    const maxPlayersNeeded = teamsPerRound * maxPlayersPerTeam;
     
-    // Check if we can accommodate all players with this court count
+    // Check if we have enough players to fill minimum team requirements
     if (players.length >= minPlayersNeeded) {
-      const playersPerRound = Math.min(players.length, maxPlayersNeeded);
-      const byesPerRound = players.length - playersPerRound;
+      // Calculate how many players will actually play per round
+      const maxPlayersPerRound = teamsPerRound * maxPlayersPerTeam;
+      const playersPerRound = Math.min(players.length, maxPlayersPerRound);
       
-      return {
-        courtsToUse,
-        teamsPerRound,
-        playersPerRound,
-        byesPerRound
-      };
+      // But ensure we can actually form valid teams with playersPerRound
+      let validPlayersPerRound = playersPerRound;
+      
+      // Work backwards to find largest valid team configuration
+      while (validPlayersPerRound >= minPlayersNeeded) {
+        if (canFormValidTeamsWithCount(validPlayersPerRound, teamsPerRound, settings.minPlayersPerTeam, maxPlayersPerTeam)) {
+          const byesPerRound = players.length - validPlayersPerRound;
+          
+          return {
+            courtsToUse,
+            teamsPerRound,
+            playersPerRound: validPlayersPerRound,
+            byesPerRound
+          };
+        }
+        validPlayersPerRound--;
+      }
     }
     
     courtsToUse--;
   }
   
   throw new Error('Cannot create valid tournament structure with given constraints');
+}
+
+// Helper function to check if we can form valid teams
+function canFormValidTeamsWithCount(totalPlayers, teamCount, minSize, maxSize) {
+  if (teamCount % 2 !== 0) return false; // Need even teams for matches
+  
+  const avgSize = totalPlayers / teamCount;
+  if (avgSize < minSize || avgSize > maxSize) return false;
+  
+  // Check if the distribution works
+  const baseSize = Math.floor(avgSize);
+  const extraPlayers = totalPlayers % teamCount;
+  
+  const smallTeamSize = baseSize;
+  const largeTeamSize = baseSize + 1;
+  
+  return (smallTeamSize >= minSize && smallTeamSize <= maxSize &&
+          largeTeamSize >= minSize && largeTeamSize <= maxSize);
 }
 
 /**
