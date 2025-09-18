@@ -3,88 +3,179 @@ function generateAllRounds(players, settings) {
   const maxPlayersPerTeam = 6;
   
   console.log(`\n=== Tournament Generation Start ===`);
-  console.log(`Players: ${players.length}, Courts: ${courtsAvailable}, Matches per player: ${matchesPerPlayer}`);
+  console.log(`Players: ${players.length}, Courts: ${courtsAvailable}, Min per team: ${minPlayersPerTeam}, Matches per player: ${matchesPerPlayer}`);
   
-  // Calculate tournament structure based on player count
-  const tournamentStructure = calculateOptimalTournamentStructure(players.length, courtsAvailable, minPlayersPerTeam, maxPlayersPerTeam, matchesPerPlayer);
+  // Early validation
+  const absoluteMinimumPlayers = minPlayersPerTeam * 2;
+  if (players.length < absoluteMinimumPlayers) {
+    throw new Error(`Need at least ${absoluteMinimumPlayers} players for ${minPlayersPerTeam} minimum per team`);
+  }
   
-  console.log(`\n=== Final Tournament Structure ===`);
-  console.log(`Total rounds: ${tournamentStructure.totalRounds}`);
-  console.log(`Round configurations: ${JSON.stringify(tournamentStructure.roundConfigs)}`);
-  console.log(`Effective courts: ${tournamentStructure.effectiveCourts}`);
+  // SIMPLE APPROACH: Calculate effective courts directly
+  let effectiveCourts = courtsAvailable;
   
-  // Generate bye assignments based on round configurations
-  const byeAssignments = createFlexibleByeRotation(players, tournamentStructure);
-  
-  // Generate rounds with original settings but reduced courts
-  const allRounds = [];
-  const playerMatchCounts = {};
-  
-  // Initialize match tracking
-  players.forEach(p => {
-    playerMatchCounts[p.id] = 0;
-  });
-  
-  for (let roundIndex = 0; roundIndex < byeAssignments.length; roundIndex++) {
-    const roundNumber = roundIndex + 1;
-    const playersOnByeThisRound = byeAssignments[roundIndex];
-    const playersPlayingThisRound = players.filter(p => 
-      !playersOnByeThisRound.some(byePlayer => byePlayer.id === p.id)
-    );
+  // Reduce courts until we can accommodate the players with minimum team sizes
+  while (effectiveCourts > 0) {
+    const maxTeams = effectiveCourts * 2;
+    const playersNeeded = maxTeams * minPlayersPerTeam;
     
-    console.log(`\n=== Generating Round ${roundNumber} ===`);
-    console.log(`Playing: ${playersPlayingThisRound.length}, Bye: ${playersOnByeThisRound.length}`);
-    
-    // Generate teams and matches for playing players - USE REDUCED COURTS BUT ORIGINAL TEAM SIZE
-    const roundData = generateRoundFromPlayers(
-      playersPlayingThisRound,
-      playersOnByeThisRound,
-      { 
-        ...settings, 
-        courtsAvailable: tournamentStructure.effectiveCourts
-        // Keep original minPlayersPerTeam - don't override it
-      },
-      roundNumber
-    );
-    
-    if (!roundData) {
-      console.error(`Failed to generate round ${roundNumber}`);
+    if (players.length >= playersNeeded) {
+      console.log(`Can use ${effectiveCourts} courts (${maxTeams} teams, need ${playersNeeded} players, have ${players.length})`);
       break;
     }
     
-    // Update match counts
-    roundData.teams.forEach(team => {
-      const teamHasMatch = roundData.matches.some(match => 
-        match.team1 === team || match.team2 === team
-      );
-      
-      if (teamHasMatch) {
-        team.players.forEach(player => {
-          playerMatchCounts[player.id]++;
-        });
-      }
-    });
-    
-    allRounds.push(roundData);
-    console.log(`Round ${roundNumber} complete: ${roundData.matches.length} matches on ${tournamentStructure.effectiveCourts} courts`);
+    effectiveCourts--;
+    console.log(`Reducing to ${effectiveCourts} courts due to insufficient players`);
   }
   
-  // Final validation
-  console.log('\n=== Final Validation ===');
-  let playersWithCorrectMatches = 0;
-  players.forEach(player => {
-    const matches = playerMatchCounts[player.id];
-    if (matches === matchesPerPlayer) {
-      playersWithCorrectMatches++;
-    } else {
-      console.warn(`${player.name}: ${matches}/${matchesPerPlayer} matches`);
-    }
-  });
+  if (effectiveCourts === 0) {
+    throw new Error(`Cannot create tournament: need at least ${minPlayersPerTeam * 2} players`);
+  }
   
-  if (playersWithCorrectMatches === players.length) {
-    console.log('✅ All players have correct number of matches!');
+  // DIRECT APPROACH: For small tournaments, everyone plays every round
+  const maxTeamsPerRound = effectiveCourts * 2;
+  const maxPlayersPerRound = maxTeamsPerRound * maxPlayersPerTeam;
+  
+  if (players.length <= maxPlayersPerRound) {
+    console.log(`Simple tournament structure: all players play every round`);
+    
+    const allRounds = [];
+    
+    // Generate each round with all players
+    for (let roundNum = 1; roundNum <= matchesPerPlayer; roundNum++) {
+      console.log(`\n=== Generating Round ${roundNum} ===`);
+      console.log(`All ${players.length} players will play this round`);
+      
+      // Direct team generation - no complex calculation needed
+      const roundData = createSimpleRound(players, effectiveCourts, minPlayersPerTeam, maxPlayersPerTeam, roundNum);
+      
+      if (!roundData || roundData.matches.length === 0) {
+        console.error(`FAILED: Round ${roundNum} generated ${roundData ? roundData.matches.length : 0} matches`);
+        throw new Error(`Failed to generate matches for round ${roundNum}`);
+      }
+      
+      console.log(`SUCCESS: Round ${roundNum} has ${roundData.matches.length} matches, ${roundData.teams.length} teams`);
+      allRounds.push(roundData);
+    }
+    
+    console.log(`\n=== Tournament Generated Successfully ===`);
+    console.log(`${allRounds.length} rounds, ${allRounds[0].matches.length} matches per round`);
+    
+    return allRounds;
   } else {
-    console.error(`❌ ${players.length - playersWithCorrectMatches} players have incorrect match counts`);
+    // For larger tournaments, use the complex bye rotation system
+    console.log(`Complex tournament structure needed - using bye rotation`);
+    return generateComplexTournament(players, settings, effectiveCourts);
+  }
+}
+
+// New function to create a simple round where everyone plays
+function createSimpleRound(players, courtsAvailable, minPlayersPerTeam, maxPlayersPerTeam, roundNumber) {
+  console.log(`--- Creating Simple Round ${roundNumber} ---`);
+  console.log(`Players: ${players.length}, Courts: ${courtsAvailable}`);
+  
+  const maxTeams = courtsAvailable * 2;
+  
+  // Find the best team configuration
+  let bestTeamCount = null;
+  
+  for (let teamCount = 2; teamCount <= maxTeams; teamCount += 2) {
+    const avgTeamSize = players.length / teamCount;
+    
+    if (avgTeamSize >= minPlayersPerTeam && avgTeamSize <= maxPlayersPerTeam) {
+      console.log(`Valid configuration: ${teamCount} teams, avg ${avgTeamSize.toFixed(1)} players per team`);
+      bestTeamCount = teamCount;
+      break; // Use the first valid configuration (smallest team count)
+    }
+  }
+  
+  if (!bestTeamCount) {
+    console.error(`Cannot create valid teams with ${players.length} players`);
+    return null;
+  }
+  
+  // Calculate team sizes
+  const baseTeamSize = Math.floor(players.length / bestTeamCount);
+  const extraPlayers = players.length % bestTeamCount;
+  
+  const teamSizes = [];
+  for (let i = 0; i < bestTeamCount; i++) {
+    teamSizes.push(baseTeamSize + (i < extraPlayers ? 1 : 0));
+  }
+  
+  console.log(`Team sizes: ${teamSizes.join(', ')}`);
+  
+  // Create teams
+  const teams = [];
+  let playerIndex = 0;
+  
+  for (let i = 0; i < teamSizes.length; i++) {
+    const teamPlayers = players.slice(playerIndex, playerIndex + teamSizes[i]);
+    teams.push({
+      players: teamPlayers,
+      targetSize: teamSizes[i]
+    });
+    playerIndex += teamSizes[i];
+  }
+  
+  // Balance teams for better distribution
+  balanceTeams(teams);
+  
+  // Create matches
+  const matches = [];
+  for (let i = 0; i < teams.length - 1; i += 2) {
+    const courtNumber = Math.floor(i / 2) + 1;
+    matches.push({
+      team1: teams[i],
+      team2: teams[i + 1],
+      court: courtNumber,
+      isPowerMatch: false
+    });
+    
+    console.log(`Match ${matches.length}: Team ${i + 1} (${teams[i].players.length}) vs Team ${i + 2} (${teams[i + 1].players.length}) - Court ${courtNumber}`);
+  }
+  
+  return {
+    roundNumber,
+    teams,
+    matches,
+    byePlayers: [], // No bye players in simple rounds
+    totalPlayingPlayers: players.length,
+    totalByePlayers: 0
+  };
+}
+
+// Fallback function for complex tournaments (when players > max per round)
+function generateComplexTournament(players, settings, effectiveCourts) {
+  // Use the existing complex tournament logic
+  const tournamentStructure = calculateOptimalTournamentStructure(
+    players.length, 
+    effectiveCourts, 
+    settings.minPlayersPerTeam, 
+    6, 
+    settings.matchesPerPlayer
+  );
+  
+  const byeAssignments = createFlexibleByeRotation(players, tournamentStructure);
+  
+  const allRounds = [];
+  for (let roundIndex = 0; roundIndex < byeAssignments.length; roundIndex++) {
+    const roundNumber = roundIndex + 1;
+    const playersOnBye = byeAssignments[roundIndex];
+    const playersPlaying = players.filter(p => 
+      !playersOnBye.some(byePlayer => byePlayer.id === p.id)
+    );
+    
+    const roundData = generateRoundFromPlayers(
+      playersPlaying,
+      playersOnBye,
+      { ...settings, courtsAvailable: effectiveCourts },
+      roundNumber
+    );
+    
+    if (roundData) {
+      allRounds.push(roundData);
+    }
   }
   
   return allRounds;
