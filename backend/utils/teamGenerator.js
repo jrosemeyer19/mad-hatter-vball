@@ -71,49 +71,66 @@ function calculateOptimalStructure(totalPlayers, settings) {
   const maxPlayersPerTeam = 6;
   let courtsUsed = settings.courtsAvailable;
   
+  console.log(`\n--- Structure Calculation Debug ---`);
+  console.log(`Total players: ${totalPlayers}`);
+  console.log(`Available courts: ${settings.courtsAvailable}`);
+  console.log(`Min per team: ${settings.minPlayersPerTeam}`);
+  
   // Find the optimal number of courts to use
   while (courtsUsed >= 1) {
     const maxTeams = courtsUsed * 2;
     const minPlayersNeeded = maxTeams * settings.minPlayersPerTeam;
     const maxPlayersCapacity = maxTeams * maxPlayersPerTeam;
     
+    console.log(`Testing ${courtsUsed} courts: ${maxTeams} teams, need ${minPlayersNeeded}-${maxPlayersCapacity} players`);
+    
     if (totalPlayers >= minPlayersNeeded) {
-      // We can use this many courts
       const playersPerRound = Math.min(totalPlayers, maxPlayersCapacity);
       
-      // But ensure we can actually form valid teams
+      console.log(`Can use ${courtsUsed} courts with ${playersPerRound} players per round`);
+      
+      // Check if we can form valid teams
       if (canFormTeams(playersPerRound, maxTeams, settings.minPlayersPerTeam, maxPlayersPerTeam)) {
+        console.log(`✓ Valid team formation confirmed`);
         return {
           courtsUsed,
           playersPerRound,
           byesPerRound: totalPlayers - playersPerRound
         };
+      } else {
+        console.log(`✗ Cannot form valid teams with ${playersPerRound} players and ${maxTeams} teams`);
       }
+    } else {
+      console.log(`✗ Not enough players: need ${minPlayersNeeded}, have ${totalPlayers}`);
     }
     
     courtsUsed--;
   }
   
+  console.log(`❌ No valid structure found`);
   throw new Error('Cannot create valid tournament structure');
 }
 
 function canFormTeams(totalPlayers, maxTeams, minPerTeam, maxPerTeam) {
-  // Try different team counts (must be even for matches)
+  // Must have even number of teams for matches
+  if (maxTeams % 2 !== 0) return false;
+  
+  // Try different even team counts up to maxTeams
   for (let teamCount = 2; teamCount <= maxTeams; teamCount += 2) {
     const avgTeamSize = totalPlayers / teamCount;
     
+    // Check if average is within valid range
     if (avgTeamSize >= minPerTeam && avgTeamSize <= maxPerTeam) {
-      // Check if distribution works
+      // Check actual team size distribution
       const baseSize = Math.floor(avgTeamSize);
       const remainder = totalPlayers % teamCount;
-      
-      const smallTeams = teamCount - remainder;
-      const largeTeams = remainder;
       
       const smallTeamSize = baseSize;
       const largeTeamSize = baseSize + 1;
       
-      if (smallTeamSize >= minPerTeam && largeTeamSize <= maxPerTeam) {
+      // Verify both small and large team sizes are valid
+      if (smallTeamSize >= minPerTeam && smallTeamSize <= maxPerTeam &&
+          largeTeamSize >= minPerTeam && largeTeamSize <= maxPerTeam) {
         return true;
       }
     }
