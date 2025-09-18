@@ -602,36 +602,71 @@ function validateByeSchedule(players, byeSchedule, playerTargetByes) {
 
 function validateFinalTournament(players, allRounds, expectedMatchesPerPlayer) {
   console.log('\n=== Validating Final Tournament ===');
+  console.log(`Expected matches per player: ${expectedMatchesPerPlayer}`);
+  console.log(`Total rounds: ${allRounds.length}`);
   
   const playerMatchCount = {};
   players.forEach(p => playerMatchCount[p.id] = 0);
   
-  allRounds.forEach(round => {
+  // Count matches by looking at which players are NOT on bye each round
+  allRounds.forEach((round, roundIndex) => {
+    console.log(`\nRound ${roundIndex + 1}:`);
+    console.log(`  Players on bye: ${round.byePlayers.length}`);
+    console.log(`  Playing teams: ${round.teams.filter(t => !t.is_bye_team).length}`);
+    console.log(`  Matches: ${round.matches.length}`);
+    
+    // Players not on bye in this round are playing
+    const playingPlayerIds = new Set();
+    
+    // Get playing players from matches
     round.matches.forEach(match => {
-      match.team1.players.forEach(player => {
-        playerMatchCount[player.id]++;
-      });
-      match.team2.players.forEach(player => {
-        playerMatchCount[player.id]++;
-      });
+      // Add all players from team1
+      if (match.team1 && match.team1.players) {
+        match.team1.players.forEach(player => {
+          playingPlayerIds.add(player.id);
+        });
+      }
+      // Add all players from team2  
+      if (match.team2 && match.team2.players) {
+        match.team2.players.forEach(player => {
+          playingPlayerIds.add(player.id);
+        });
+      }
     });
+    
+    // Count matches for playing players
+    playingPlayerIds.forEach(playerId => {
+      if (playerMatchCount[playerId] !== undefined) {
+        playerMatchCount[playerId]++;
+      }
+    });
+    
+    console.log(`  Players playing this round: ${playingPlayerIds.size}`);
   });
   
+  // Validate counts
   let correctMatchCount = 0;
+  let totalErrors = 0;
+  
   players.forEach(player => {
     const actual = playerMatchCount[player.id];
     if (actual === expectedMatchesPerPlayer) {
       correctMatchCount++;
     } else {
+      totalErrors++;
       console.error(`${player.name}: ${actual} matches (expected ${expectedMatchesPerPlayer})`);
     }
   });
   
-  if (correctMatchCount === players.length) {
-    console.log('✅ All players have correct number of matches');
-  } else {
-    throw new Error(`${players.length - correctMatchCount} players have incorrect match counts`);
+  console.log(`\nValidation Summary:`);
+  console.log(`  Correct: ${correctMatchCount}/${players.length}`);
+  console.log(`  Incorrect: ${totalErrors}`);
+  
+  if (correctMatchCount !== players.length) {
+    throw new Error(`${totalErrors} players have incorrect match counts`);
   }
+  
+  console.log('✅ All players have correct number of matches');
 }
 
 // Legacy compatibility functions for existing codebase
