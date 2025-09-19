@@ -48,6 +48,23 @@ function generateAllRounds(players, settings) {
   });
   
   // Step 5: Validate final tournament
+  // Add this debug before validateFlexibleTournament
+  console.log('\n=== PRE-VALIDATION PLAYER MATCH ANALYSIS ===');
+  const playerMatchCount = {};
+  players.forEach(p => playerMatchCount[p.id] = 0);
+  allRounds.forEach(round => {
+    round.matches.forEach(match => {
+      match.team1.players.forEach(player => playerMatchCount[player.id]++);
+      match.team2.players.forEach(player => playerMatchCount[player.id]++);
+    });
+  });
+  players.forEach(player => {
+    const actual = playerMatchCount[player.id];
+    if (actual !== settings.matchesPerPlayer) {
+      console.error(`  ${player.name}: ${actual}/${settings.matchesPerPlayer} matches`);
+    }
+  });
+
   validateFlexibleTournament(players, allRounds, settings.matchesPerPlayer);
   
   console.log('\n=== Flexible Tournament Generation Complete ===');
