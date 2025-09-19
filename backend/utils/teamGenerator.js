@@ -226,34 +226,63 @@ function calculateOptimalStructure(totalPlayers, settings) {
     throw new Error(`Need at least ${settings.minPlayersPerTeam * 2} players for minimum court usage`);
   }
   
-  // Calculate flexible round structure
-  const rounds = [];
-  let remainingPlayerMatches = totalPlayerMatches;
+  // Calculate maximum players that can play per round
   const maxTeamsPerRound = courtsToUse * 2;
   const maxPlayersPerRound = maxTeamsPerRound * maxPlayersPerTeam;
+  const minPlayersPerRound = maxTeamsPerRound * settings.minPlayersPerTeam;
   
-  for (let roundNum = 1; roundNum <= settings.matchesPerPlayer; roundNum++) {
-    const roundsRemaining = settings.matchesPerPlayer - roundNum + 1;
+  // Use a greedy algorithm to distribute player-matches across rounds
+  const rounds = [];
+  let remainingPlayerMatches = totalPlayerMatches;
+  let roundNumber = 1;
+  
+  while (remainingPlayerMatches > 0) {
+    // Calculate how many players we want in this round
+    let idealPlayersThisRound;
     
-    // Calculate ideal players for this round
-    let idealPlayersThisRound = Math.ceil(remainingPlayerMatches / roundsRemaining);
+    if (rounds.length === 0) {
+      // For the first round, try to use as many players as possible
+      idealPlayersThisRound = Math.min(totalPlayers, maxPlayersPerRound);
+    } else {
+      // For subsequent rounds, calculate based on remaining needs
+      const roundsRemaining = Math.max(1, Math.ceil(remainingPlayerMatches / maxPlayersPerRound));
+      idealPlayersThisRound = Math.ceil(remainingPlayerMatches / roundsRemaining);
+    }
     
-    // Constrain to maximum capacity and ensure valid team formation
-    let playersThisRound = Math.min(idealPlayersThisRound, maxPlayersPerRound);
+    // Constrain to valid range
+    let playersThisRound = Math.max(
+      minPlayersPerRound,
+      Math.min(idealPlayersThisRound, maxPlayersPerRound)
+    );
     
-    // Adjust to ensure we can form valid teams
-    playersThisRound = findValidPlayerCount(playersThisRound, maxTeamsPerRound, settings.minPlayersPerTeam, maxPlayersPerTeam);
+    // Ensure we can form valid teams
+    playersThisRound = findValidPlayerCount(
+      playersThisRound, 
+      maxTeamsPerRound, 
+      settings.minPlayersPerTeam, 
+      maxPlayersPerTeam
+    );
+    
+    // Don't exceed total players
+    playersThisRound = Math.min(playersThisRound, totalPlayers);
     
     const byesThisRound = totalPlayers - playersThisRound;
     
     rounds.push({
-      roundNumber: roundNum,
+      roundNumber: roundNumber,
       playersPlaying: playersThisRound,
       playersBye: byesThisRound
     });
     
     remainingPlayerMatches -= playersThisRound;
-    console.log(`Round ${roundNum}: ${playersThisRound} playing, ${byesThisRound} bye (${remainingPlayerMatches} matches remaining)`);
+    roundNumber++;
+    
+    console.log(`Round ${rounds.length}: ${playersThisRound} playing, ${byesThisRound} bye (${remainingPlayerMatches} matches remaining)`);
+    
+    // Safety check to prevent infinite loops
+    if (rounds.length > 20) {
+      throw new Error('Too many rounds generated - check tournament parameters');
+    }
   }
   
   // Validate the math works out
@@ -263,24 +292,19 @@ function calculateOptimalStructure(totalPlayers, settings) {
     throw new Error('Cannot create mathematically valid tournament structure');
   }
   
+  // Ensure everyone gets at least one bye (if byes are needed)
+  const totalByeSlots = rounds.reduce((sum, round) => sum + round.playersBye, 0);
+  if (totalByeSlots > 0 && totalByeSlots < totalPlayers) {
+    console.warn(`⚠️  Not everyone can get a bye - only ${totalByeSlots} bye slots for ${totalPlayers} players`);
+  }
+  
   console.log(`✅ Flexible structure created: ${rounds.length} rounds, ${courtsToUse} courts`);
+  console.log(`Total bye slots: ${totalByeSlots}, Average byes per player: ${(totalByeSlots / totalPlayers).toFixed(1)}`);
   
   return {
     courtsUsed: courtsToUse,
     flexibleRounds: rounds
   };
-}
-
-function findValidPlayerCount(targetPlayers, maxTeams, minPerTeam, maxPerTeam) {
-  // Try the target first
-  for (let players = targetPlayers; players >= minPerTeam * 2; players--) {
-    if (canFormTeams(players, maxTeams, minPerTeam, maxPerTeam)) {
-      return players;
-    }
-  }
-  
-  // If we can't find a valid count, return the minimum possible
-  return minPerTeam * 2;
 }
 
 function generateFlexibleByeSchedule(players, flexibleRounds) {
