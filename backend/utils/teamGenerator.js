@@ -60,6 +60,19 @@ function generateFlexibleRound(playingPlayers, byePlayers, courtsUsed, minPlayer
   
   console.log(`\n=== Creating Flexible Round ${roundNumber} ===`);
   console.log(`Playing players: ${playingPlayers.length}, Courts available: ${courtsUsed}`);
+
+  // ADD THIS DEBUGGING CODE HERE:
+  console.log(`\n=== Debug Round ${roundNumber} ===`);
+  console.log(`Bye players (${byePlayers.length}):`, byePlayers.map(p => p.name));
+  console.log(`Playing players (${playingPlayers.length}):`, playingPlayers.map(p => p.name));
+
+  // Check for overlap
+  const byePlayerIds = new Set(byePlayers.map(p => p.id));
+  const duplicates = playingPlayers.filter(p => byePlayerIds.has(p.id));
+  if (duplicates.length > 0) {
+    console.error(`❌ DUPLICATE PLAYERS FOUND:`, duplicates.map(p => p.name));
+  }
+  // END DEBUGGING CODE
   
   if (playingPlayers.length === 0) {
     // Handle edge case where everyone is on bye
