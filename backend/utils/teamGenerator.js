@@ -263,7 +263,23 @@ function calculateOptimalStructure(totalPlayers, settings) {
   const maxPlayersPerTeam = 6;
   let bestSolution = null;
   
-  for (let courtsToUse = settings.courtsAvailable; courtsToUse >= 1; courtsToUse--) {
+  // First, determine the maximum usable courts for this player count
+  let maxUsableCourts = settings.courtsAvailable;
+  while (maxUsableCourts >= 1) {
+    const minPlayersNeeded = maxUsableCourts * 2 * settings.minPlayersPerTeam;
+    if (totalPlayers >= minPlayersNeeded) {
+      break;
+    }
+    maxUsableCourts--;
+  }
+  
+  if (maxUsableCourts < 1) {
+    throw new Error(`Need at least ${settings.minPlayersPerTeam * 2} players for minimum court usage`);
+  }
+  
+  console.log(`Max usable courts for ${totalPlayers} players: ${maxUsableCourts}`);
+  
+  for (let courtsToUse = maxUsableCourts; courtsToUse >= 1; courtsToUse--) {
     const maxTeamsPerRound = courtsToUse * 2;
     const minPlayersNeeded = maxTeamsPerRound * settings.minPlayersPerTeam;
     
@@ -400,45 +416,68 @@ function tryMixedCourtStrategy(totalPlayers, totalPlayerMatches, settings, canFo
     }
   }
   
+  if (courtConfigs.length === 0) {
+    console.log(`No valid court configurations available`);
+    return null;
+  }
+  
   console.log(`Available court configurations:`, courtConfigs.map(c => 
     `${c.courts} courts (${c.minPlayers}-${c.maxPlayers} players)`).join(', '));
   
   // Try to build a solution using multiple court configurations
-  // Start with a greedy approach: use largest configurations first, fill gaps with smaller ones
   let remainingMatches = totalPlayerMatches;
   const rounds = [];
   let roundNumber = 1;
+  let lastRemainingMatches = remainingMatches + 1; // Track progress to prevent infinite loops
   
-  while (remainingMatches > 0) {
+  while (remainingMatches > 0 && rounds.length < 25) {
+    // Safety check for infinite loops
+    if (remainingMatches >= lastRemainingMatches) {
+      console.log(`No progress made in mixed strategy - stopping to prevent infinite loop`);
+      return null;
+    }
+    lastRemainingMatches = remainingMatches;
+    
     let bestRound = null;
+    let bestScore = -1;
     
     // Try each court configuration to see which works best for remaining matches
-    for (const config of courtConfigs.sort((a, b) => b.maxPlayers - a.maxPlayers)) {
+    for (const config of courtConfigs) {
+      // Skip configurations that can't help with remaining matches
+      if (config.minPlayers > remainingMatches) {
+        continue;
+      }
+      
       // Calculate ideal players for this round with this configuration
-      const maxRoundsLeft = Math.ceil(remainingMatches / config.minPlayers);
-      const minRoundsLeft = Math.ceil(remainingMatches / config.maxPlayers);
-      
-      if (maxRoundsLeft < minRoundsLeft) continue; // Impossible with this config
-      
-      // Try to use as many players as possible with this configuration
       let playersThisRound = Math.min(remainingMatches, config.maxPlayers);
       playersThisRound = Math.max(playersThisRound, config.minPlayers);
       playersThisRound = Math.min(playersThisRound, totalPlayers);
       
       // Adjust to ensure valid team formation
-      while (playersThisRound >= config.minPlayers && 
-             !canFormValidTeams(playersThisRound, config.maxTeams, settings.minPlayersPerTeam, maxPlayersPerTeam)) {
-        playersThisRound--;
+      let validPlayersFound = false;
+      for (let testPlayers = playersThisRound; testPlayers >= config.minPlayers; testPlayers--) {
+        if (canFormValidTeams(testPlayers, config.maxTeams, settings.minPlayersPerTeam, maxPlayersPerTeam)) {
+          playersThisRound = testPlayers;
+          validPlayersFound = true;
+          break;
+        }
       }
       
-      if (playersThisRound >= config.minPlayers && playersThisRound <= remainingMatches) {
+      if (!validPlayersFound || playersThisRound > remainingMatches) {
+        continue;
+      }
+      
+      // Score this configuration (prefer using more players/matches)
+      const score = playersThisRound + (config.courts * 0.1); // Slight preference for more courts
+      
+      if (score > bestScore) {
+        bestScore = score;
         bestRound = {
           roundNumber,
           playersPlaying: playersThisRound,
           playersBye: totalPlayers - playersThisRound,
           courtsUsed: config.courts
         };
-        break; // Found a valid round with this configuration
       }
     }
     
@@ -452,11 +491,11 @@ function tryMixedCourtStrategy(totalPlayers, totalPlayerMatches, settings, canFo
     roundNumber++;
     
     console.log(`Mixed Round ${bestRound.roundNumber}: ${bestRound.playersPlaying} playing (${bestRound.courtsUsed} courts), ${bestRound.playersBye} bye (${remainingMatches} remaining)`);
-    
-    if (rounds.length > 20) {
-      console.log(`Too many rounds in mixed strategy`);
-      return null;
-    }
+  }
+  
+  if (remainingMatches > 0) {
+    console.log(`Mixed strategy failed - ${remainingMatches} matches remaining`);
+    return null;
   }
   
   // Determine primary court usage (most common)
