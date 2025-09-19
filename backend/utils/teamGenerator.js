@@ -228,8 +228,11 @@ function calculateOptimalStructure(totalPlayers, settings) {
   
   // Helper function to check if we can form valid teams
   const canFormValidTeams = (totalPlayers, maxTeams, minPerTeam, maxPerTeam) => {
+    console.log(`    Checking if ${totalPlayers} players can form teams (max ${maxTeams} teams, ${minPerTeam}-${maxPerTeam} per team)`);
+    
     for (let teamCount = 2; teamCount <= maxTeams; teamCount += 2) {
       const avgTeamSize = totalPlayers / teamCount;
+      console.log(`      Trying ${teamCount} teams: avg ${avgTeamSize} players per team`);
       
       if (avgTeamSize >= minPerTeam && avgTeamSize <= maxPerTeam) {
         const baseSize = Math.floor(avgTeamSize);
@@ -237,11 +240,19 @@ function calculateOptimalStructure(totalPlayers, settings) {
         const smallTeamSize = baseSize;
         const largeTeamSize = baseSize + 1;
         
+        console.log(`        Base size: ${baseSize}, remainder: ${remainder}, small: ${smallTeamSize}, large: ${largeTeamSize}`);
+        
         if (smallTeamSize >= minPerTeam && largeTeamSize <= maxPerTeam) {
+          console.log(`        ✅ Valid: ${teamCount} teams work`);
           return true;
+        } else {
+          console.log(`        ❌ Invalid: team sizes ${smallTeamSize}-${largeTeamSize} outside range ${minPerTeam}-${maxPerTeam}`);
         }
+      } else {
+        console.log(`        ❌ Invalid: avg team size ${avgTeamSize} outside range ${minPerTeam}-${maxPerTeam}`);
       }
     }
+    console.log(`    ❌ No valid team configuration found for ${totalPlayers} players`);
     return false;
   };
   
