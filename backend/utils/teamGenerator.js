@@ -240,6 +240,25 @@ function calculateOptimalStructure(totalPlayers, settings) {
   const totalPlayerMatches = totalPlayers * settings.matchesPerPlayer;
   console.log(`Total player-matches needed: ${totalPlayerMatches}`);
   
+  // Determine court usage
+  let courtsToUse = settings.courtsAvailable;
+  const maxPlayersPerTeam = 6;
+  
+  while (courtsToUse >= 1) {
+    const maxTeamsPerRound = courtsToUse * 2;
+    const minPlayersNeeded = maxTeamsPerRound * settings.minPlayersPerTeam;
+    
+    if (totalPlayers >= minPlayersNeeded) {
+      console.log(`Can use ${courtsToUse} courts (need ${minPlayersNeeded}+ players)`);
+      break;
+    }
+    courtsToUse--;
+  }
+  
+  if (courtsToUse < 1) {
+    throw new Error(`Need at least ${settings.minPlayersPerTeam * 2} players for minimum court usage`);
+  }
+  
   // Helper function to check if we can form valid teams
   const canFormValidTeams = (totalPlayers, maxTeams, minPerTeam, maxPerTeam) => {
     for (let teamCount = 2; teamCount <= maxTeams; teamCount += 2) {
@@ -259,64 +278,48 @@ function calculateOptimalStructure(totalPlayers, settings) {
     return false;
   };
   
-  // Determine court usage - start with maximum and work down
-  const maxPlayersPerTeam = 6;
-  let bestSolution = null;
+  // Calculate constraints for single court usage
+  const maxTeamsPerRound = courtsToUse * 2;
+  const maxPlayersPerRound = maxTeamsPerRound * maxPlayersPerTeam;
+  const minPlayersPerRound = maxTeamsPerRound * settings.minPlayersPerTeam;
   
-  for (let courtsToUse = settings.courtsAvailable; courtsToUse >= 1; courtsToUse--) {
-    const maxTeamsPerRound = courtsToUse * 2;
-    const minPlayersNeeded = maxTeamsPerRound * settings.minPlayersPerTeam;
-    
-    if (totalPlayers < minPlayersNeeded) {
-      console.log(`Skipping ${courtsToUse} courts (need ${minPlayersNeeded}+ players, have ${totalPlayers})`);
-      continue;
-    }
-    
-    console.log(`\nTrying with ${courtsToUse} courts...`);
-    
-    const maxPlayersPerRound = maxTeamsPerRound * maxPlayersPerTeam;
-    const minPlayersPerRound = maxTeamsPerRound * settings.minPlayersPerTeam;
-    
-    console.log(`Round constraints: ${minPlayersPerRound}-${maxPlayersPerRound} players per round`);
-    
-    // Test mathematical feasibility first
-    const minRoundsNeeded = Math.ceil(totalPlayerMatches / maxPlayersPerRound);
-    const maxRoundsAllowed = Math.floor(totalPlayerMatches / minPlayersPerRound);
-    
-    if (minRoundsNeeded > maxRoundsAllowed) {
-      console.log(`${courtsToUse} courts: mathematically impossible (need ${minRoundsNeeded} rounds, max ${maxRoundsAllowed})`);
-      continue;
-    }
-    
-    console.log(`Testing ${minRoundsNeeded} to ${maxRoundsAllowed} rounds with ${courtsToUse} courts...`);
-    
-    // Try to find a valid round structure with this court count
+  console.log(`Round constraints: ${minPlayersPerRound}-${maxPlayersPerRound} players per round`);
+  
+  // Try single-court solution first (existing logic)
+  let bestRounds = null;
+  
+  const minRoundsNeeded = Math.ceil(totalPlayerMatches / maxPlayersPerRound);
+  const maxRoundsAllowed = Math.floor(totalPlayerMatches / minPlayersPerRound);
+  
+  console.log(`Testing ${minRoundsNeeded} to ${maxRoundsAllowed} rounds...`);
+  
+  if (minRoundsNeeded <= maxRoundsAllowed) {
     for (let numRounds = minRoundsNeeded; numRounds <= maxRoundsAllowed; numRounds++) {
-      console.log(`  Trying ${numRounds} rounds...`);
+      console.log(`\nTrying ${numRounds} rounds...`);
       
-      // Calculate even distribution
+      // Try to distribute player-matches as evenly as possible
       const basePlayersPerRound = Math.floor(totalPlayerMatches / numRounds);
       const extraMatches = totalPlayerMatches % numRounds;
       
-      console.log(`    Base: ${basePlayersPerRound} players/round, Extra matches: ${extraMatches}`);
+      console.log(`  Base: ${basePlayersPerRound} players/round, Extra matches: ${extraMatches}`);
       
-      // Create round structure
+      // Create round structure: some rounds get +1 player
       const rounds = [];
       let isValid = true;
       
       for (let i = 0; i < numRounds; i++) {
         const playersThisRound = basePlayersPerRound + (i < extraMatches ? 1 : 0);
         
-        // Validate round constraints
+        // Check if this round size is valid
         if (playersThisRound < minPlayersPerRound || playersThisRound > maxPlayersPerRound) {
-          console.log(`    Round ${i + 1}: ${playersThisRound} players - INVALID (outside ${minPlayersPerRound}-${maxPlayersPerRound} range)`);
+          console.log(`  Round ${i + 1}: ${playersThisRound} players - INVALID (outside ${minPlayersPerRound}-${maxPlayersPerRound} range)`);
           isValid = false;
           break;
         }
         
-        // Validate team formation
+        // Check if we can form valid teams
         if (!canFormValidTeams(playersThisRound, maxTeamsPerRound, settings.minPlayersPerTeam, maxPlayersPerTeam)) {
-          console.log(`    Round ${i + 1}: ${playersThisRound} players - INVALID (cannot form teams)`);
+          console.log(`  Round ${i + 1}: ${playersThisRound} players - INVALID (cannot form teams)`);
           isValid = false;
           break;
         }
@@ -327,91 +330,232 @@ function calculateOptimalStructure(totalPlayers, settings) {
           playersBye: totalPlayers - playersThisRound
         });
         
-        console.log(`    Round ${i + 1}: ${playersThisRound} playing, ${totalPlayers - playersThisRound} bye - VALID`);
+        console.log(`  Round ${i + 1}: ${playersThisRound} playing, ${totalPlayers - playersThisRound} bye - VALID`);
       }
       
       if (isValid) {
-        bestSolution = {
-          rounds,
-          courtsUsed: courtsToUse
-        };
-        console.log(`✅ Found valid ${numRounds}-round structure with ${courtsToUse} courts!`);
+        bestRounds = rounds;
+        console.log(`✅ Found valid ${numRounds}-round structure!`);
         break;
       } else {
-        console.log(`❌ ${numRounds} rounds with ${courtsToUse} courts doesn't work`);
+        console.log(`❌ ${numRounds} rounds doesn't work`);
       }
     }
-    
-    if (bestSolution) {
-      break; // Found a solution with maximum courts, use it
-    }
+  } else {
+    console.log(`Single court impossible: need ${minRoundsNeeded} rounds, max ${maxRoundsAllowed}`);
   }
   
-  // If single-court solutions fail, try a simple mixed approach for special cases
-  if (!bestSolution && (totalPlayers === 37 || totalPlayers === 18)) {
-    console.log(`\nTrying simple mixed-court approach for ${totalPlayers} players...`);
-    bestSolution = trySimpleMixedCourts(totalPlayers, totalPlayerMatches, settings, canFormValidTeams, maxPlayersPerTeam);
+  // If single-court solution fails, try mixed-court approach
+  if (!bestRounds) {
+    console.log(`\nSingle court solution failed. Trying mixed-court approach...`);
+    bestRounds = tryMixedCourtSolution(totalPlayers, totalPlayerMatches, settings, canFormValidTeams, maxPlayersPerTeam);
   }
   
-  if (!bestSolution) {
+  // If mixed-court also fails, try player-centric approach (last resort)
+  if (!bestRounds) {
+    console.log(`\nMixed court solution failed. Trying player-centric approach...`);
+    bestRounds = tryPlayerCentricSolution(totalPlayers, totalPlayerMatches, settings, canFormValidTeams, maxPlayersPerTeam);
+  }
+  
+  if (!bestRounds) {
     console.error(`Cannot find any valid tournament structure for ${totalPlayers} players`);
     throw new Error(`Impossible tournament structure: no valid configuration found for ${totalPlayers} players with given constraints`);
   }
   
   // Final validation
-  const totalGenerated = bestSolution.rounds.reduce((sum, round) => sum + round.playersPlaying, 0);
+  const totalGenerated = bestRounds.reduce((sum, round) => sum + round.playersPlaying, 0);
   if (totalGenerated !== totalPlayerMatches) {
     console.error(`❌ Final validation failed: Generated ${totalGenerated}, needed ${totalPlayerMatches}`);
     throw new Error('Cannot create mathematically valid tournament structure');
   }
   
-  // Calculate statistics
-  const totalByes = bestSolution.rounds.reduce((sum, round) => sum + round.playersBye, 0);
+  // Calculate bye distribution
+  const totalByes = bestRounds.reduce((sum, round) => sum + round.playersBye, 0);
   const avgByesPerPlayer = totalByes / totalPlayers;
   
-  console.log(`✅ Tournament structure created: ${bestSolution.rounds.length} rounds, ${bestSolution.courtsUsed} courts`);
+  console.log(`✅ Tournament structure created: ${bestRounds.length} rounds, ${courtsToUse} courts`);
   console.log(`Total byes: ${totalByes}, Average byes per player: ${avgByesPerPlayer.toFixed(2)}`);
   
   return {
-    courtsUsed: bestSolution.courtsUsed,
-    flexibleRounds: bestSolution.rounds
+    courtsUsed: courtsToUse,
+    flexibleRounds: bestRounds
   };
 }
 
-function trySimpleMixedCourts(totalPlayers, totalPlayerMatches, settings, canFormValidTeams, maxPlayersPerTeam) {
-  console.log(`Attempting simple mixed-court strategy for ${totalPlayers} players...`);
+function tryMixedCourtSolution(totalPlayers, totalPlayerMatches, settings, canFormValidTeams, maxPlayersPerTeam) {
+  console.log(`Attempting mixed-court solution...`);
   
-  // For 18 players: try 6 rounds of 12 players each (1 court each)
-  if (totalPlayers === 18 && totalPlayerMatches === 72) {
-    const rounds = [];
-    for (let i = 1; i <= 6; i++) {
-      rounds.push({
-        roundNumber: i,
-        playersPlaying: 12,
-        playersBye: 6
+  // Create all possible court configurations
+  const courtConfigs = [];
+  for (let courts = 1; courts <= settings.courtsAvailable; courts++) {
+    const maxTeams = courts * 2;
+    const minPlayers = maxTeams * settings.minPlayersPerTeam;
+    const maxPlayers = maxTeams * maxPlayersPerTeam;
+    
+    if (totalPlayers >= minPlayers) {
+      courtConfigs.push({
+        courts,
+        minPlayers,
+        maxPlayers,
+        maxTeams
       });
     }
-    console.log(`18-player solution: 6 rounds of 12 players (1 court each)`);
-    return { rounds, courtsUsed: 1 };
   }
   
-  // For 37 players: try mixed 3-court and 2-court rounds
-  if (totalPlayers === 37 && totalPlayerMatches === 148) {
-    const rounds = [
-      { roundNumber: 1, playersPlaying: 30, playersBye: 7 }, // 3 courts
-      { roundNumber: 2, playersPlaying: 30, playersBye: 7 }, // 3 courts  
-      { roundNumber: 3, playersPlaying: 30, playersBye: 7 }, // 3 courts
-      { roundNumber: 4, playersPlaying: 22, playersBye: 15 }, // 2 courts
-      { roundNumber: 5, playersPlaying: 24, playersBye: 13 }, // 2 courts
-      { roundNumber: 6, playersPlaying: 12, playersBye: 25 }  // 1 court
-    ];
-    // Total: 30+30+30+22+24+12 = 148
-    console.log(`37-player solution: mixed court rounds totaling 148 matches`);
-    return { rounds, courtsUsed: 3 };
+  if (courtConfigs.length === 0) return null;
+  
+  console.log(`Available configurations: ${courtConfigs.map(c => `${c.courts}c(${c.minPlayers}-${c.maxPlayers})`).join(', ')}`);
+  
+  // Try to build a solution using different court configurations
+  const rounds = [];
+  let remainingMatches = totalPlayerMatches;
+  let roundNumber = 1;
+  
+  while (remainingMatches > 0 && rounds.length < 15) {
+    let bestRound = null;
+    let bestScore = 0;
+    
+    // Try each court configuration
+    for (const config of courtConfigs) {
+      if (config.minPlayers > remainingMatches) continue;
+      
+      // Calculate optimal players for this configuration
+      let playersThisRound = Math.min(remainingMatches, config.maxPlayers);
+      playersThisRound = Math.max(playersThisRound, config.minPlayers);
+      playersThisRound = Math.min(playersThisRound, totalPlayers);
+      
+      // Find largest valid team formation
+      for (let testPlayers = playersThisRound; testPlayers >= config.minPlayers; testPlayers--) {
+        if (canFormValidTeams(testPlayers, config.maxTeams, settings.minPlayersPerTeam, maxPlayersPerTeam)) {
+          const score = testPlayers + (config.courts * 0.1); // Prefer more players, slight preference for more courts
+          
+          if (score > bestScore) {
+            bestScore = score;
+            bestRound = {
+              roundNumber,
+              playersPlaying: testPlayers,
+              playersBye: totalPlayers - testPlayers,
+              courtsUsed: config.courts
+            };
+          }
+          break;
+        }
+      }
+    }
+    
+    if (!bestRound) {
+      console.log(`Cannot allocate remaining ${remainingMatches} matches`);
+      return null;
+    }
+    
+    rounds.push(bestRound);
+    remainingMatches -= bestRound.playersPlaying;
+    roundNumber++;
+    
+    console.log(`Mixed Round ${bestRound.roundNumber}: ${bestRound.playersPlaying} playing (${bestRound.courtsUsed} courts), ${bestRound.playersBye} bye`);
   }
   
-  console.log(`No simple mixed solution for ${totalPlayers} players`);
-  return null;
+  if (remainingMatches > 0) {
+    console.log(`Mixed solution incomplete: ${remainingMatches} matches remaining`);
+    return null;
+  }
+  
+  console.log(`✅ Mixed-court solution: ${rounds.length} rounds`);
+  return rounds;
+}
+
+function tryPlayerCentricSolution(totalPlayers, totalPlayerMatches, settings, canFormValidTeams, maxPlayersPerTeam) {
+  console.log(`Attempting player-centric solution...`);
+  
+  // Track individual player match requirements
+  const playerMatchesNeeded = new Array(totalPlayers).fill(settings.matchesPerPlayer);
+  const rounds = [];
+  let roundNumber = 1;
+  
+  // Calculate all possible round configurations
+  const possibleRounds = [];
+  for (let courts = 1; courts <= settings.courtsAvailable; courts++) {
+    const maxTeams = courts * 2;
+    const minPlayers = maxTeams * settings.minPlayersPerTeam;
+    const maxPlayers = maxTeams * maxPlayersPerTeam;
+    
+    if (totalPlayers >= minPlayers) {
+      for (let players = minPlayers; players <= Math.min(maxPlayers, totalPlayers); players++) {
+        if (canFormValidTeams(players, maxTeams, settings.minPlayersPerTeam, maxPlayersPerTeam)) {
+          possibleRounds.push({
+            courts,
+            players,
+            efficiency: players / courts // Players per court (higher is better)
+          });
+        }
+      }
+    }
+  }
+  
+  // Sort by efficiency (prefer configurations that use players most effectively)
+  possibleRounds.sort((a, b) => b.efficiency - a.efficiency);
+  
+  console.log(`Generated ${possibleRounds.length} possible round configurations`);
+  
+  while (playerMatchesNeeded.some(matches => matches > 0) && rounds.length < 20) {
+    const totalRemainingMatches = playerMatchesNeeded.reduce((sum, matches) => sum + matches, 0);
+    
+    if (totalRemainingMatches === 0) break;
+    
+    // Find best round configuration for current needs
+    let bestRound = null;
+    let bestScore = 0;
+    
+    for (const config of possibleRounds) {
+      if (config.players > totalRemainingMatches) continue;
+      
+      // Score based on how many matches this round fulfills
+      const score = Math.min(config.players, totalRemainingMatches) + (config.efficiency * 0.1);
+      
+      if (score > bestScore) {
+        bestScore = score;
+        bestRound = {
+          roundNumber,
+          playersPlaying: config.players,
+          playersBye: totalPlayers - config.players,
+          courtsUsed: config.courts
+        };
+      }
+    }
+    
+    if (!bestRound) {
+      console.log(`Cannot create round for remaining ${totalRemainingMatches} matches`);
+      return null;
+    }
+    
+    rounds.push(bestRound);
+    
+    // Simulate that the top players by remaining need played this round
+    const playersToDecrement = bestRound.playersPlaying;
+    const playersWithNeed = playerMatchesNeeded
+      .map((need, index) => ({ index, need }))
+      .filter(p => p.need > 0)
+      .sort((a, b) => b.need - a.need)
+      .slice(0, playersToDecrement);
+    
+    playersWithNeed.forEach(player => {
+      playerMatchesNeeded[player.index]--;
+    });
+    
+    roundNumber++;
+    
+    const remaining = playerMatchesNeeded.reduce((sum, matches) => sum + matches, 0);
+    console.log(`Player-centric Round ${bestRound.roundNumber}: ${bestRound.playersPlaying} playing (${bestRound.courtsUsed} courts), ${remaining} matches remaining`);
+  }
+  
+  const finalRemaining = playerMatchesNeeded.reduce((sum, matches) => sum + matches, 0);
+  if (finalRemaining > 0) {
+    console.log(`Player-centric solution incomplete: ${finalRemaining} matches remaining`);
+    return null;
+  }
+  
+  console.log(`✅ Player-centric solution: ${rounds.length} rounds`);
+  return rounds;
 }
 
 function generateFlexibleByeSchedule(players, flexibleRounds) {
