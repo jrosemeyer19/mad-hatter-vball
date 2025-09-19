@@ -226,6 +226,42 @@ function calculateOptimalStructure(totalPlayers, settings) {
     throw new Error(`Need at least ${settings.minPlayersPerTeam * 2} players for minimum court usage`);
   }
   
+  // Helper function to find valid player count for team formation
+  const canFormValidTeams = (totalPlayers, maxTeams, minPerTeam, maxPerTeam) => {
+    // Try different team counts (must be even for matches)
+    for (let teamCount = 2; teamCount <= maxTeams; teamCount += 2) {
+      const avgTeamSize = totalPlayers / teamCount;
+      
+      if (avgTeamSize >= minPerTeam && avgTeamSize <= maxPerTeam) {
+        // Check if distribution works
+        const baseSize = Math.floor(avgTeamSize);
+        const remainder = totalPlayers % teamCount;
+        
+        const smallTeams = teamCount - remainder;
+        const largeTeams = remainder;
+        
+        const smallTeamSize = baseSize;
+        const largeTeamSize = baseSize + 1;
+        
+        if (smallTeamSize >= minPerTeam && largeTeamSize <= maxPerTeam) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+  
+  const findValidPlayerCount = (targetPlayers, maxTeams, minPerTeam, maxPerTeam) => {
+    // Try the target first, then work downward
+    for (let players = targetPlayers; players >= minPerTeam * 2; players--) {
+      if (canFormValidTeams(players, maxTeams, minPerTeam, maxPerTeam)) {
+        return players;
+      }
+    }
+    // If we can't find a valid count, return the minimum possible
+    return minPerTeam * 2;
+  };
+  
   // Calculate maximum players that can play per round
   const maxTeamsPerRound = courtsToUse * 2;
   const maxPlayersPerRound = maxTeamsPerRound * maxPlayersPerTeam;
