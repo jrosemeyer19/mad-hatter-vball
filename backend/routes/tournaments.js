@@ -413,27 +413,52 @@ router.post('/:id/start', authenticateToken, async (req, res) => {
       const roundId = roundResult.rows[0].id;
       
       // Create playing teams and assign players
-      const teamIdMap = {}; // Track team IDs for match creation
-      
-      for (let i = 0; i < roundData.teams.length; i++) {
-        const team = roundData.teams[i];
-        const teamResult = await client.query(`
-          INSERT INTO teams (round_id, team_number, court, is_bye_team) 
-          VALUES ($1, $2, $3, false) RETURNING id
-        `, [roundId, i + 1, Math.floor(i / 2) + 1]);
-        
-        const teamId = teamResult.rows[0].id;
-        teamIdMap[i] = teamId;
-        
-        console.log(`  Team ${i + 1}: ${team.players.length} players`);
-        
-        // Assign players to team
-        for (const player of team.players) {
-          await client.query(`
-            INSERT INTO team_players (team_id, player_id) VALUES ($1, $2)
-          `, [teamId, player.id]);
-        }
-      }
+     // Create playing teams and assign players
+const teamIdMap = {}; // Track team IDs for match creation
+let playingTeamCount = 0;
+
+for (let i = 0; i < roundData.teams.length; i++) {
+  const team = roundData.teams[i];
+  
+  if (team.is_bye_team) {
+    // Handle bye team separately
+    console.log(`  Bye team: ${team.players.length} players`);
+    const byeTeamResult = await client.query(`
+      INSERT INTO teams (round_id, team_number, court, is_bye_team) 
+      VALUES ($1, $2, NULL, true) RETURNING id
+    `, [roundId, i + 1]);
+    
+    const byeTeamId = byeTeamResult.rows[0].id;
+    
+    // Assign bye players to bye team
+    for (const player of team.players) {
+      await client.query(`
+        INSERT INTO team_players (team_id, player_id) VALUES ($1, $2)
+      `, [byeTeamId, player.id]);
+    }
+  } else {
+    // Handle playing team
+    playingTeamCount++;
+    const court = Math.floor((playingTeamCount - 1) / 2) + 1;
+    
+    const teamResult = await client.query(`
+      INSERT INTO teams (round_id, team_number, court, is_bye_team) 
+      VALUES ($1, $2, $3, false) RETURNING id
+    `, [roundId, i + 1, court]);
+    
+    const teamId = teamResult.rows[0].id;
+    teamIdMap[i] = teamId;
+    
+    console.log(`  Team ${i + 1}: ${team.players.length} players on Court ${court}`);
+    
+    // Assign players to team
+    for (const player of team.players) {
+      await client.query(`
+        INSERT INTO team_players (team_id, player_id) VALUES ($1, $2)
+      `, [teamId, player.id]);
+    }
+  }
+}
       
       // Create "On Bye" team if there are bye players
       if (roundData.byePlayers && roundData.byePlayers.length > 0) {
