@@ -285,35 +285,68 @@ function calculateOptimalStructure(totalPlayers, settings) {
       idealPlayersThisRound = Math.min(remainingPlayerMatches, maxPlayersPerRound);
     }
     
-    // Constrain to valid range, but don't go below what we need if it's less than minimum
-    let playersThisRound;
+    // Check if remaining matches are too few for a valid round
     if (remainingPlayerMatches < minPlayersPerRound) {
-      // If we need fewer players than the minimum per round, just use what we need
-      playersThisRound = remainingPlayerMatches;
-    } else {
-      playersThisRound = Math.max(
-        minPlayersPerRound,
-        Math.min(idealPlayersThisRound, maxPlayersPerRound)
-      );
+      // We need to redistribute - add remaining matches to previous rounds
+      const matchesToDistribute = remainingPlayerMatches;
+      let distributed = 0;
+      
+      // Try to add matches to existing rounds (starting from the end)
+      for (let i = rounds.length - 1; i >= 0 && distributed < matchesToDistribute; i--) {
+        const round = rounds[i];
+        const currentPlayers = round.playersPlaying;
+        const maxPossibleInThisRound = Math.min(totalPlayers, maxPlayersPerRound);
+        const canAdd = maxPossibleInThisRound - currentPlayers;
+        const shouldAdd = Math.min(canAdd, matchesToDistribute - distributed);
+        
+        if (shouldAdd > 0) {
+          // Check if we can still form valid teams with the new player count
+          const newPlayerCount = currentPlayers + shouldAdd;
+          if (canFormValidTeams(newPlayerCount, maxTeamsPerRound, settings.minPlayersPerTeam, maxPlayersPerTeam)) {
+            round.playersPlaying = newPlayerCount;
+            round.playersBye = totalPlayers - newPlayerCount;
+            distributed += shouldAdd;
+            console.log(`Redistributed ${shouldAdd} matches to Round ${round.roundNumber}: now ${newPlayerCount} playing, ${round.playersBye} bye`);
+          }
+        }
+      }
+      
+      remainingPlayerMatches -= distributed;
+      
+      // If we still have unallocated matches, create one more round with minimum viable players
+      if (remainingPlayerMatches > 0) {
+        const playersThisRound = minPlayersPerRound;
+        const byesThisRound = totalPlayers - playersThisRound;
+        
+        rounds.push({
+          roundNumber: roundNumber,
+          playersPlaying: playersThisRound,
+          playersBye: byesThisRound
+        });
+        
+        remainingPlayerMatches -= playersThisRound;
+        console.log(`Round ${rounds.length}: ${playersThisRound} playing, ${byesThisRound} bye (${remainingPlayerMatches} matches remaining) [FORCED MINIMUM]`);
+      }
+      
+      break; // Exit the main loop
     }
     
-    // Ensure we can form valid teams (only if we have enough for minimum teams)
-    if (playersThisRound >= minPlayersPerRound) {
-      playersThisRound = findValidPlayerCount(
-        playersThisRound, 
-        maxTeamsPerRound, 
-        settings.minPlayersPerTeam, 
-        maxPlayersPerTeam
-      );
-    }
+    // Normal round creation logic
+    let playersThisRound = Math.max(
+      minPlayersPerRound,
+      Math.min(idealPlayersThisRound, maxPlayersPerRound)
+    );
     
-    // Don't exceed total players or remaining needed matches
-    playersThisRound = Math.min(playersThisRound, totalPlayers, remainingPlayerMatches);
+    // Ensure we can form valid teams
+    playersThisRound = findValidPlayerCount(
+      playersThisRound, 
+      maxTeamsPerRound, 
+      settings.minPlayersPerTeam, 
+      maxPlayersPerTeam
+    );
     
-    // Ensure we don't create a round with 0 players
-    if (playersThisRound <= 0) {
-      break;
-    }
+    // Don't exceed total players
+    playersThisRound = Math.min(playersThisRound, totalPlayers);
     
     const byesThisRound = totalPlayers - playersThisRound;
     
