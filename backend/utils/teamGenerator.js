@@ -237,8 +237,11 @@ function calculateOptimalStructure(totalPlayers, settings) {
       if (avgTeamSize >= minPerTeam && avgTeamSize <= maxPerTeam) {
         const baseSize = Math.floor(avgTeamSize);
         const remainder = totalPlayers % teamCount;
+        
+        // When remainder is 0, all teams are the same size
+        // When remainder > 0, some teams get +1 player
         const smallTeamSize = baseSize;
-        const largeTeamSize = baseSize + 1;
+        const largeTeamSize = remainder > 0 ? baseSize + 1 : baseSize;
         
         console.log(`        Base size: ${baseSize}, remainder: ${remainder}, small: ${smallTeamSize}, large: ${largeTeamSize}`);
         
