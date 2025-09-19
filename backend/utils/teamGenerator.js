@@ -132,6 +132,14 @@ function generateFlexibleRound(playingPlayers, byePlayers, courtsUsed, minPlayer
   const teams = createBalancedTeams(playingPlayers, teamConfig, roundNumber);
 
   // Add this right after: const teams = createBalancedTeams(playingPlayers, teamConfig, roundNumber);
+  console.log(`\n=== Teams Created by createBalancedTeams ===`);
+  teams.forEach((team, index) => {
+    console.log(`Team ${index + 1}: ${team.players.length} players, is_bye_team: ${team.is_bye_team || false}, court: ${team.court}`);
+    console.log(`  Players: ${team.players.map(p => p.name)}`);
+  });
+  console.log(`Total teams from createBalancedTeams: ${teams.length}`);
+
+  // Add this right after: const teams = createBalancedTeams(playingPlayers, teamConfig, roundNumber);
   console.log(`\n=== Teams Created ===`);
   teams.forEach((team, index) => {
     console.log(`Team ${index + 1}: ${team.players.length} players - ${team.players.map(p => p.name)}`);
