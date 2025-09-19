@@ -122,8 +122,20 @@ function generateFlexibleRound(playingPlayers, byePlayers, courtsUsed, minPlayer
     throw new Error(`Cannot create teams for ${playingPlayers.length} players`);
   }
   
+  // Add this right before: const teams = createBalancedTeams(playingPlayers, teamConfig, roundNumber);
+  console.log(`\n=== Team Creation Debug ===`);
+  console.log(`Team config:`, teamConfig);
+  console.log(`Playing players for team creation:`, playingPlayers.map(p => p.name));
+  console.log(`Expected teams: ${teamConfig.teamCount}`);
+  
   // Create teams with balanced distribution
   const teams = createBalancedTeams(playingPlayers, teamConfig, roundNumber);
+
+  // Add this right after: const teams = createBalancedTeams(playingPlayers, teamConfig, roundNumber);
+  console.log(`\n=== Teams Created ===`);
+  teams.forEach((team, index) => {
+    console.log(`Team ${index + 1}: ${team.players.length} players - ${team.players.map(p => p.name)}`);
+  });
   
   // Create matches
   const matches = createSimpleMatches(teams);
