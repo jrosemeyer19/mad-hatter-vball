@@ -594,69 +594,303 @@ function tryPlayerCentricSolution(totalPlayers, totalPlayerMatches, settings, ca
 }
 
 function generateFlexibleByeSchedule(players, flexibleRounds) {
-  console.log(`\n=== Flexible Bye Schedule ===`);
+  console.log(`\n=== Robust Match-Guaranteed Bye Schedule ===`);
   
-  const shuffledPlayers = shuffleArray([...players]);
-  const schedule = [];
-  const playerByeCount = {};
-  const playerLastByeRound = {};
+  const totalPlayers = players.length;
+  const totalRounds = flexibleRounds.length;
   
-  // Initialize tracking
-  shuffledPlayers.forEach(player => {
-    playerByeCount[player.id] = 0;
-    playerLastByeRound[player.id] = -2;
+  // Calculate required matches per player from the round structure
+  const totalPlayerMatches = flexibleRounds.reduce((sum, round) => sum + round.playersPlaying, 0);
+  const matchesPerPlayer = totalPlayerMatches / totalPlayers;
+  
+  console.log(`Total rounds: ${totalRounds}`);
+  console.log(`Total player-matches: ${totalPlayerMatches}`);
+  console.log(`Required matches per player: ${matchesPerPlayer}`);
+  
+  if (matchesPerPlayer !== Math.floor(matchesPerPlayer)) {
+    throw new Error(`Invalid tournament structure: matches per player must be whole number, got ${matchesPerPlayer}`);
+  }
+  
+  // Track which players play in which rounds
+  const playerRoundAssignments = {};
+  players.forEach(player => {
+    playerRoundAssignments[player.id] = {
+      player: player,
+      roundsPlaying: [],
+      roundsOnBye: [],
+      matchesAssigned: 0
+    };
   });
   
-  // Calculate target byes per player
-  const totalByeSlots = flexibleRounds.reduce((sum, round) => sum + round.playersBye, 0);
-  const baseByesPerPlayer = Math.floor(totalByeSlots / players.length);
-  const extraByeSlots = totalByeSlots % players.length;
-  
-  const playerTargetByes = {};
-  shuffledPlayers.forEach((player, index) => {
-    const minimumByes = totalByeSlots > 0 ? 1 : 0; // Everyone gets at least 1 bye if byes exist
-    const calculatedTarget = baseByesPerPlayer + (index < extraByeSlots ? 1 : 0);
-    playerTargetByes[player.id] = Math.max(minimumByes, calculatedTarget);
-  });
-  
-  console.log(`Total bye slots: ${totalByeSlots}`);
-  console.log(`Target: ${baseByesPerPlayer} base byes per player, ${extraByeSlots} players get +1 bye`);
-  
-  // Assign byes for each round based on its specific bye count
-  flexibleRounds.forEach((roundConfig, roundIndex) => {
-    const byesNeeded = roundConfig.playersBye;
-    console.log(`\n--- Round ${roundIndex + 1}: ${byesNeeded} byes needed ---`);
+  // Assign players to rounds using constraint satisfaction
+  for (let roundIndex = 0; roundIndex < totalRounds; roundIndex++) {
+    const round = flexibleRounds[roundIndex];
+    const playersNeeded = round.playersPlaying;
     
-    if (byesNeeded === 0) {
-      schedule.push([]);
-      console.log(`Round ${roundIndex + 1}: No byes needed`);
-      return;
-    }
+    console.log(`\n--- Assigning Round ${roundIndex + 1}: ${playersNeeded} players needed ---`);
     
-    // Select bye candidates with all our priority rules
-    const candidates = selectFlexibleByeCandidates(
-      shuffledPlayers,
-      roundIndex,
-      byesNeeded,
-      playerByeCount,
-      playerTargetByes,
-      playerLastByeRound
-    );
-    
-    // Update tracking
-    candidates.forEach(player => {
-      playerByeCount[player.id]++;
-      playerLastByeRound[player.id] = roundIndex;
+    // Get candidates sorted by priority
+    const candidates = players.slice().sort((a, b) => {
+      const aAssignment = playerRoundAssignments[a.id];
+      const bAssignment = playerRoundAssignments[b.id];
+      
+      // Priority 1: Players who need more matches
+      const aMatchesNeeded = matchesPerPlayer - aAssignment.matchesAssigned;
+      const bMatchesNeeded = matchesPerPlayer - bAssignment.matchesAssigned;
+      
+      if (aMatchesNeeded !== bMatchesNeeded) {
+        return bMatchesNeeded - aMatchesNeeded; // Higher need first
+      }
+      
+      // Priority 2: Avoid consecutive play if possible (prefer bye rest)
+      const aLastRound = aAssignment.roundsPlaying.length > 0 ? 
+        Math.max(...aAssignment.roundsPlaying) : -2;
+      const bLastRound = bAssignment.roundsPlaying.length > 0 ? 
+        Math.max(...bAssignment.roundsPlaying) : -2;
+      
+      const aIsConsecutive = (roundIndex - aLastRound) === 1;
+      const bIsConsecutive = (roundIndex - bLastRound) === 1;
+      
+      if (aIsConsecutive !== bIsConsecutive) {
+        return aIsConsecutive ? 1 : -1; // Non-consecutive first
+      }
+      
+      // Priority 3: Distribute fairly among genders and skill levels
+      const aIsFemaleSet = a.gender === 'female' && a.is_setter;
+      const bIsFemaleSet = b.gender === 'female' && b.is_setter;
+      
+      if (aIsFemaleSet !== bIsFemaleSet) {
+        return aIsFemaleSet ? 1 : -1; // Prefer non-female-setters playing
+      }
+      
+      // Priority 4: Players with fewer total matches assigned so far
+      if (aAssignment.matchesAssigned !== bAssignment.matchesAssigned) {
+        return aAssignment.matchesAssigned - bAssignment.matchesAssigned;
+      }
+      
+      // Priority 5: Random tiebreaker for fairness
+      return Math.random() - 0.5;
     });
     
-    schedule.push(candidates);
-    console.log(`Round ${roundIndex + 1} byes: ${candidates.map(p => p.name).join(', ')}`);
+    // Select the top candidates
+    const selectedPlayers = candidates.slice(0, playersNeeded);
+    const byePlayers = candidates.slice(playersNeeded);
+    
+    // Verify we have enough players who need matches
+    const playersNeedingMatches = selectedPlayers.filter(player => 
+      playerRoundAssignments[player.id].matchesAssigned < matchesPerPlayer
+    ).length;
+    
+    if (playersNeedingMatches < playersNeeded) {
+      // Some players who don't need matches are being forced to play
+      // This shouldn't happen with a valid tournament structure
+      console.warn(`Warning: Round ${roundIndex + 1} forcing ${playersNeeded - playersNeedingMatches} players to play extra matches`);
+    }
+    
+    // Update assignments
+    selectedPlayers.forEach(player => {
+      const assignment = playerRoundAssignments[player.id];
+      assignment.roundsPlaying.push(roundIndex);
+      assignment.matchesAssigned++;
+    });
+    
+    byePlayers.forEach(player => {
+      const assignment = playerRoundAssignments[player.id];
+      assignment.roundsOnBye.push(roundIndex);
+    });
+    
+    console.log(`  Selected ${selectedPlayers.length} players to play`);
+    console.log(`  ${byePlayers.length} players on bye`);
+    
+    // Log player distribution for debugging
+    const matchDistribution = {};
+    players.forEach(player => {
+      const matches = playerRoundAssignments[player.id].matchesAssigned;
+      matchDistribution[matches] = (matchDistribution[matches] || 0) + 1;
+    });
+    console.log(`  Current match distribution:`, matchDistribution);
+  }
+  
+  // Validate that everyone gets exactly the right number of matches
+  console.log(`\n=== Final Assignment Validation ===`);
+  
+  let validAssignments = 0;
+  const errors = [];
+  
+  players.forEach(player => {
+    const assignment = playerRoundAssignments[player.id];
+    const actualMatches = assignment.matchesAssigned;
+    
+    if (actualMatches === matchesPerPlayer) {
+      validAssignments++;
+    } else {
+      errors.push(`${player.name}: ${actualMatches}/${matchesPerPlayer} matches`);
+    }
   });
   
-  // Validate bye assignments
-  validateFlexibleByeSchedule(players, schedule, playerTargetByes, flexibleRounds);
+  console.log(`Valid assignments: ${validAssignments}/${totalPlayers}`);
   
-  return schedule;
+  if (errors.length > 0) {
+    console.error(`Assignment errors:`);
+    errors.forEach(error => console.error(`  ${error}`));
+    
+    // Try to fix the assignment by redistributing
+    if (tryFixAssignments(playerRoundAssignments, flexibleRounds, matchesPerPlayer, players)) {
+      console.log(`✅ Assignment fixed through redistribution`);
+    } else {
+      throw new Error(`Cannot create valid bye schedule: ${errors.length} players have incorrect match counts`);
+    }
+  }
+  
+  // Convert assignments back to bye schedule format
+  const byeSchedule = [];
+  for (let roundIndex = 0; roundIndex < totalRounds; roundIndex++) {
+    const byePlayers = [];
+    
+    players.forEach(player => {
+      const assignment = playerRoundAssignments[player.id];
+      if (assignment.roundsOnBye.includes(roundIndex)) {
+        byePlayers.push(player);
+      }
+    });
+    
+    byeSchedule.push(byePlayers);
+    console.log(`Round ${roundIndex + 1} byes: ${byePlayers.length} players (${byePlayers.map(p => p.name).join(', ')})`);
+  }
+  
+  // Final verification
+  const finalValidation = validateByeScheduleCorrectness(players, byeSchedule, flexibleRounds, matchesPerPlayer);
+  if (!finalValidation.isValid) {
+    throw new Error(`Bye schedule validation failed: ${finalValidation.errors.join(', ')}`);
+  }
+  
+  console.log(`✅ Robust bye schedule created successfully`);
+  return byeSchedule;
+}
+
+function tryFixAssignments(playerRoundAssignments, flexibleRounds, matchesPerPlayer, players) {
+  console.log(`\nAttempting to fix assignment imbalances...`);
+  
+  // Identify players with too many and too few matches
+  const overAssigned = [];
+  const underAssigned = [];
+  
+  players.forEach(player => {
+    const assignment = playerRoundAssignments[player.id];
+    const actualMatches = assignment.matchesAssigned;
+    
+    if (actualMatches > matchesPerPlayer) {
+      overAssigned.push({ player, excess: actualMatches - matchesPerPlayer, assignment });
+    } else if (actualMatches < matchesPerPlayer) {
+      underAssigned.push({ player, deficit: matchesPerPlayer - actualMatches, assignment });
+    }
+  });
+  
+  console.log(`Over-assigned: ${overAssigned.length}, Under-assigned: ${underAssigned.length}`);
+  
+  if (overAssigned.length === 0 || underAssigned.length === 0) {
+    return false; // Can't fix without both types
+  }
+  
+  // Try to swap assignments between over and under assigned players
+  let fixAttempts = 0;
+  const maxAttempts = 50;
+  
+  while (overAssigned.length > 0 && underAssigned.length > 0 && fixAttempts < maxAttempts) {
+    fixAttempts++;
+    
+    const overPlayer = overAssigned[0];
+    const underPlayer = underAssigned[0];
+    
+    // Find a round where overPlayer is playing but underPlayer is on bye
+    let swapRound = -1;
+    
+    for (const roundIndex of overPlayer.assignment.roundsPlaying) {
+      if (underPlayer.assignment.roundsOnBye.includes(roundIndex)) {
+        swapRound = roundIndex;
+        break;
+      }
+    }
+    
+    if (swapRound >= 0) {
+      // Perform the swap
+      console.log(`  Swapping ${overPlayer.player.name} and ${underPlayer.player.name} in round ${swapRound + 1}`);
+      
+      // Remove overPlayer from playing in this round
+      overPlayer.assignment.roundsPlaying = overPlayer.assignment.roundsPlaying.filter(r => r !== swapRound);
+      overPlayer.assignment.roundsOnBye.push(swapRound);
+      overPlayer.assignment.matchesAssigned--;
+      
+      // Add underPlayer to playing in this round
+      underPlayer.assignment.roundsOnBye = underPlayer.assignment.roundsOnBye.filter(r => r !== swapRound);
+      underPlayer.assignment.roundsPlaying.push(swapRound);
+      underPlayer.assignment.matchesAssigned++;
+      
+      // Update the lists
+      overPlayer.excess--;
+      underPlayer.deficit--;
+      
+      if (overPlayer.excess === 0) {
+        overAssigned.shift();
+      }
+      if (underPlayer.deficit === 0) {
+        underAssigned.shift();
+      }
+    } else {
+      // Can't swap these players, try next combination
+      overAssigned.push(overAssigned.shift());
+      if (overAssigned.length === 1) {
+        // Tried all over-assigned players with this under-assigned player
+        underAssigned.push(underAssigned.shift());
+      }
+    }
+  }
+  
+  const remainingImbalances = overAssigned.length + underAssigned.length;
+  console.log(`Fix completed: ${remainingImbalances} remaining imbalances after ${fixAttempts} attempts`);
+  
+  return remainingImbalances === 0;
+}
+
+function validateByeScheduleCorrectness(players, byeSchedule, flexibleRounds, expectedMatchesPerPlayer) {
+  const errors = [];
+  const playerMatchCounts = {};
+  
+  // Initialize counts
+  players.forEach(player => {
+    playerMatchCounts[player.id] = 0;
+  });
+  
+  // Count matches for each player based on bye schedule
+  byeSchedule.forEach((roundByes, roundIndex) => {
+    const round = flexibleRounds[roundIndex];
+    const byePlayerIds = new Set(roundByes.map(p => p.id));
+    
+    // Players not on bye are playing
+    const playingPlayers = players.filter(player => !byePlayerIds.has(player.id));
+    
+    if (playingPlayers.length !== round.playersPlaying) {
+      errors.push(`Round ${roundIndex + 1}: expected ${round.playersPlaying} players, got ${playingPlayers.length}`);
+    }
+    
+    // Increment match count for playing players
+    playingPlayers.forEach(player => {
+      playerMatchCounts[player.id]++;
+    });
+  });
+  
+  // Validate each player has correct match count
+  players.forEach(player => {
+    const actualMatches = playerMatchCounts[player.id];
+    if (actualMatches !== expectedMatchesPerPlayer) {
+      errors.push(`${player.name}: ${actualMatches}/${expectedMatchesPerPlayer} matches`);
+    }
+  });
+  
+  return {
+    isValid: errors.length === 0,
+    errors: errors
+  };
 }
 
 function selectFlexibleByeCandidates(players, roundIndex, byesNeeded, playerByeCount, playerTargetByes, playerLastByeRound) {
