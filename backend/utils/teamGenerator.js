@@ -230,7 +230,7 @@ function validateInputs(players, settings) {
 }
 
 function calculateOptimalStructure(totalPlayers, settings) {
-  console.log(`\n--- Flexible Structure Calculation ---`);
+  console.log(`\n--- Match-Balanced Structure Calculation ---`);
   console.log(`Total players: ${totalPlayers}`);
   console.log(`Available courts: ${settings.courtsAvailable}`);
   console.log(`Matches per player: ${settings.matchesPerPlayer}`);
@@ -240,7 +240,7 @@ function calculateOptimalStructure(totalPlayers, settings) {
   const totalPlayerMatches = totalPlayers * settings.matchesPerPlayer;
   console.log(`Total player-matches needed: ${totalPlayerMatches}`);
   
-  // Determine court usage (reduce if not enough players)
+  // Determine court usage
   let courtsToUse = settings.courtsAvailable;
   const maxPlayersPerTeam = 6;
   
@@ -259,36 +259,22 @@ function calculateOptimalStructure(totalPlayers, settings) {
     throw new Error(`Need at least ${settings.minPlayersPerTeam * 2} players for minimum court usage`);
   }
   
-  // Helper function to check if we can form valid teams
+  // Helper functions
   const canFormValidTeams = (totalPlayers, maxTeams, minPerTeam, maxPerTeam) => {
-    console.log(`    Checking if ${totalPlayers} players can form teams (max ${maxTeams} teams, ${minPerTeam}-${maxPerTeam} per team)`);
-    
     for (let teamCount = 2; teamCount <= maxTeams; teamCount += 2) {
       const avgTeamSize = totalPlayers / teamCount;
-      console.log(`      Trying ${teamCount} teams: avg ${avgTeamSize} players per team`);
       
       if (avgTeamSize >= minPerTeam && avgTeamSize <= maxPerTeam) {
         const baseSize = Math.floor(avgTeamSize);
         const remainder = totalPlayers % teamCount;
-        
-        // When remainder is 0, all teams are the same size
-        // When remainder > 0, some teams get +1 player
         const smallTeamSize = baseSize;
         const largeTeamSize = remainder > 0 ? baseSize + 1 : baseSize;
         
-        console.log(`        Base size: ${baseSize}, remainder: ${remainder}, small: ${smallTeamSize}, large: ${largeTeamSize}`);
-        
         if (smallTeamSize >= minPerTeam && largeTeamSize <= maxPerTeam) {
-          console.log(`        ✅ Valid: ${teamCount} teams work`);
           return true;
-        } else {
-          console.log(`        ❌ Invalid: team sizes ${smallTeamSize}-${largeTeamSize} outside range ${minPerTeam}-${maxPerTeam}`);
         }
-      } else {
-        console.log(`        ❌ Invalid: avg team size ${avgTeamSize} outside range ${minPerTeam}-${maxPerTeam}`);
       }
     }
-    console.log(`    ❌ No valid team configuration found for ${totalPlayers} players`);
     return false;
   };
   
@@ -297,83 +283,133 @@ function calculateOptimalStructure(totalPlayers, settings) {
   const maxPlayersPerRound = maxTeamsPerRound * maxPlayersPerTeam;
   const minPlayersPerRound = maxTeamsPerRound * settings.minPlayersPerTeam;
   
-  // Use a systematic approach: try to create uniform rounds first
+  // New approach: Use player-centric allocation
+  // Track how many matches each player still needs
+  const playerMatchesNeeded = new Array(totalPlayers).fill(settings.matchesPerPlayer);
   const rounds = [];
-  let remainingPlayerMatches = totalPlayerMatches;
+  let roundNumber = 1;
   
-  // Calculate optimal uniform distribution
-  const minRoundsNeeded = Math.ceil(totalPlayerMatches / maxPlayersPerRound);
-  const maxRoundsAllowed = Math.ceil(totalPlayerMatches / minPlayersPerRound);
-  
-  console.log(`Min rounds needed: ${minRoundsNeeded}, Max rounds allowed: ${maxRoundsAllowed}`);
-  
-  // Try to find a uniform distribution
-  let bestDistribution = null;
-  
-  for (let numRounds = minRoundsNeeded; numRounds <= maxRoundsAllowed; numRounds++) {
-    const avgPlayersPerRound = totalPlayerMatches / numRounds;
+  while (playerMatchesNeeded.some(matches => matches > 0)) {
+    // Find players who still need matches
+    const playersNeedingMatches = [];
+    for (let i = 0; i < totalPlayers; i++) {
+      if (playerMatchesNeeded[i] > 0) {
+        playersNeedingMatches.push(i);
+      }
+    }
     
-    // Check if we can create a nearly uniform distribution
-    const basePlayersPerRound = Math.floor(avgPlayersPerRound);
-    const extraMatchesToDistribute = totalPlayerMatches - (basePlayersPerRound * numRounds);
+    if (playersNeedingMatches.length === 0) break;
     
-    // All rounds will have basePlayersPerRound or basePlayersPerRound + 1 players
-    const roundsWithExtra = extraMatchesToDistribute;
-    const roundsWithBase = numRounds - roundsWithExtra;
+    // Determine how many players to include in this round
+    let playersThisRound;
     
-    // Check if both base and base+1 can form valid teams
-    const baseValid = basePlayersPerRound >= minPlayersPerRound && 
-                     canFormValidTeams(basePlayersPerRound, maxTeamsPerRound, settings.minPlayersPerTeam, maxPlayersPerTeam);
-    const extraValid = (basePlayersPerRound + 1) <= maxPlayersPerRound && 
-                      canFormValidTeams(basePlayersPerRound + 1, maxTeamsPerRound, settings.minPlayersPerTeam, maxPlayersPerTeam);
+    if (playersNeedingMatches.length <= maxPlayersPerRound) {
+      // All remaining players can play
+      playersThisRound = playersNeedingMatches.length;
+    } else {
+      // Need to select a subset
+      // Prioritize players with the most matches remaining
+      const sortedByNeed = playersNeedingMatches.sort((a, b) => 
+        playerMatchesNeeded[b] - playerMatchesNeeded[a]
+      );
+      
+      // Try to fit as many as possible while maintaining valid team formation
+      playersThisRound = maxPlayersPerRound;
+      while (playersThisRound >= minPlayersPerRound) {
+        if (canFormValidTeams(playersThisRound, maxTeamsPerRound, settings.minPlayersPerTeam, maxPlayersPerTeam)) {
+          break;
+        }
+        playersThisRound--;
+      }
+      
+      if (playersThisRound < minPlayersPerRound) {
+        playersThisRound = minPlayersPerRound; // Fallback
+      }
+    }
     
-    if (baseValid && (roundsWithExtra === 0 || extraValid)) {
-      bestDistribution = {
-        numRounds,
-        basePlayersPerRound,
-        roundsWithBase,
-        roundsWithExtra
-      };
-      console.log(`Found valid distribution: ${numRounds} rounds, ${roundsWithBase} rounds with ${basePlayersPerRound} players, ${roundsWithExtra} rounds with ${basePlayersPerRound + 1} players`);
+    // Ensure we can form valid teams
+    while (playersThisRound >= minPlayersPerRound && 
+           !canFormValidTeams(playersThisRound, maxTeamsPerRound, settings.minPlayersPerTeam, maxPlayersPerTeam)) {
+      playersThisRound--;
+    }
+    
+    if (playersThisRound < minPlayersPerRound) {
+      console.error(`Cannot create valid teams with remaining ${playersNeedingMatches.length} players`);
       break;
     }
-  }
-  
-  if (!bestDistribution) {
-    throw new Error('Cannot find valid tournament structure with given constraints');
-  }
-  
-  // Create the rounds based on the best distribution
-  const { numRounds, basePlayersPerRound, roundsWithBase, roundsWithExtra } = bestDistribution;
-  
-  for (let i = 0; i < numRounds; i++) {
-    const playersThisRound = (i < roundsWithExtra) ? basePlayersPerRound + 1 : basePlayersPerRound;
+    
+    // Don't exceed available players
+    playersThisRound = Math.min(playersThisRound, playersNeedingMatches.length);
+    
     const byesThisRound = totalPlayers - playersThisRound;
     
+    // Record this round
     rounds.push({
-      roundNumber: i + 1,
+      roundNumber: roundNumber,
       playersPlaying: playersThisRound,
       playersBye: byesThisRound
     });
     
-    console.log(`Round ${i + 1}: ${playersThisRound} playing, ${byesThisRound} bye`);
+    // Update player match counts (simulate that these players played)
+    // Select the players with the highest need first
+    const selectedPlayers = playersNeedingMatches
+      .sort((a, b) => playerMatchesNeeded[b] - playerMatchesNeeded[a])
+      .slice(0, playersThisRound);
+    
+    selectedPlayers.forEach(playerIndex => {
+      playerMatchesNeeded[playerIndex]--;
+    });
+    
+    console.log(`Round ${roundNumber}: ${playersThisRound} playing, ${byesThisRound} bye`);
+    console.log(`  Remaining matches needed: [${playerMatchesNeeded.join(',')}]`);
+    
+    roundNumber++;
+    
+    // Safety check
+    if (rounds.length > 30) {
+      throw new Error('Too many rounds generated - check tournament parameters');
+    }
   }
   
-  // Validate the math works out
+  // Validate that all players get exactly the required matches
   const totalPlayerMatchesGenerated = rounds.reduce((sum, round) => sum + round.playersPlaying, 0);
-  if (totalPlayerMatchesGenerated !== totalPlayerMatches) {
-    console.error(`❌ Math error: Generated ${totalPlayerMatchesGenerated} player-matches, need ${totalPlayerMatches}`);
+  const matchesPerPlayerActual = totalPlayerMatchesGenerated / totalPlayers;
+  
+  console.log(`Total player-matches generated: ${totalPlayerMatchesGenerated}`);
+  console.log(`Matches per player (actual): ${matchesPerPlayerActual}`);
+  
+  if (Math.abs(matchesPerPlayerActual - settings.matchesPerPlayer) > 0.001) {
+    console.error(`❌ Match distribution error: Expected ${settings.matchesPerPlayer} per player, got ${matchesPerPlayerActual}`);
+    
+    // Try to balance by adjusting existing rounds
+    const deficit = totalPlayerMatches - totalPlayerMatchesGenerated;
+    console.log(`Need to redistribute ${Math.abs(deficit)} matches`);
+    
+    if (deficit > 0) {
+      // Need more matches - try to add players to existing rounds
+      for (let i = rounds.length - 1; i >= 0 && deficit > 0; i--) {
+        const round = rounds[i];
+        const currentPlayers = round.playersPlaying;
+        const canAdd = Math.min(deficit, maxPlayersPerRound - currentPlayers);
+        
+        if (canAdd > 0 && canFormValidTeams(currentPlayers + canAdd, maxTeamsPerRound, settings.minPlayersPerTeam, maxPlayersPerTeam)) {
+          round.playersPlaying += canAdd;
+          round.playersBye -= canAdd;
+          deficit -= canAdd;
+          console.log(`Adjusted Round ${round.roundNumber}: +${canAdd} players (now ${round.playersPlaying} playing)`);
+        }
+      }
+    }
+  }
+  
+  // Final validation
+  const finalPlayerMatches = rounds.reduce((sum, round) => sum + round.playersPlaying, 0);
+  if (finalPlayerMatches !== totalPlayerMatches) {
+    console.error(`❌ Final validation failed: Generated ${finalPlayerMatches}, needed ${totalPlayerMatches}`);
     throw new Error('Cannot create mathematically valid tournament structure');
   }
   
-  // Ensure everyone gets at least one bye (if byes are needed)
-  const totalByeSlots = rounds.reduce((sum, round) => sum + round.playersBye, 0);
-  if (totalByeSlots > 0 && totalByeSlots < totalPlayers) {
-    console.warn(`⚠️  Not everyone can get a bye - only ${totalByeSlots} bye slots for ${totalPlayers} players`);
-  }
-  
-  console.log(`✅ Flexible structure created: ${rounds.length} rounds, ${courtsToUse} courts`);
-  console.log(`Total bye slots: ${totalByeSlots}, Average byes per player: ${(totalByeSlots / totalPlayers).toFixed(1)}`);
+  console.log(`✅ Match-balanced structure created: ${rounds.length} rounds, ${courtsToUse} courts`);
   
   return {
     courtsUsed: courtsToUse,
