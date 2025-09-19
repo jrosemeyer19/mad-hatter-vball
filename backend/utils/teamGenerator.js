@@ -281,26 +281,39 @@ function calculateOptimalStructure(totalPlayers, settings) {
       idealPlayersThisRound = Math.min(totalPlayers, maxPlayersPerRound);
     } else {
       // For subsequent rounds, calculate based on remaining needs
-      const roundsRemaining = Math.max(1, Math.ceil(remainingPlayerMatches / maxPlayersPerRound));
-      idealPlayersThisRound = Math.ceil(remainingPlayerMatches / roundsRemaining);
+      // Don't exceed what we actually need
+      idealPlayersThisRound = Math.min(remainingPlayerMatches, maxPlayersPerRound);
     }
     
-    // Constrain to valid range
-    let playersThisRound = Math.max(
-      minPlayersPerRound,
-      Math.min(idealPlayersThisRound, maxPlayersPerRound)
-    );
+    // Constrain to valid range, but don't go below what we need if it's less than minimum
+    let playersThisRound;
+    if (remainingPlayerMatches < minPlayersPerRound) {
+      // If we need fewer players than the minimum per round, just use what we need
+      playersThisRound = remainingPlayerMatches;
+    } else {
+      playersThisRound = Math.max(
+        minPlayersPerRound,
+        Math.min(idealPlayersThisRound, maxPlayersPerRound)
+      );
+    }
     
-    // Ensure we can form valid teams
-    playersThisRound = findValidPlayerCount(
-      playersThisRound, 
-      maxTeamsPerRound, 
-      settings.minPlayersPerTeam, 
-      maxPlayersPerTeam
-    );
+    // Ensure we can form valid teams (only if we have enough for minimum teams)
+    if (playersThisRound >= minPlayersPerRound) {
+      playersThisRound = findValidPlayerCount(
+        playersThisRound, 
+        maxTeamsPerRound, 
+        settings.minPlayersPerTeam, 
+        maxPlayersPerTeam
+      );
+    }
     
-    // Don't exceed total players
-    playersThisRound = Math.min(playersThisRound, totalPlayers);
+    // Don't exceed total players or remaining needed matches
+    playersThisRound = Math.min(playersThisRound, totalPlayers, remainingPlayerMatches);
+    
+    // Ensure we don't create a round with 0 players
+    if (playersThisRound <= 0) {
+      break;
+    }
     
     const byesThisRound = totalPlayers - playersThisRound;
     
