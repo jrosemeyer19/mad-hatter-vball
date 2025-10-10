@@ -3,6 +3,29 @@
  * Complete implementation handling 10-60+ players with flexible court usage
  */
 
+// Global tracking for 37-player tournaments (add at top of file)
+let special37PlayerHistory = {
+  playersOn7Teams: {}, // playerId -> count of times on 7-player team
+  initialized: false
+};
+
+function initializeSpecial37PlayerTracking(players) {
+  console.log(`Initializing 37-player tracking for ${players.length} players`);
+  special37PlayerHistory.playersOn7Teams = {};
+  players.forEach(player => {
+    special37PlayerHistory.playersOn7Teams[player.id] = 0;
+  });
+  special37PlayerHistory.initialized = true;
+}
+
+function resetSpecial37PlayerTracking() {
+  special37PlayerHistory = {
+    playersOn7Teams: {},
+    initialized: false
+  };
+  console.log(`37-player tracking reset`);
+}
+
 function generateAllRounds(players, settings) {
   console.log('\n=== Mad Hatter Tournament Generator (Flexible) ===');
   console.log(`Players: ${players.length}`);
@@ -77,6 +100,27 @@ function generateFlexibleRound(playingPlayers, byePlayers, courtsUsed, minPlayer
   
   console.log(`\n=== Creating Flexible Round ${roundNumber} ===`);
   console.log(`Playing players: ${playingPlayers.length}, Courts available: ${courtsUsed}`);
+
+   // Check if this is the special 37-player case
+  if (playingPlayers.length === 37 && courtsUsed === 3) {
+    console.log(`🎯 Special 37-player round: creating 5 teams of 6 + 1 team of 7`);
+    
+    // Create special team configuration for 37 players
+    const teams = createSpecial37PlayerTeams(playingPlayers, roundNumber);
+    const matches = createSpecial37PlayerMatches(teams);
+    
+    console.log(`Special round ${roundNumber} created: 6 teams (5×6 + 1×7), 3 matches`);
+    
+    return {
+      roundNumber,
+      teams,
+      matches,
+      byePlayers: [], // No bye players in 37-player special case
+      totalPlayingPlayers: playingPlayers.length,
+      totalByePlayers: 0,
+      specialCase: true
+    };
+  }
 
   // ADD THIS DEBUGGING CODE HERE:
   console.log(`\n=== Debug Round ${roundNumber} ===`);
@@ -252,6 +296,47 @@ function calculateOptimalStructure(totalPlayers, settings) {
   console.log(`Available courts: ${settings.courtsAvailable}`);
   console.log(`Matches per player: ${settings.matchesPerPlayer}`);
   console.log(`Min per team: ${settings.minPlayersPerTeam}`);
+
+    // Special case: 37 players with specific constraints
+  if (totalPlayers === 37 && 
+      settings.courtsAvailable === 3 && 
+      settings.matchesPerPlayer === 4 && 
+      settings.minPlayersPerTeam === 5) {
+    
+    console.log(`\n🎯 SPECIAL CASE: 37-player tournament with 7-player team override`);
+    console.log(`Using constraint override: one team of 7 players per round`);
+    
+    // Initialize tracking for this tournament
+    resetSpecial37PlayerTracking();
+    
+    // Create 4 rounds of 6 teams each: 5 teams of 6 players + 1 team of 7 players
+    const rounds = [];
+    for (let i = 1; i <= 4; i++) {
+      rounds.push({
+        roundNumber: i,
+        playersPlaying: 37,  // All players play every round
+        playersBye: 0,       // No byes
+        specialCase: '37player',
+        teamConfiguration: {
+          regularTeams: 5,    // 5 teams of 6 players
+          oversizeTeams: 1,   // 1 team of 7 players
+          regularTeamSize: 6,
+          oversizeTeamSize: 7
+        }
+      });
+    }
+    
+    console.log(`✅ Special 37-player solution: 4 rounds, all players play every round`);
+    console.log(`Each round: 5 teams of 6 + 1 team of 7 = 37 players total`);
+    console.log(`Total player-matches: ${4 * 37} = 148 (exactly ${totalPlayers} × ${settings.matchesPerPlayer})`);
+    
+    return {
+      courtsUsed: 3,
+      flexibleRounds: rounds,
+      specialCase: true,
+      description: '37-player special case with one 7-player team per round'
+    };
+  }
   
   // Calculate total player-matches needed (non-negotiable)
   const totalPlayerMatches = totalPlayers * settings.matchesPerPlayer;
@@ -595,6 +680,19 @@ function tryPlayerCentricSolution(totalPlayers, totalPlayerMatches, settings, ca
 
 function generateFlexibleByeSchedule(players, flexibleRounds) {
   console.log(`\n=== Robust Match-Guaranteed Bye Schedule ===`);
+
+  // Check for special 37-player case
+  if (players.length === 37 && flexibleRounds.length === 4 && 
+      flexibleRounds.every(round => round.playersPlaying === 37)) {
+    
+    console.log(`🎯 Special 37-player case: no byes needed (all players play every round)`);
+    
+    // Return empty bye schedule since everyone plays every round
+    return flexibleRounds.map((round, index) => {
+      console.log(`Round ${index + 1} byes: none (all 37 players play)`);
+      return []; // No bye players
+    });
+  }
   
   const totalPlayers = players.length;
   const totalRounds = flexibleRounds.length;
@@ -1925,9 +2023,153 @@ function balancePlayerMatches(allPlayers, tournamentRounds, matchesPerPlayer) {
   );
 }
 
+function createSpecial37PlayerTeams(players, roundNumber) {
+  console.log(`\n=== Creating Special 37-Player Teams (Round ${roundNumber}) ===`);
+  
+  // Initialize tracking on first round
+  if (!special37PlayerHistory.initialized) {
+    initializeSpecial37PlayerTracking(players);
+  }
+  
+  // Track which players were on 7-player teams in previous rounds
+  const playerCounts = special37PlayerHistory.playersOn7Teams;
+  
+  console.log(`Current 7-player team assignments:`);
+  const sortedCounts = Object.entries(playerCounts)
+    .map(([id, count]) => ({ 
+      player: players.find(p => p.id === parseInt(id)), 
+      count 
+    }))
+    .sort((a, b) => a.count - b.count);
+  
+  sortedCounts.forEach(({ player, count }) => {
+    if (count > 0) {
+      console.log(`  ${player.name}: ${count} time${count === 1 ? '' : 's'} on 7-player team`);
+    }
+  });
+  
+  // Select the 7 players who have been on 7-player teams the LEAST
+  const candidatesFor7Team = sortedCounts.slice(0, 7);
+  const playersFor7Team = candidatesFor7Team.map(c => c.player);
+  const remainingPlayers = players.filter(p => !playersFor7Team.some(selected => selected.id === p.id));
+  
+  console.log(`Selected for 7-player team (lowest previous assignments):`);
+  playersFor7Team.forEach(player => {
+    const count = playerCounts[player.id];
+    console.log(`  ${player.name} (previously on 7-team ${count} time${count === 1 ? '' : 's'})`);
+  });
+  
+  // Update tracking for selected players
+  playersFor7Team.forEach(player => {
+    playerCounts[player.id]++;
+  });
+  
+  const teams = [];
+  
+  // Create 5 teams of 6 players with balanced distribution
+  const shuffledRemaining = shuffleArray([...remainingPlayers]);
+  
+  for (let i = 0; i < 5; i++) {
+    const teamPlayers = shuffledRemaining.splice(0, 6);
+    
+    teams.push({
+      id: `round_${roundNumber}_team_${i + 1}`,
+      team_number: i + 1,
+      court: Math.floor(i / 2) + 1,
+      is_bye_team: false,
+      players: teamPlayers,
+      specialTeamSize: 6
+    });
+  }
+  
+  // Create the 7-player team
+  teams.push({
+    id: `round_${roundNumber}_team_6`,
+    team_number: 6,
+    court: 3,
+    is_bye_team: false,
+    players: playersFor7Team,
+    specialTeamSize: 7,
+    isOversizeTeam: true
+  });
+  
+  // Log team compositions
+  console.log(`\nTeam compositions:`);
+  teams.forEach(team => {
+    const marker = team.isOversizeTeam ? ' (7-PLAYER TEAM)' : '';
+    console.log(`  Team ${team.team_number}${marker}: ${team.players.length} players - Court ${team.court}`);
+  });
+  
+  // Show rotation summary
+  console.log(`\nRotation summary after Round ${roundNumber}:`);
+  const maxCount = Math.max(...Object.values(playerCounts));
+  const minCount = Math.min(...Object.values(playerCounts));
+  
+  console.log(`  Most 7-team assignments: ${maxCount}, Least: ${minCount}`);
+  if (maxCount - minCount <= 1) {
+    console.log(`  ✅ Rotation is well balanced (max difference: ${maxCount - minCount})`);
+  } else {
+    console.log(`  ⚠️  Rotation imbalance detected (difference: ${maxCount - minCount})`);
+  }
+  
+  return teams;
+}
+
+function createSpecial37PlayerMatches(teams) {
+  console.log(`\n=== Creating Special 37-Player Matches ===`);
+  
+  const matches = [];
+  
+  // Court 1: Team 1 vs Team 2 (6v6)
+  matches.push({
+    id: `match_court_1`,
+    court: 1,
+    team1_id: teams[0].id,
+    team2_id: teams[1].id,
+    team1: teams[0],
+    team2: teams[1],
+    is_completed: false,
+    matchType: 'regular_6v6'
+  });
+  
+  // Court 2: Team 3 vs Team 4 (6v6)
+  matches.push({
+    id: `match_court_2`,
+    court: 2,
+    team1_id: teams[2].id,
+    team2_id: teams[3].id,
+    team1: teams[2],
+    team2: teams[3],
+    is_completed: false,
+    matchType: 'regular_6v6'
+  });
+  
+  // Court 3: Team 5 vs Team 6 (6v7)
+  matches.push({
+    id: `match_court_3`,
+    court: 3,
+    team1_id: teams[4].id,
+    team2_id: teams[5].id,
+    team1: teams[4],
+    team2: teams[5],
+    is_completed: false,
+    matchType: 'special_6v7',
+    isOversizeMatch: true
+  });
+  
+  console.log(`Matches created:`);
+  console.log(`  Court 1: Team 1 (6) vs Team 2 (6)`);
+  console.log(`  Court 2: Team 3 (6) vs Team 4 (6)`);
+  console.log(`  Court 3: Team 5 (6) vs Team 6 (7) [OVERSIZE MATCH]`);
+  
+  return matches;
+}
+
 module.exports = { 
   generateAllRounds, 
   generateTeams, 
   generateTeamsForRound, 
-  balancePlayerMatches 
+  balancePlayerMatches,
+  resetSpecial37PlayerTracking,
+  initializeSpecial37PlayerTracking
 };
