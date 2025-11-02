@@ -71,36 +71,32 @@ function TournamentDetail({ user }) {
   const submitScores = async (matchId) => {
     const scores = scoreInputs[matchId];
     
-    // Validate that at least Game 1 scores are entered
-    if (!scores || scores.team1Game1 === undefined || scores.team2Game1 === undefined) {
-      setError('Please enter at least Game 1 scores');
+    // Check if Game 1 scores are present
+    const hasGame1Scores = scores && 
+      scores.team1Game1 !== undefined && scores.team1Game1 !== null && scores.team1Game1 >= 0 &&
+      scores.team2Game1 !== undefined && scores.team2Game1 !== null && scores.team2Game1 >= 0;
+    
+    if (!hasGame1Scores) {
+      setError('Please enter Game 1 scores (Game 2 is optional)');
       return;
     }
     
-    // Validate Game 1 scores
-    if (scores.team1Game1 < 0 || scores.team1Game1 > 50 || scores.team2Game1 < 0 || scores.team2Game1 > 50) {
-      setError('Game 1 scores must be between 0 and 50');
-      return;
-    }
-    
-    // Validate Game 2 scores if provided
-    if ((scores.team1Game2 !== undefined && scores.team1Game2 !== null && scores.team1Game2 !== '' &&
-         (scores.team1Game2 < 0 || scores.team1Game2 > 50)) ||
-        (scores.team2Game2 !== undefined && scores.team2Game2 !== null && scores.team2Game2 !== '' &&
-         (scores.team2Game2 < 0 || scores.team2Game2 > 50))) {
-      setError('Game 2 scores must be between 0 and 50');
+    // Validate all provided scores are within range
+    const allScores = [scores.team1Game1, scores.team2Game1, scores.team1Game2, scores.team2Game2];
+    if (allScores.some(score => score !== undefined && score !== null && score !== '' && (score < 0 || score > 50))) {
+      setError('Please enter valid scores (0-50)');
       return;
     }
 
     try {
       await axios.put(`/api/tournaments/${id}/matches/${matchId}/scores`, {
         team1Game1: scores.team1Game1,
-        team1Game2: scores.team1Game2 !== undefined && scores.team1Game2 !== null && scores.team1Game2 !== '' ? scores.team1Game2 : null,
+        team1Game2: scores.team1Game2 !== '' && scores.team1Game2 !== undefined && scores.team1Game2 !== null ? scores.team1Game2 : null,
         team2Game1: scores.team2Game1,
-        team2Game2: scores.team2Game2 !== undefined && scores.team2Game2 !== null && scores.team2Game2 !== '' ? scores.team2Game2 : null
+        team2Game2: scores.team2Game2 !== '' && scores.team2Game2 !== undefined && scores.team2Game2 !== null ? scores.team2Game2 : null
       });
       
-      setEditingMatch(null);
+      // Don't clear editing state - keep form open for adding Game 2 scores
       fetchTournamentData();
     } catch (error) {
       setError(error.response?.data?.message || 'Failed to submit scores');
@@ -743,118 +739,316 @@ This action cannot be undone.`;
                                 </div>
                               </div>
 
-                              {match.is_completed && editingMatch !== match.id ? (
-                                <div className="mt-1">
-                                  <div className="flex-between" style={{ alignItems: 'center', marginBottom: '0.5rem' }}>
-                                    <strong>Scores:</strong>
-                                    <button
-                                      className="btn btn-secondary"
-                                      style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
-                                      onClick={() => startEditingMatch(match)}
-                                    >
-                                      Edit Scores
-                                    </button>
-                                  </div>
-                                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem' }}>
-                                    <div className="text-center">
-                                      <div style={{ fontSize: '0.8rem' }}>Team 1 Game 1</div>
-                                      <div><strong>{match.team1_game1_score}</strong></div>
+                              {/* Match score display with proper permissions */}
+                              {(() => {
+                                const hasGame1 = match.team1_game1_score !== null && match.team1_game1_score !== undefined;
+                                const hasGame2 = match.team1_game2_score !== null && match.team1_game2_score !== undefined;
+                                const isEditing = editingMatch === match.id;
+                                const isLoggedIn = !!user;
+
+                                // Case 1: Match fully completed (both games) and not editing
+                                if (match.is_completed && !isEditing) {
+                                  return (
+                                    <div className="mt-1">
+                                      <div className="flex-between" style={{ alignItems: 'center', marginBottom: '0.5rem' }}>
+                                        <strong>Final Scores:</strong>
+                                        {isLoggedIn && (
+                                          <button
+                                            className="btn btn-secondary"
+                                            style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
+                                            onClick={() => startEditingMatch(match)}
+                                          >
+                                            Edit Scores
+                                          </button>
+                                        )}
+                                      </div>
+                                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem' }}>
+                                        <div className="text-center">
+                                          <div style={{ fontSize: '0.8rem' }}>Team 1 Game 1</div>
+                                          <div><strong>{match.team1_game1_score}</strong></div>
+                                        </div>
+                                        <div className="text-center">
+                                          <div style={{ fontSize: '0.8rem' }}>Team 2 Game 1</div>
+                                          <div><strong>{match.team2_game1_score}</strong></div>
+                                        </div>
+                                        <div className="text-center">
+                                          <div style={{ fontSize: '0.8rem' }}>Team 1 Game 2</div>
+                                          <div><strong>{match.team1_game2_score}</strong></div>
+                                        </div>
+                                        <div className="text-center">
+                                          <div style={{ fontSize: '0.8rem' }}>Team 2 Game 2</div>
+                                          <div><strong>{match.team2_game2_score}</strong></div>
+                                        </div>
+                                      </div>
+                                      {!isLoggedIn && (
+                                        <div style={{ fontSize: '0.8rem', color: '#7f8c8d', marginTop: '0.5rem', fontStyle: 'italic' }}>
+                                          Match completed. Login required to edit scores.
+                                        </div>
+                                      )}
                                     </div>
-                                    <div className="text-center">
-                                      <div style={{ fontSize: '0.8rem' }}>Team 2 Game 1</div>
-                                      <div><strong>{match.team2_game1_score}</strong></div>
+                                  );
+                                }
+
+                                // Case 2: Only Game 1 submitted (partial) and not editing
+                                if (hasGame1 && !hasGame2 && !isEditing) {
+                                  return (
+                                    <div className="mt-1">
+                                      <div className="flex-between" style={{ alignItems: 'center', marginBottom: '0.5rem' }}>
+                                        <strong>Game 1 Scores (Game 2 Pending):</strong>
+                                        <button
+                                          className="btn btn-primary"
+                                          style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
+                                          onClick={() => startEditingMatch(match)}
+                                        >
+                                          Add Game 2 Scores
+                                        </button>
+                                      </div>
+                                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
+                                        <div className="text-center">
+                                          <div style={{ fontSize: '0.8rem' }}>Team 1 Game 1</div>
+                                          <div><strong>{match.team1_game1_score}</strong></div>
+                                        </div>
+                                        <div className="text-center">
+                                          <div style={{ fontSize: '0.8rem' }}>Team 2 Game 1</div>
+                                          <div><strong>{match.team2_game1_score}</strong></div>
+                                        </div>
+                                      </div>
+                                      <div style={{ fontSize: '0.8rem', color: '#f39c12', marginTop: '0.5rem', fontWeight: 'bold' }}>
+                                        ℹ️ Game 2 scores needed to complete this match
+                                      </div>
                                     </div>
-                                    <div className="text-center">
-                                      <div style={{ fontSize: '0.8rem' }}>Team 1 Game 2</div>
-                                      <div><strong>{match.team1_game2_score !== null ? match.team1_game2_score : '-'}</strong></div>
+                                  );
+                                }
+
+                                // Case 3: Editing mode - different behavior for logged in vs not logged in
+                                if (isEditing) {
+                                  // For non-logged users with partial scores, only allow Game 2 input
+                                  if (!isLoggedIn && hasGame1 && !hasGame2) {
+                                    return (
+                                      <div className="mt-1">
+                                        <strong>Add Game 2 Scores:</strong>
+                                        
+                                        {/* Show Game 1 as read-only */}
+                                        <div style={{ marginTop: '0.5rem', padding: '0.75rem', backgroundColor: '#f8f9fa', borderRadius: '4px' }}>
+                                          <div style={{ fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '0.5rem', color: '#666' }}>
+                                            Game 1 Scores (Locked)
+                                          </div>
+                                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
+                                            <div className="text-center">
+                                              <div style={{ fontSize: '0.8rem' }}>Team 1</div>
+                                              <div><strong>{match.team1_game1_score}</strong></div>
+                                            </div>
+                                            <div className="text-center">
+                                              <div style={{ fontSize: '0.8rem' }}>Team 2</div>
+                                              <div><strong>{match.team2_game1_score}</strong></div>
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        {/* Show Game 2 as editable */}
+                                        <div style={{ marginTop: '1rem' }}>
+                                          <div style={{ fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '0.5rem' }}>
+                                            Enter Game 2 Scores
+                                          </div>
+                                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
+                                            <div>
+                                              <label style={{ fontSize: '0.8rem' }}>Team 1 Game 2</label>
+                                              <input
+                                                type="number"
+                                                min="0"
+                                                max="50"
+                                                value={matchScores.team1Game2 || ''}
+                                                onChange={(e) => handleScoreChange(match.id, 'team1Game2', e.target.value)}
+                                                style={{ padding: '0.75rem', border: '1px solid #ddd', borderRadius: '4px', width: '100%', textAlign: 'center' }}
+                                              />
+                                            </div>
+                                            <div>
+                                              <label style={{ fontSize: '0.8rem' }}>Team 2 Game 2</label>
+                                              <input
+                                                type="number"
+                                                min="0"
+                                                max="50"
+                                                value={matchScores.team2Game2 || ''}
+                                                onChange={(e) => handleScoreChange(match.id, 'team2Game2', e.target.value)}
+                                                style={{ padding: '0.75rem', border: '1px solid #ddd', borderRadius: '4px', width: '100%', textAlign: 'center' }}
+                                              />
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        <div className="flex gap-1 mt-1">
+                                          <button
+                                            className="btn btn-success"
+                                            onClick={() => submitScores(match.id)}
+                                            disabled={
+                                              (!matchScores.team1Game2 && matchScores.team1Game2 !== 0) ||
+                                              (!matchScores.team2Game2 && matchScores.team2Game2 !== 0)
+                                            }
+                                          >
+                                            Complete Match
+                                          </button>
+                                          <button
+                                            className="btn btn-secondary"
+                                            onClick={cancelEditing}
+                                          >
+                                            Cancel
+                                          </button>
+                                        </div>
+                                        <div style={{ fontSize: '0.8rem', color: '#7f8c8d', marginTop: '0.5rem' }}>
+                                          Game 1 scores cannot be changed. Login to edit all scores.
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+
+                                  // For logged users or first-time entry - allow editing everything
+                                  return (
+                                    <div className="mt-1">
+                                      <strong>{match.is_completed ? 'Edit Scores:' : hasGame1 ? 'Edit All Scores:' : 'Enter Scores:'}</strong>
+                                      <div className="score-inputs">
+                                        <div>
+                                          <label style={{ fontSize: '0.8rem' }}>Team 1 Game 1</label>
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            max="50"
+                                            value={matchScores.team1Game1 !== undefined ? matchScores.team1Game1 : ''}
+                                            onChange={(e) => handleScoreChange(match.id, 'team1Game1', e.target.value)}
+                                          />
+                                        </div>
+                                        <div>
+                                          <label style={{ fontSize: '0.8rem' }}>Team 2 Game 1</label>
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            max="50"
+                                            value={matchScores.team2Game1 !== undefined ? matchScores.team2Game1 : ''}
+                                            onChange={(e) => handleScoreChange(match.id, 'team2Game1', e.target.value)}
+                                          />
+                                        </div>
+                                        <div>
+                                          <label style={{ fontSize: '0.8rem' }}>Team 1 Game 2</label>
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            max="50"
+                                            value={matchScores.team1Game2 !== undefined ? matchScores.team1Game2 : ''}
+                                            onChange={(e) => handleScoreChange(match.id, 'team1Game2', e.target.value)}
+                                            placeholder={!isLoggedIn && !hasGame1 ? "Optional" : ""}
+                                          />
+                                        </div>
+                                        <div>
+                                          <label style={{ fontSize: '0.8rem' }}>Team 2 Game 2</label>
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            max="50"
+                                            value={matchScores.team2Game2 !== undefined ? matchScores.team2Game2 : ''}
+                                            onChange={(e) => handleScoreChange(match.id, 'team2Game2', e.target.value)}
+                                            placeholder={!isLoggedIn && !hasGame1 ? "Optional" : ""}
+                                          />
+                                        </div>
+                                      </div>
+                                      <div className="flex gap-1 mt-1">
+                                        <button
+                                          className="btn btn-success"
+                                          onClick={() => submitScores(match.id)}
+                                          disabled={
+                                            (matchScores.team1Game1 === undefined || matchScores.team1Game1 === '') ||
+                                            (matchScores.team2Game1 === undefined || matchScores.team2Game1 === '')
+                                          }
+                                        >
+                                          {match.is_completed ? 'Update Scores' : 'Submit Scores'}
+                                        </button>
+                                        {(match.is_completed || (hasGame1 && !hasGame2)) && (
+                                          <button
+                                            className="btn btn-secondary"
+                                            onClick={cancelEditing}
+                                          >
+                                            Cancel
+                                          </button>
+                                        )}
+                                      </div>
+                                      {!match.is_completed && !hasGame1 && !isLoggedIn && (
+                                        <div style={{ fontSize: '0.8rem', color: '#7f8c8d', marginTop: '0.5rem' }}>
+                                          Anyone can enter scores. Game 2 is optional.
+                                        </div>
+                                      )}
+                                      {hasGame1 && !hasGame2 && isLoggedIn && (
+                                        <div style={{ fontSize: '0.8rem', color: '#3498db', marginTop: '0.5rem' }}>
+                                          As a logged-in user, you can edit all scores.
+                                        </div>
+                                      )}
                                     </div>
-                                    <div className="text-center">
-                                      <div style={{ fontSize: '0.8rem' }}>Team 2 Game 2</div>
-                                      <div><strong>{match.team2_game2_score !== null ? match.team2_game2_score : '-'}</strong></div>
+                                  );
+                                }
+
+                                // Case 4: No scores entered yet - show input form
+                                return (
+                                  <div className="mt-1">
+                                    <strong>Enter Scores:</strong>
+                                    <div className="score-inputs">
+                                      <div>
+                                        <label style={{ fontSize: '0.8rem' }}>Team 1 Game 1</label>
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          max="50"
+                                          value={matchScores.team1Game1 !== undefined ? matchScores.team1Game1 : ''}
+                                          onChange={(e) => handleScoreChange(match.id, 'team1Game1', e.target.value)}
+                                        />
+                                      </div>
+                                      <div>
+                                        <label style={{ fontSize: '0.8rem' }}>Team 2 Game 1</label>
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          max="50"
+                                          value={matchScores.team2Game1 !== undefined ? matchScores.team2Game1 : ''}
+                                          onChange={(e) => handleScoreChange(match.id, 'team2Game1', e.target.value)}
+                                        />
+                                      </div>
+                                      <div>
+                                        <label style={{ fontSize: '0.8rem' }}>Team 1 Game 2</label>
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          max="50"
+                                          value={matchScores.team1Game2 !== undefined ? matchScores.team1Game2 : ''}
+                                          onChange={(e) => handleScoreChange(match.id, 'team1Game2', e.target.value)}
+                                          placeholder="Optional"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label style={{ fontSize: '0.8rem' }}>Team 2 Game 2</label>
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          max="50"
+                                          value={matchScores.team2Game2 !== undefined ? matchScores.team2Game2 : ''}
+                                          onChange={(e) => handleScoreChange(match.id, 'team2Game2', e.target.value)}
+                                          placeholder="Optional"
+                                        />
+                                      </div>
                                     </div>
-                                  </div>
-                                  {(match.team1_game2_score === null || match.team2_game2_score === null) && (
-                                    <div style={{ fontSize: '0.85rem', color: '#e67e22', marginTop: '0.5rem', fontStyle: 'italic' }}>
-                                      Game 2 scores not yet submitted - click Edit to add them
-                                    </div>
-                                  )}
-                                </div>
-                              ) : (
-                                <div className="mt-1">
-                                  <strong>{match.is_completed ? 'Edit Scores:' : 'Enter Scores:'}</strong>
-                                  <div className="score-inputs">
-                                    <div>
-                                      <label style={{ fontSize: '0.8rem' }}>Team 1 Game 1</label>
-                                      <input
-                                        type="number"
-                                        min="0"
-                                        max="50"
-                                        value={matchScores.team1Game1 || ''}
-                                        onChange={(e) => handleScoreChange(match.id, 'team1Game1', e.target.value)}
-                                      />
-                                    </div>
-                                    <div>
-                                      <label style={{ fontSize: '0.8rem' }}>Team 2 Game 1</label>
-                                      <input
-                                        type="number"
-                                        min="0"
-                                        max="50"
-                                        value={matchScores.team2Game1 || ''}
-                                        onChange={(e) => handleScoreChange(match.id, 'team2Game1', e.target.value)}
-                                      />
-                                    </div>
-                                    <div>
-                                      <label style={{ fontSize: '0.8rem' }}>Team 1 Game 2</label>
-                                      <input
-                                        type="number"
-                                        min="0"
-                                        max="50"
-                                        value={matchScores.team1Game2 || ''}
-                                        onChange={(e) => handleScoreChange(match.id, 'team1Game2', e.target.value)}
-                                        placeholder="Optional"
-                                      />
-                                    </div>
-                                    <div>
-                                      <label style={{ fontSize: '0.8rem' }}>Team 2 Game 2</label>
-                                      <input
-                                        type="number"
-                                        min="0"
-                                        max="50"
-                                        value={matchScores.team2Game2 || ''}
-                                        onChange={(e) => handleScoreChange(match.id, 'team2Game2', e.target.value)}
-                                        placeholder="Optional"
-                                      />
-                                    </div>
-                                  </div>
-                                  <div className="flex gap-1 mt-1">
-                                    <button
-                                      className="btn btn-success"
-                                      onClick={() => submitScores(match.id)}
-                                      disabled={
-                                        !matchScores.team1Game1 === undefined || 
-                                        !matchScores.team2Game1 === undefined ||
-                                        matchScores.team1Game1 < 0 || 
-                                        matchScores.team2Game1 < 0
-                                      }
-                                    >
-                                      {match.is_completed ? 'Update Scores' : 'Submit Scores'}
-                                    </button>
-                                    {match.is_completed && (
+                                    <div className="flex gap-1 mt-1">
                                       <button
-                                        className="btn btn-secondary"
-                                        onClick={cancelEditing}
+                                        className="btn btn-success"
+                                        onClick={() => submitScores(match.id)}
+                                        disabled={
+                                          (matchScores.team1Game1 === undefined || matchScores.team1Game1 === '') ||
+                                          (matchScores.team2Game1 === undefined || matchScores.team2Game1 === '')
+                                        }
                                       >
-                                        Cancel
+                                        Submit Scores
                                       </button>
-                                    )}
-                                  </div>
-                                  {!match.is_completed && (
+                                    </div>
                                     <div style={{ fontSize: '0.8rem', color: '#7f8c8d', marginTop: '0.5rem' }}>
                                       Anyone can enter scores - no login required. Game 2 is optional.
                                     </div>
-                                  )}
-                                </div>
-                              )}
+                                  </div>
+                                );
+                              })()}
                             </div>
                           );
                         })}
