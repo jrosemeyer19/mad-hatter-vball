@@ -241,6 +241,7 @@ router.get('/:id', async (req, res) => {
                   'skill_level', p.skill_level,
                   'is_setter', p.is_setter
                 )
+                ORDER BY tp.id
               )
               FROM team_players tp
               JOIN players p ON tp.player_id = p.id
