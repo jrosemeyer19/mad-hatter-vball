@@ -70,17 +70,34 @@ function TournamentDetail({ user }) {
 
   const submitScores = async (matchId) => {
     const scores = scoreInputs[matchId];
-    if (!scores || Object.values(scores).some(score => score < 0 || score > 50)) {
-      setError('Please enter valid scores (0-50)');
+    
+    // Validate that at least Game 1 scores are entered
+    if (!scores || scores.team1Game1 === undefined || scores.team2Game1 === undefined) {
+      setError('Please enter at least Game 1 scores');
+      return;
+    }
+    
+    // Validate Game 1 scores
+    if (scores.team1Game1 < 0 || scores.team1Game1 > 50 || scores.team2Game1 < 0 || scores.team2Game1 > 50) {
+      setError('Game 1 scores must be between 0 and 50');
+      return;
+    }
+    
+    // Validate Game 2 scores if provided
+    if ((scores.team1Game2 !== undefined && scores.team1Game2 !== null && scores.team1Game2 !== '' &&
+         (scores.team1Game2 < 0 || scores.team1Game2 > 50)) ||
+        (scores.team2Game2 !== undefined && scores.team2Game2 !== null && scores.team2Game2 !== '' &&
+         (scores.team2Game2 < 0 || scores.team2Game2 > 50))) {
+      setError('Game 2 scores must be between 0 and 50');
       return;
     }
 
     try {
       await axios.put(`/api/tournaments/${id}/matches/${matchId}/scores`, {
         team1Game1: scores.team1Game1,
-        team1Game2: scores.team1Game2,
+        team1Game2: scores.team1Game2 !== undefined && scores.team1Game2 !== null && scores.team1Game2 !== '' ? scores.team1Game2 : null,
         team2Game1: scores.team2Game1,
-        team2Game2: scores.team2Game2
+        team2Game2: scores.team2Game2 !== undefined && scores.team2Game2 !== null && scores.team2Game2 !== '' ? scores.team2Game2 : null
       });
       
       setEditingMatch(null);
@@ -729,7 +746,7 @@ This action cannot be undone.`;
                               {match.is_completed && editingMatch !== match.id ? (
                                 <div className="mt-1">
                                   <div className="flex-between" style={{ alignItems: 'center', marginBottom: '0.5rem' }}>
-                                    <strong>Final Scores:</strong>
+                                    <strong>Scores:</strong>
                                     <button
                                       className="btn btn-secondary"
                                       style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
@@ -749,13 +766,18 @@ This action cannot be undone.`;
                                     </div>
                                     <div className="text-center">
                                       <div style={{ fontSize: '0.8rem' }}>Team 1 Game 2</div>
-                                      <div><strong>{match.team1_game2_score}</strong></div>
+                                      <div><strong>{match.team1_game2_score !== null ? match.team1_game2_score : '-'}</strong></div>
                                     </div>
                                     <div className="text-center">
                                       <div style={{ fontSize: '0.8rem' }}>Team 2 Game 2</div>
-                                      <div><strong>{match.team2_game2_score}</strong></div>
+                                      <div><strong>{match.team2_game2_score !== null ? match.team2_game2_score : '-'}</strong></div>
                                     </div>
                                   </div>
+                                  {(match.team1_game2_score === null || match.team2_game2_score === null) && (
+                                    <div style={{ fontSize: '0.85rem', color: '#e67e22', marginTop: '0.5rem', fontStyle: 'italic' }}>
+                                      Game 2 scores not yet submitted - click Edit to add them
+                                    </div>
+                                  )}
                                 </div>
                               ) : (
                                 <div className="mt-1">
@@ -789,6 +811,7 @@ This action cannot be undone.`;
                                         max="50"
                                         value={matchScores.team1Game2 || ''}
                                         onChange={(e) => handleScoreChange(match.id, 'team1Game2', e.target.value)}
+                                        placeholder="Optional"
                                       />
                                     </div>
                                     <div>
@@ -799,6 +822,7 @@ This action cannot be undone.`;
                                         max="50"
                                         value={matchScores.team2Game2 || ''}
                                         onChange={(e) => handleScoreChange(match.id, 'team2Game2', e.target.value)}
+                                        placeholder="Optional"
                                       />
                                     </div>
                                   </div>
@@ -806,7 +830,12 @@ This action cannot be undone.`;
                                     <button
                                       className="btn btn-success"
                                       onClick={() => submitScores(match.id)}
-                                      disabled={!Object.values(matchScores).every(score => score >= 0)}
+                                      disabled={
+                                        !matchScores.team1Game1 === undefined || 
+                                        !matchScores.team2Game1 === undefined ||
+                                        matchScores.team1Game1 < 0 || 
+                                        matchScores.team2Game1 < 0
+                                      }
                                     >
                                       {match.is_completed ? 'Update Scores' : 'Submit Scores'}
                                     </button>
@@ -821,7 +850,7 @@ This action cannot be undone.`;
                                   </div>
                                   {!match.is_completed && (
                                     <div style={{ fontSize: '0.8rem', color: '#7f8c8d', marginTop: '0.5rem' }}>
-                                      Anyone can enter scores - no login required
+                                      Anyone can enter scores - no login required. Game 2 is optional.
                                     </div>
                                   )}
                                 </div>

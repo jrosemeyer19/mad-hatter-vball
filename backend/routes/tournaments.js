@@ -519,7 +519,7 @@ for (let i = 0; i < roundData.teams.length; i++) {
   }
 });
 
-// Submit match scores (no authentication required) - UPDATED WITH POINT DIFFERENTIAL
+// Submit match scores (no authentication required) - UPDATED WITH POINT DIFFERENTIAL AND PARTIAL SUBMISSION
 router.put('/:id/matches/:matchId/scores', async (req, res) => {
   const client = await pool.connect();
   try {
@@ -528,29 +528,46 @@ router.put('/:id/matches/:matchId/scores', async (req, res) => {
     const { matchId } = req.params;
     const { team1Game1, team1Game2, team2Game1, team2Game2 } = req.body;
     
-    // Validate and convert scores to integers
-    const scores = [team1Game1, team1Game2, team2Game1, team2Game2];
-    if (scores.some(score => score === null || score === undefined || isNaN(Number(score)) || Number(score) < 0 || Number(score) > 50)) {
-      return res.status(400).json({ message: 'Invalid scores - must be numbers between 0 and 50' });
+    // Validate Game 1 scores are present and valid (required)
+    const game1Scores = [team1Game1, team2Game1];
+    if (game1Scores.some(score => score === null || score === undefined || isNaN(Number(score)) || Number(score) < 0 || Number(score) > 50)) {
+      return res.status(400).json({ message: 'Game 1 scores are required and must be numbers between 0 and 50' });
     }
     
-    // Convert to integers to ensure proper typing
-    const t1g1 = parseInt(team1Game1, 10);
-    const t1g2 = parseInt(team1Game2, 10);
-    const t2g1 = parseInt(team2Game1, 10);
-    const t2g2 = parseInt(team2Game2, 10);
+    // Validate Game 2 scores if provided (optional)
+    const game2Scores = [team1Game2, team2Game2];
+    const hasGame2Scores = game2Scores.every(score => score !== null && score !== undefined && score !== '');
     
-    // Check if match already has scores (for editing)
+    if (hasGame2Scores) {
+      // If Game 2 scores are provided, validate them
+      if (game2Scores.some(score => isNaN(Number(score)) || Number(score) < 0 || Number(score) > 50)) {
+        return res.status(400).json({ message: 'Game 2 scores must be numbers between 0 and 50' });
+      }
+    }
+    
+    // Convert to integers, using null for missing Game 2 scores to preserve them in the database
+    const t1g1 = parseInt(team1Game1, 10);
+    const t1g2 = hasGame2Scores ? parseInt(team1Game2, 10) : null;
+    const t2g1 = parseInt(team2Game1, 10);
+    const t2g2 = hasGame2Scores ? parseInt(team2Game2, 10) : null;
+    
+    // Check if match already has scores (for editing or adding Game 2)
     const existingMatchResult = await client.query(`
       SELECT team1_game1_score, team1_game2_score, team2_game1_score, team2_game2_score, is_completed
       FROM matches WHERE id = $1::integer
     `, [parseInt(matchId, 10)]);
     
     const existingMatch = existingMatchResult.rows[0];
-    const isEditing = existingMatch && existingMatch.is_completed;
+    // If match has any existing scores, we need to subtract them before adding new scores
+    const hasExistingScores = existingMatch && (
+      existingMatch.team1_game1_score !== null || 
+      existingMatch.team1_game2_score !== null ||
+      existingMatch.team2_game1_score !== null ||
+      existingMatch.team2_game2_score !== null
+    );
     
-    // If editing, subtract old scores and differentials from player totals first
-    if (isEditing) {
+    // If updating existing scores, subtract old scores and differentials from player totals first
+    if (hasExistingScores) {
       const oldT1Total = (existingMatch.team1_game1_score || 0) + (existingMatch.team1_game2_score || 0);
       const oldT2Total = (existingMatch.team2_game1_score || 0) + (existingMatch.team2_game2_score || 0);
       const oldT1Differential = oldT1Total - oldT2Total;
@@ -589,17 +606,20 @@ router.put('/:id/matches/:matchId/scores', async (req, res) => {
     }
     
     // Update match scores with explicit integer casting
+    // Only mark as completed if both games have scores
+    const isCompleted = hasGame2Scores;
+    
     await client.query(`
       UPDATE matches 
-      SET team1_game1_score = $1::integer, team1_game2_score = $2::integer, 
-          team2_game1_score = $3::integer, team2_game2_score = $4::integer, 
-          is_completed = true
-      WHERE id = $5::integer
-    `, [t1g1, t1g2, t2g1, t2g2, parseInt(matchId, 10)]);
+      SET team1_game1_score = $1::integer, team1_game2_score = $2, 
+          team2_game1_score = $3::integer, team2_game2_score = $4, 
+          is_completed = $5
+      WHERE id = $6::integer
+    `, [t1g1, t1g2, t2g1, t2g2, isCompleted, parseInt(matchId, 10)]);
     
-    // Calculate new totals and differentials
-    const newT1Total = t1g1 + t1g2;
-    const newT2Total = t2g1 + t2g2;
+    // Calculate new totals and differentials (using 0 for missing Game 2 scores in calculations)
+    const newT1Total = t1g1 + (t1g2 || 0);
+    const newT2Total = t2g1 + (t2g2 || 0);
     const newT1Differential = newT1Total - newT2Total; // Team 1's perspective
     const newT2Differential = newT2Total - newT1Total; // Team 2's perspective
     
@@ -607,8 +627,8 @@ router.put('/:id/matches/:matchId/scores', async (req, res) => {
     const teamPlayersResult = await client.query(`
       SELECT tp.player_id, 
         CASE WHEN tp.team_id = m.team1_id 
-             THEN ($1::integer + $2::integer)
-             ELSE ($3::integer + $4::integer) 
+             THEN ($1::integer + COALESCE($2, 0))
+             ELSE ($3::integer + COALESCE($4, 0)) 
         END as points_earned,
         CASE WHEN tp.team_id = m.team1_id 
              THEN $5::integer
