@@ -720,6 +720,19 @@ function generateFlexibleByeSchedule(players, flexibleRounds) {
     };
   });
   
+  // Track bye counts for special player types to ensure fair distribution
+  const specialPlayerByeCounts = {};
+  players.forEach(player => {
+    const isFemaleSet = player.gender === 'female' && player.is_setter;
+    const isSetter = player.is_setter;
+    const key = `${player.id}`;
+    specialPlayerByeCounts[key] = {
+      byeCount: 0,
+      isFemaleSet,
+      isSetter
+    };
+  });
+  
   // Assign players to rounds using constraint satisfaction
   for (let roundIndex = 0; roundIndex < totalRounds; roundIndex++) {
     const round = flexibleRounds[roundIndex];
@@ -731,6 +744,8 @@ function generateFlexibleByeSchedule(players, flexibleRounds) {
     const candidates = players.slice().sort((a, b) => {
       const aAssignment = playerRoundAssignments[a.id];
       const bAssignment = playerRoundAssignments[b.id];
+      const aSpecial = specialPlayerByeCounts[a.id];
+      const bSpecial = specialPlayerByeCounts[b.id];
       
       // Priority 1: Players who need more matches
       const aMatchesNeeded = matchesPerPlayer - aAssignment.matchesAssigned;
@@ -753,20 +768,37 @@ function generateFlexibleByeSchedule(players, flexibleRounds) {
         return aIsConsecutive ? 1 : -1; // Non-consecutive first
       }
       
-      // Priority 3: Distribute fairly among genders and skill levels
-      const aIsFemaleSet = a.gender === 'female' && a.is_setter;
-      const bIsFemaleSet = b.gender === 'female' && b.is_setter;
-      
-      if (aIsFemaleSet !== bIsFemaleSet) {
-        return aIsFemaleSet ? 1 : -1; // Prefer non-female-setters playing
+      // Priority 3: Female setters who have been on bye more should play (distribute evenly)
+      if (aSpecial.isFemaleSet || bSpecial.isFemaleSet) {
+        // If only one is a female setter and they have more byes, prioritize them to play
+        if (aSpecial.isFemaleSet && !bSpecial.isFemaleSet) {
+          return -1; // Female setter plays first (REVERSED from old logic)
+        }
+        if (!aSpecial.isFemaleSet && bSpecial.isFemaleSet) {
+          return 1; // Female setter plays first (REVERSED from old logic)
+        }
+        // If both are female setters, prioritize the one with more bye rounds
+        if (aSpecial.isFemaleSet && bSpecial.isFemaleSet) {
+          return bSpecial.byeCount - aSpecial.byeCount;
+        }
       }
       
-      // Priority 4: Players with fewer total matches assigned so far
+      // Priority 4: All setters should be distributed evenly
+      if (aSpecial.isSetter !== bSpecial.isSetter) {
+        if (aSpecial.isSetter && !bSpecial.isSetter) {
+          return bSpecial.byeCount - aSpecial.byeCount; // Compare bye counts
+        }
+        if (!aSpecial.isSetter && bSpecial.isSetter) {
+          return bSpecial.byeCount - aSpecial.byeCount; // Compare bye counts
+        }
+      }
+      
+      // Priority 5: Players with fewer total matches assigned so far
       if (aAssignment.matchesAssigned !== bAssignment.matchesAssigned) {
         return aAssignment.matchesAssigned - bAssignment.matchesAssigned;
       }
       
-      // Priority 5: Random tiebreaker for fairness
+      // Priority 6: Random tiebreaker for fairness
       return Math.random() - 0.5;
     });
     
@@ -795,10 +827,19 @@ function generateFlexibleByeSchedule(players, flexibleRounds) {
     byePlayers.forEach(player => {
       const assignment = playerRoundAssignments[player.id];
       assignment.roundsOnBye.push(roundIndex);
+      // Track bye counts for special players
+      if (specialPlayerByeCounts[player.id]) {
+        specialPlayerByeCounts[player.id].byeCount++;
+      }
     });
     
     console.log(`  Selected ${selectedPlayers.length} players to play`);
     console.log(`  ${byePlayers.length} players on bye`);
+    
+    // Log special player distribution
+    const femaleSettersOnBye = byePlayers.filter(p => p.gender === 'female' && p.is_setter).length;
+    const femaleSettersPlaying = selectedPlayers.filter(p => p.gender === 'female' && p.is_setter).length;
+    console.log(`  Female setters: ${femaleSettersPlaying} playing, ${femaleSettersOnBye} on bye`);
     
     // Log player distribution for debugging
     const matchDistribution = {};
@@ -1016,12 +1057,14 @@ function selectFlexibleByeCandidates(players, roundIndex, byesNeeded, playerByeC
       return aIsConsecutive ? 1 : -1; // Non-consecutive first
     }
     
-    // Priority 3: Minimize female setters on bye
+    // Priority 3: Distribute female setters evenly - they should have LOWER priority for bye
+    // (i.e., they should NOT be on bye as often)
     const aIsFemaleSet = a.gender === 'female' && a.is_setter;
     const bIsFemaleSet = b.gender === 'female' && b.is_setter;
     
     if (aIsFemaleSet !== bIsFemaleSet) {
-      return aIsFemaleSet ? 1 : -1; // Non-female-setters first
+      // Non-female-setters should go on bye first
+      return aIsFemaleSet ? 1 : -1;
     }
     
     // Priority 4: Players with fewer byes
@@ -1294,12 +1337,14 @@ function selectByeCandidatesWithMinimumByeRequirement(
       return aIsConsecutive ? 1 : -1; // Non-consecutive candidates first
     }
     
-    // Priority 3: Minimize female setters on bye
+    // Priority 3: Distribute female setters evenly - give them LESS priority for bye
+    // (meaning they should play more often, not be on bye as much)
     const aIsFemaleSet = a.gender === 'female' && a.is_setter;
     const bIsFemaleSet = b.gender === 'female' && b.is_setter;
     
     if (aIsFemaleSet !== bIsFemaleSet) {
-      return aIsFemaleSet ? 1 : -1; // Non-female-setters first
+      // Non-female-setters should go on bye first (female setters play more)
+      return aIsFemaleSet ? 1 : -1; // Non-female-setters get bye priority
     }
     
     // Priority 4: Players who need more byes
@@ -1412,12 +1457,13 @@ function selectByeCandidatesWithConsecutiveAvoidance(
       return aIsConsecutive ? 1 : -1; // Non-consecutive candidates first
     }
     
-    // Priority 2: Minimize female setters on bye (new requirement)
+    // Priority 2: Distribute female setters evenly - they should have LOWER priority for bye
     const aIsFemaleSet = a.gender === 'female' && a.is_setter;
     const bIsFemaleSet = b.gender === 'female' && b.is_setter;
     
     if (aIsFemaleSet !== bIsFemaleSet) {
-      return aIsFemaleSet ? 1 : -1; // Non-female-setters first
+      // Non-female-setters should go on bye first (female setters play more)
+      return aIsFemaleSet ? 1 : -1;
     }
     
     // Priority 3: Players who still need byes to reach their target
