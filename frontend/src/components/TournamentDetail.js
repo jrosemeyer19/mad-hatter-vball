@@ -16,6 +16,7 @@ function TournamentDetail({ user }) {
   const [editingMatch, setEditingMatch] = useState(null);
   const [showPlayerDetails, setShowPlayerDetails] = useState(false);
   const [showPayouts, setShowPayouts] = useState(false);
+  const [leaderboardTab, setLeaderboardTab] = useState('all'); // 'all', 'male', 'female'
 
   useEffect(() => {
     fetchTournamentData();
@@ -31,7 +32,7 @@ function TournamentDetail({ user }) {
       
       // If tournament is completed, fetch results automatically
       if (response.data.tournament.status === 'completed') {
-        fetchTournamentResults();
+        await fetchTournamentResults();
       }
     } catch (error) {
       setError('Failed to load tournament data');
@@ -543,14 +544,72 @@ This action cannot be undone.`;
   </div>
 )}
 
-      {/* Players List */}
+      {/* Players List with Tabs */}
       {players.length > 0 && (
         <div className="card">
-          <h2>Players ({players.length})</h2>
+          <h2>Leaderboard ({players.length} Players)</h2>
+          
+          {/* Tab Navigation */}
+          <div style={{ 
+            display: 'flex', 
+            gap: '0.5rem', 
+            marginBottom: '1rem',
+            borderBottom: '2px solid #e0e0e0',
+            paddingBottom: '0.5rem'
+          }}>
+            <button
+              onClick={() => setLeaderboardTab('all')}
+              style={{
+                padding: '0.5rem 1rem',
+                border: 'none',
+                background: leaderboardTab === 'all' ? '#3498db' : 'transparent',
+                color: leaderboardTab === 'all' ? 'white' : '#333',
+                borderRadius: '4px 4px 0 0',
+                cursor: 'pointer',
+                fontWeight: leaderboardTab === 'all' ? 'bold' : 'normal',
+                transition: 'all 0.2s'
+              }}
+            >
+              All Players ({players.length})
+            </button>
+            <button
+              onClick={() => setLeaderboardTab('male')}
+              style={{
+                padding: '0.5rem 1rem',
+                border: 'none',
+                background: leaderboardTab === 'male' ? '#3498db' : 'transparent',
+                color: leaderboardTab === 'male' ? 'white' : '#333',
+                borderRadius: '4px 4px 0 0',
+                cursor: 'pointer',
+                fontWeight: leaderboardTab === 'male' ? 'bold' : 'normal',
+                transition: 'all 0.2s'
+              }}
+            >
+              Male ({players.filter(p => p.gender.toLowerCase() === 'male' || p.gender.toLowerCase() === 'm').length})
+            </button>
+            <button
+              onClick={() => setLeaderboardTab('female')}
+              style={{
+                padding: '0.5rem 1rem',
+                border: 'none',
+                background: leaderboardTab === 'female' ? '#3498db' : 'transparent',
+                color: leaderboardTab === 'female' ? 'white' : '#333',
+                borderRadius: '4px 4px 0 0',
+                cursor: 'pointer',
+                fontWeight: leaderboardTab === 'female' ? 'bold' : 'normal',
+                transition: 'all 0.2s'
+              }}
+            >
+              Female ({players.filter(p => p.gender.toLowerCase() === 'female' || p.gender.toLowerCase() === 'f').length})
+            </button>
+          </div>
+
+          {/* Leaderboard Table */}
           <div className="table-container" style={{ maxHeight: '300px', overflowY: 'auto' }}>
             <table className="table">
               <thead>
                 <tr>
+                  <th>Rank</th>
                   <th>Name</th>
                   <th>Gender</th>
                   <th>Matches Played</th>
@@ -560,10 +619,41 @@ This action cannot be undone.`;
               </thead>
               <tbody>
                 {players
-                  .sort((a, b) => b.total_points - a.total_points)
-                  .map((player) => (
+                  .filter(player => {
+                    if (leaderboardTab === 'all') return true;
+                    const gender = player.gender.toLowerCase();
+                    if (leaderboardTab === 'male') return gender === 'male' || gender === 'm';
+                    if (leaderboardTab === 'female') return gender === 'female' || gender === 'f';
+                    return true;
+                  })
+                  .sort((a, b) => {
+                    // Sort by total points first, then by point differential as tiebreaker
+                    if (b.total_points !== a.total_points) {
+                      return b.total_points - a.total_points;
+                    }
+                    return b.point_differential - a.point_differential;
+                  })
+                  .map((player, index) => (
                     <tr key={player.id}>
-                      <td>{player.name}</td>
+                      <td>
+                        <strong style={{ 
+                          color: index === 0 ? '#f39c12' : 
+                                 index === 1 ? '#95a5a6' : 
+                                 index === 2 ? '#cd7f32' : '#333',
+                          fontSize: index < 3 ? '1.1rem' : '1rem'
+                        }}>
+                          {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}.`}
+                        </strong>
+                      </td>
+                      <td>
+                        <strong style={{
+                          color: index === 0 ? '#f39c12' : 
+                                 index === 1 ? '#95a5a6' : 
+                                 index === 2 ? '#cd7f32' : '#333'
+                        }}>
+                          {player.name}
+                        </strong>
+                      </td>
                       <td>{player.gender}</td>
                       <td>{player.matches_played}</td>
                       <td><strong>{player.total_points}</strong></td>
@@ -582,6 +672,17 @@ This action cannot be undone.`;
               </tbody>
             </table>
           </div>
+          
+          {leaderboardTab !== 'all' && (
+            <div style={{ 
+              fontSize: '0.85rem', 
+              color: '#7f8c8d', 
+              marginTop: '0.5rem',
+              fontStyle: 'italic'
+            }}>
+              Showing {leaderboardTab} players only. Rankings are within this category.
+            </div>
+          )}
         </div>
       )}
 
