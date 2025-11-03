@@ -96,8 +96,14 @@ function TournamentDetail({ user }) {
         team2Game2: scores.team2Game2 !== '' && scores.team2Game2 !== undefined && scores.team2Game2 !== null ? scores.team2Game2 : null
       });
       
-      // Don't clear editing state - keep form open for adding Game 2 scores
-      fetchTournamentData();
+      // Clear the editing state and score inputs for this match
+      setEditingMatch(null);
+      const newScoreInputs = { ...scoreInputs };
+      delete newScoreInputs[matchId];
+      setScoreInputs(newScoreInputs);
+      
+      // Fetch updated data
+      await fetchTournamentData();
     } catch (error) {
       setError(error.response?.data?.message || 'Failed to submit scores');
     }
