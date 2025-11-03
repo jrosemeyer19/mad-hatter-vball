@@ -139,7 +139,7 @@ function TournamentDetail({ user }) {
     try {
       const response = await axios.post(`/api/tournaments/${id}/complete`);
       setCompletionResults(response.data);
-      fetchTournamentData();
+      await fetchTournamentData();
     } catch (error) {
       setError(error.response?.data?.message || 'Failed to complete tournament');
     }
