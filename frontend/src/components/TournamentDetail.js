@@ -59,6 +59,22 @@ function TournamentDetail({ user }) {
     });
   };
 
+  const calculateTeamSkillRating = (players) => {
+  if (!players || players.length === 0) return 0;
+  
+  const skillValues = {
+    'A': 3.0,
+    'BB': 2.0,
+    'B': 1.0
+  };
+  
+  return players.reduce((total, player) => {
+    const baseSkill = skillValues[player.skill_level] || 1.5;
+    const setterBonus = player.is_setter ? 0.3 : 0;
+    return total + baseSkill + setterBonus;
+  }, 0);
+  };
+
   const handleScoreChange = (matchId, field, value) => {
     setScoreInputs({
       ...scoreInputs,
@@ -746,11 +762,24 @@ This action cannot be undone.`;
                         {/* Playing Teams */}
                         {playingTeams
                           .sort((a, b) => a.team_number - b.team_number)
-                          .map((team) => (
-                            <div key={team.id} className="team-card">
-                              <div className="team-header">
-                                Team {team.team_number} (Court {team.court})
-                              </div>
+                          .map((team) => {
+                            const teamSkillRating = calculateTeamSkillRating(team.players);
+    
+                            return (
+                              <div key={team.id} className="team-card">
+                                <div className="team-header">
+                                  Team {team.team_number} (Court {team.court})
+                                  {showPlayerDetails && (
+                                    <div style={{ 
+                                      fontSize: '0.85rem', 
+                                      fontWeight: 'normal', 
+                                      color: '#3498db',
+                                      marginTop: '0.25rem'
+                                    }}>
+                                      Team Skill: {teamSkillRating.toFixed(1)}
+                                    </div>
+                                  )}
+                                </div>
                               <ul className="player-list">
                                 {team.players?.map((player) => (
                                   <li key={player.id}>
@@ -764,8 +793,8 @@ This action cannot be undone.`;
                                 )) || []}
                               </ul>
                             </div>
-                          ))}
-                        
+                            );
+                        })};
                         {/* Bye Team - Enhanced to show even when not explicitly created */}
                         {byePlayers.length > 0 && (
                           <div className="team-card" style={{ 
@@ -810,7 +839,80 @@ This action cannot be undone.`;
                               
                               <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: '1rem', alignItems: 'center' }}>
                                 <div>
-                                  <strong>Team 1</strong>
+                                 <strong>Team 1</strong>
+                                  {showPlayerDetails && team1Players.length > 0 && (
+                                    <div style={{ 
+                                      fontSize: '0.8rem', 
+                                      color: '#3498db',
+                                      fontWeight: 'normal',
+                                      marginTop: '0.25rem'
+                                    }}>
+                                      Skill: {calculateTeamSkillRating(team1Players).toFixed(1)}
+                                    </div>
+                                  )}
+                                  <ul style={{ listStyle: 'none', fontSize: '0.9rem', marginTop: '0.5rem' }}>
+                                    {team1Players.map(p => (
+                                      <li key={p.id}>
+                                        {p.name}
+                                        {showPlayerDetails && (
+                                          <div style={{ fontSize: '0.75rem', color: '#666', marginTop: '0.1rem' }}>
+                                            {p.gender} • {p.skill_level}{p.is_setter ? ' • Setter' : ''}
+                                          </div>
+                                        )}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+
+                                <div style={{ textAlign: 'center' }}>
+                                  <strong>VS</strong>
+                                  {showPlayerDetails && team1Players.length > 0 && team2Players.length > 0 && (() => {
+                                    const team1Skill = calculateTeamSkillRating(team1Players);
+                                    const team2Skill = calculateTeamSkillRating(team2Players);
+                                    const skillDiff = Math.abs(team1Skill - team2Skill);
+                                    const avgSkill = (team1Skill + team2Skill) / 2;
+                                    const balancePercent = avgSkill > 0 ? (skillDiff / avgSkill * 100).toFixed(0) : 0;
+    
+                                    let balanceColor = '#27ae60'; // green
+                                    let balanceLabel = 'Excellent';
+    
+                                    if (skillDiff >= 6) {
+                                      balanceColor = '#e74c3c'; // red
+                                      balanceLabel = 'Poor';
+                                    } else if (skillDiff >= 4) {
+                                      balanceColor = '#f39c12'; // orange
+                                      balanceLabel = 'Fair';
+                                    } else if (skillDiff >= 2) {
+                                      balanceColor = '#3498db'; // blue
+                                      balanceLabel = 'Good';
+                                    }
+    
+                                      return (
+                                        <div style={{ 
+                                        fontSize: '0.75rem',
+                                        color: balanceColor,
+                                        marginTop: '0.5rem',
+                                        fontWeight: 'bold'
+                                      }}>
+                                      {balancePercent}% diff<br/>
+                                      {balanceLabel}
+                                    </div>
+                                  );
+                              })()}
+                                </div>
+
+                                <div>
+                                  <strong>Team 2</strong>
+                                    {showPlayerDetails && team2Players.length > 0 && (
+                                    <div style={{
+                                      fontSize: '0.8rem',
+                                      color: '#3498db',
+                                      fontWeight: 'normal',
+                                      marginTop: '0.25rem'
+                                    }}>
+                                      Skill: {calculateTeamSkillRating(team2Players).toFixed(1)}
+                                    </div>
+                                  )}
                                   <ul style={{ listStyle: 'none', fontSize: '0.9rem', marginTop: '0.5rem' }}>
                                     {team1Players.map(p => (
                                       <li key={p.id}>
