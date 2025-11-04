@@ -801,8 +801,52 @@ function generateFlexibleByeSchedule(players, flexibleRounds) {
     });
     
     // Select the top candidates
-    const selectedPlayers = candidates.slice(0, playersNeeded);
-    const byePlayers = candidates.slice(playersNeeded);
+    let selectedPlayers = candidates.slice(0, playersNeeded);
+    let byePlayers = candidates.slice(playersNeeded);
+    
+    // CONSTRAINT: Limit female setters in any single bye round
+    const totalFemaleSetters = Object.keys(femaleSetterByeCounts).length;
+    if (totalFemaleSetters > 0) {
+      const femaleSettersInBye = byePlayers.filter(p => p.gender === 'female' && p.is_setter);
+      
+      // Calculate target: spread female setters evenly across rounds
+      // For 6 female setters in 5 rounds: target max 2 per round (ceil(6/5) = 2)
+      const targetMaxPerRound = Math.ceil(totalFemaleSetters / totalRounds);
+      
+      if (femaleSettersInBye.length > targetMaxPerRound) {
+        console.log(`  ⚠️  Too many female setters on bye (${femaleSettersInBye.length}), rebalancing to max ${targetMaxPerRound}...`);
+        
+        // Sort female setters in bye by bye count (keep those with more byes)
+        const sortedFemaleSettersInBye = femaleSettersInBye.sort((a, b) => 
+          femaleSetterByeCounts[b.id] - femaleSetterByeCounts[a.id]
+        );
+        
+        // Keep only target amount on bye
+        const femaleSettersToKeepOnBye = sortedFemaleSettersInBye.slice(0, targetMaxPerRound);
+        const femaleSettersToMoveToPlaying = sortedFemaleSettersInBye.slice(targetMaxPerRound);
+        
+        // Find non-female-setters in playing to swap
+        const nonFemaleSettersPlaying = selectedPlayers.filter(p => !(p.gender === 'female' && p.is_setter));
+        
+        // Sort by bye count (prefer those with fewer byes to go on bye)
+        const nonFemaleSettersSorted = nonFemaleSettersPlaying.sort((a, b) => {
+          const aByeCount = playerRoundAssignments[a.id].roundsOnBye.length;
+          const bByeCount = playerRoundAssignments[b.id].roundsOnBye.length;
+          return aByeCount - bByeCount;
+        });
+        
+        const playersToMoveFromPlayingToBye = nonFemaleSettersSorted.slice(0, femaleSettersToMoveToPlaying.length);
+        
+        // Perform the swap
+        selectedPlayers = selectedPlayers.filter(p => !playersToMoveFromPlayingToBye.includes(p));
+        selectedPlayers.push(...femaleSettersToMoveToPlaying);
+        
+        byePlayers = byePlayers.filter(p => !femaleSettersToMoveToPlaying.includes(p));
+        byePlayers.push(...playersToMoveFromPlayingToBye);
+        
+        console.log(`  ✅ Rebalanced: ${femaleSettersToMoveToPlaying.length} female setters moved to playing`);
+      }
+    }
     
     // Verify we have enough players who need matches
     const playersNeedingMatches = selectedPlayers.filter(player => 
@@ -833,6 +877,14 @@ function generateFlexibleByeSchedule(players, flexibleRounds) {
     
     console.log(`  Selected ${selectedPlayers.length} players to play`);
     console.log(`  ${byePlayers.length} players on bye`);
+    
+    // Log female setter distribution
+    const totalFemaleSetters = Object.keys(femaleSetterByeCounts).length;
+    if (totalFemaleSetters > 0) {
+      const femaleSettersPlaying = selectedPlayers.filter(p => p.gender === 'female' && p.is_setter).length;
+      const femaleSettersOnBye = byePlayers.filter(p => p.gender === 'female' && p.is_setter).length;
+      console.log(`  Female setters: ${femaleSettersPlaying} playing, ${femaleSettersOnBye} on bye (${totalFemaleSetters} total)`);
+    }
     
     // Log player distribution for debugging
     const matchDistribution = {};
@@ -894,6 +946,28 @@ function generateFlexibleByeSchedule(players, flexibleRounds) {
   const finalValidation = validateByeScheduleCorrectness(players, byeSchedule, flexibleRounds, matchesPerPlayer);
   if (!finalValidation.isValid) {
     throw new Error(`Bye schedule validation failed: ${finalValidation.errors.join(', ')}`);
+  }
+  
+  // Final female setter distribution summary
+  const totalFemaleSetters = Object.keys(femaleSetterByeCounts).length;
+  if (totalFemaleSetters > 0) {
+    console.log(`\n=== Female Setter Distribution Summary ===`);
+    console.log(`Total female setters: ${totalFemaleSetters}`);
+    console.log(`Distribution across ${totalRounds} rounds:`);
+    
+    byeSchedule.forEach((roundByes, index) => {
+      const femaleSettersInBye = roundByes.filter(p => p.gender === 'female' && p.is_setter);
+      console.log(`  Round ${index + 1}: ${femaleSettersInBye.length} female setter(s) on bye`);
+    });
+    
+    // Show individual bye counts
+    const femaleSetterPlayers = players.filter(p => p.gender === 'female' && p.is_setter);
+    console.log(`Individual bye counts:`);
+    femaleSetterPlayers.forEach(player => {
+      const byeCount = femaleSetterByeCounts[player.id];
+      const rounds = playerRoundAssignments[player.id].roundsOnBye.map(r => r + 1).join(', ');
+      console.log(`  ${player.name}: ${byeCount} bye(s) in round(s) ${rounds || 'none'}`);
+    });
   }
   
   console.log(`✅ Robust bye schedule created successfully`);
