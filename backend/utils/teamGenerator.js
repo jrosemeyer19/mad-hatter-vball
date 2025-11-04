@@ -26,6 +26,56 @@ function resetSpecial37PlayerTracking() {
   console.log(`37-player tracking reset`);
 }
 
+// NEW: Get skill rating for a player (for balancing calculations)
+function getSkillRating(player) {
+  const skillValues = {
+    'A': 3.0,
+    'BB': 2.0,
+    'B': 1.0
+  };
+  
+  const baseSkill = skillValues[player.skill_level] || 1.5;
+  
+  // Slight bonus for setters (important role)
+  const setterBonus = player.is_setter ? 0.3 : 0;
+  
+  return baseSkill + setterBonus;
+}
+
+// NEW: Calculate total skill rating for a team
+function calculateTeamSkillRating(team) {
+  return team.players.reduce((sum, player) => sum + getSkillRating(player), 0);
+}
+
+// NEW: Find opponent team for a given team
+function getOpponentTeam(teams, teamPairs, team) {
+  for (const pair of teamPairs) {
+    if (pair.team1.id === team.id) return pair.team2;
+    if (pair.team2.id === team.id) return pair.team1;
+  }
+  return null;
+}
+
+// NEW: Calculate how adding a player affects match balance
+function calculateMatchBalanceScore(team, opponentTeam, player) {
+  if (!opponentTeam) return 0;
+  
+  // Calculate current skill difference
+  const currentTeamSkill = team.stats.skillRating;
+  const opponentSkill = opponentTeam.stats.skillRating;
+  const currentDiff = Math.abs(currentTeamSkill - opponentSkill);
+  
+  // Calculate new skill difference if we add this player
+  const playerSkill = getSkillRating(player);
+  const newTeamSkill = currentTeamSkill + playerSkill;
+  const newDiff = Math.abs(newTeamSkill - opponentSkill);
+  
+  // Return improvement (higher = better balance improvement)
+  const improvement = currentDiff - newDiff;
+  
+  return improvement;
+}
+
 function generateAllRounds(players, settings) {
   console.log('\n=== Mad Hatter Tournament Generator (Flexible) ===');
   console.log(`Players: ${players.length}`);
@@ -1780,11 +1830,23 @@ function createBalancedTeams(players, teamConfig, roundNumber) {
         femaleSetters: 0,
         maleA: 0, femaleA: 0,
         maleBB: 0, femaleBB: 0,
-        maleB: 0, femaleB: 0
+        maleB: 0, femaleB: 0,
+        skillRating: 0
       }
     });
   }
   
+  const teamPairs = [];
+  for (let i = 0; i < teamCount; i += 2) {
+    teamPairs.push({
+      team1: teams[i],
+      team2: teams[i + 1],
+      court: teams[i].court
+    });
+  }
+
+  console.log(`\nCreating ${teamPairs.length} balanced match pairs...`);
+
   // Categorize players for systematic distribution
   const shuffledPlayers = shuffleArray([...players]);
   const categories = {
@@ -1818,7 +1880,7 @@ function createBalancedTeams(players, teamConfig, roundNumber) {
     const playersInCategory = categories[category];
     
     playersInCategory.forEach(player => {
-      const bestTeam = findBestTeamForPlayer(teams, player, category);
+      const bestTeam = findBestTeamForPlayerMatchAware(teams, teamPairs, player, category);
       if (bestTeam) {
         bestTeam.players.push(player);
         updateTeamStats(bestTeam.stats, player);
@@ -1839,57 +1901,90 @@ function createBalancedTeams(players, teamConfig, roundNumber) {
     const availableTeams = teams.filter(team => team.players.length < team.targetSize);
     if (availableTeams.length > 0) {
       // Sort by best gender balance for this player
-      availableTeams.sort((a, b) => {
-        const aImbalance = calculateGenderImbalanceAfterAdding(a, player);
-        const bImbalance = calculateGenderImbalanceAfterAdding(b, player);
-        return aImbalance - bImbalance;
-      });
-      
-      const bestTeam = availableTeams[0];
-      bestTeam.players.push(player);
-      updateTeamStats(bestTeam.stats, player);
+      const bestTeam = findBestTeamForPlayerMatchAware(teams, teamPairs, player, 'remaining');
+      if (bestTeam && bestTeam.players.length < bestTeam.targetSize) {
+        bestTeam.players.push(player);
+        updateTeamStats(bestTeam.stats, player);
+      } else {
+      // Fallback to any available team
+        const fallbackTeam = availableTeams[0];
+        fallbackTeam.players.push(player);
+        updateTeamStats(fallbackTeam.stats, player);
+        }
     }
   });
   
-  // Log final team composition
-  teams.forEach(team => {
-    const genderRatio = `${team.stats.male}M:${team.stats.female}F`;
-    console.log(`Team ${team.team_number}: ${team.players.length} players (${genderRatio})`);
+    // Log final team composition with match balance analysis
+  console.log(`\n=== Final Team Composition ===`);
+  teamPairs.forEach(pair => {
+    const team1 = pair.team1;
+    const team2 = pair.team2;
+    
+    const t1Gender = `${team1.stats.male}M:${team1.stats.female}F`;
+    const t2Gender = `${team2.stats.male}M:${team2.stats.female}F`;
+    
+    const skillDiff = Math.abs(team1.stats.skillRating - team2.stats.skillRating);
+    const avgSkill = (team1.stats.skillRating + team2.stats.skillRating) / 2;
+    const balanceQuality = avgSkill > 0 ? (skillDiff / avgSkill * 100).toFixed(1) : 0;
+    
+    console.log(`\nCourt ${pair.court} Match:`);
+    console.log(`  Team ${team1.team_number}: ${team1.players.length} players (${t1Gender}) - Skill: ${team1.stats.skillRating.toFixed(1)}`);
+    console.log(`  Team ${team2.team_number}: ${team2.players.length} players (${t2Gender}) - Skill: ${team2.stats.skillRating.toFixed(1)}`);
+    console.log(`  Match balance: ${balanceQuality}% difference ${skillDiff < 2 ? '✓ Excellent' : skillDiff < 4 ? '✓ Good' : '⚠ Fair'}`);
   });
   
   // Validate gender balance
   validateGenderBalance(teams);
   
+  // Validate match balance
+  validateMatchBalance(teamPairs);
+  
   return teams;
 }
 
-function findBestTeamForPlayer(teams, player, category) {
+// IMPROVED: Find best team for player considering match balance
+function findBestTeamForPlayerMatchAware(teams, teamPairs, player, category) {
   const availableTeams = teams.filter(team => team.players.length < team.targetSize);
   
   if (availableTeams.length === 0) return null;
   
-  // Sort teams by multiple criteria
+  // Sort teams by multiple criteria for optimal placement
   availableTeams.sort((a, b) => {
-    // Primary: Team with fewest of this category
+    // Priority 1: Team with fewest of this category (maintain even distribution)
     const aCategoryCount = getCategoryCount(a.stats, category);
     const bCategoryCount = getCategoryCount(b.stats, category);
     if (aCategoryCount !== bCategoryCount) {
       return aCategoryCount - bCategoryCount;
     }
     
-    // Secondary: Better gender balance after adding this player
+    // Priority 2: Match balance - prefer team that improves match competitiveness
+    const aOpponent = getOpponentTeam(teams, teamPairs, a);
+    const bOpponent = getOpponentTeam(teams, teamPairs, b);
+    
+    if (aOpponent && bOpponent) {
+      const aMatchBalance = calculateMatchBalanceScore(a, aOpponent, player);
+      const bMatchBalance = calculateMatchBalanceScore(b, bOpponent, player);
+      
+      // Prefer the team that improves match balance more
+      if (Math.abs(aMatchBalance - bMatchBalance) > 0.5) {
+        return bMatchBalance - aMatchBalance; // Higher is better (more improvement)
+      }
+    }
+    
+    // Priority 3: Gender balance within team
     const aGenderImbalance = calculateGenderImbalanceAfterAdding(a, player);
     const bGenderImbalance = calculateGenderImbalanceAfterAdding(b, player);
     if (aGenderImbalance !== bGenderImbalance) {
       return aGenderImbalance - bGenderImbalance;
     }
     
-    // Tertiary: Less filled team
+    // Priority 4: Less filled team
     return a.players.length - b.players.length;
   });
   
   return availableTeams[0];
 }
+
 
 function getCategoryCount(stats, category) {
   switch (category) {
@@ -1929,6 +2024,8 @@ function updateTeamStats(stats, player) {
   if (player.gender === 'female' && player.skill_level === 'BB') stats.femaleBB++;
   if (player.gender === 'male' && player.skill_level === 'B') stats.maleB++;
   if (player.gender === 'female' && player.skill_level === 'B') stats.femaleB++;
+
+  stats.skillRating += getSkillRating(player);
 }
 
 function validateGenderBalance(teams) {
@@ -1950,6 +2047,60 @@ function validateGenderBalance(teams) {
   });
   
   console.log(`Teams with severe gender imbalance: ${severeImbalances}/${teams.length}`);
+}
+
+// NEW: Validate match balance quality
+function validateMatchBalance(teamPairs) {
+  console.log('\n--- Match Balance Validation ---');
+  
+  let excellentMatches = 0;
+  let goodMatches = 0;
+  let fairMatches = 0;
+  let poorMatches = 0;
+  
+  let totalSkillDiff = 0;
+  let maxSkillDiff = 0;
+  
+  teamPairs.forEach(pair => {
+    const team1Skill = pair.team1.stats.skillRating;
+    const team2Skill = pair.team2.stats.skillRating;
+    const skillDiff = Math.abs(team1Skill - team2Skill);
+    
+    totalSkillDiff += skillDiff;
+    maxSkillDiff = Math.max(maxSkillDiff, skillDiff);
+    
+    if (skillDiff < 2) {
+      excellentMatches++;
+    } else if (skillDiff < 4) {
+      goodMatches++;
+    } else if (skillDiff < 6) {
+      fairMatches++;
+    } else {
+      poorMatches++;
+      console.warn(`  Court ${pair.court}: Large skill gap (${skillDiff.toFixed(1)} points)`);
+    }
+  });
+  
+  const avgSkillDiff = teamPairs.length > 0 ? (totalSkillDiff / teamPairs.length).toFixed(2) : 0;
+  
+  console.log(`Match quality distribution:`);
+  console.log(`  Excellent (<2 skill diff): ${excellentMatches}`);
+  console.log(`  Good (2-4 skill diff): ${goodMatches}`);
+  console.log(`  Fair (4-6 skill diff): ${fairMatches}`);
+  console.log(`  Poor (>6 skill diff): ${poorMatches}`);
+  console.log(`Average skill difference: ${avgSkillDiff}`);
+  console.log(`Max skill difference: ${maxSkillDiff.toFixed(2)}`);
+  
+  const qualityScore = ((excellentMatches * 3 + goodMatches * 2 + fairMatches * 1) / (teamPairs.length * 3) * 100).toFixed(1);
+  console.log(`Overall match quality score: ${qualityScore}%`);
+  
+  if (qualityScore >= 80) {
+    console.log('✅ Excellent match balance across the round');
+  } else if (qualityScore >= 60) {
+    console.log('✅ Good match balance across the round');
+  } else {
+    console.log('⚠️  Match balance could be improved');
+  }
 }
 
 function createSimpleMatches(teams) {
