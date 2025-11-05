@@ -702,7 +702,7 @@ This action cannot be undone.`;
         </div>
       )}
 
-      {/* Rounds and Matches - ENHANCED WITH BETTER BYE DETECTION */}
+      {/* Rounds and Matches - FIXED VERSION */}
       {rounds.length > 0 && (
         <div>
           {rounds
@@ -780,21 +780,21 @@ This action cannot be undone.`;
                                     </div>
                                   )}
                                 </div>
-                              <ul className="player-list">
-                                {team.players?.map((player) => (
-                                  <li key={player.id}>
-                                    {player.name}
-                                    {showPlayerDetails && (
-                                      <div style={{ fontSize: '0.8rem', color: '#666', marginTop: '0.2rem' }}>
-                                        {player.gender} • {player.skill_level}{player.is_setter ? ' • Setter' : ''}
-                                      </div>
-                                    )}
-                                  </li>
-                                )) || []}
-                              </ul>
-                            </div>
+                                <ul className="player-list">
+                                  {team.players?.map((player) => (
+                                    <li key={player.id}>
+                                      {player.name}
+                                      {showPlayerDetails && (
+                                        <div style={{ fontSize: '0.8rem', color: '#666', marginTop: '0.2rem' }}>
+                                          {player.gender} • {player.skill_level}{player.is_setter ? ' • Setter' : ''}
+                                        </div>
+                                      )}
+                                    </li>
+                                  )) || []}
+                                </ul>
+                              </div>
                             );
-                        })};
+                          })}
                         {/* Bye Team - Enhanced to show even when not explicitly created */}
                         {byePlayers.length > 0 && (
                           <div className="team-card" style={{ 
@@ -822,7 +822,7 @@ This action cannot be undone.`;
                     </div>
                   )}
 
-                  {/* Matches */}
+                  {/* Matches - FIXED VERSION */}
                   {roundMatches.length > 0 && (
                     <div>
                       <h3>Matches</h3>
@@ -837,9 +837,10 @@ This action cannot be undone.`;
                             <div key={match.id} className="match-card">
                               <h4>Court {match.court}</h4>
                               
+                              {/* FIXED: Proper 3-column grid with correct player arrays */}
                               <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: '1rem', alignItems: 'center' }}>
                                 <div>
-                                 <strong>Team 1</strong>
+                                  <strong>Team 1</strong>
                                   {showPlayerDetails && team1Players.length > 0 && (
                                     <div style={{ 
                                       fontSize: '0.8rem', 
@@ -887,23 +888,23 @@ This action cannot be undone.`;
                                       balanceLabel = 'Good';
                                     }
     
-                                      return (
-                                        <div style={{ 
+                                    return (
+                                      <div style={{ 
                                         fontSize: '0.75rem',
                                         color: balanceColor,
                                         marginTop: '0.5rem',
                                         fontWeight: 'bold'
                                       }}>
-                                      {balancePercent}% diff<br/>
-                                      {balanceLabel}
-                                    </div>
-                                  );
-                              })()}
+                                        {balancePercent}% diff<br/>
+                                        {balanceLabel}
+                                      </div>
+                                    );
+                                  })()}
                                 </div>
 
                                 <div>
                                   <strong>Team 2</strong>
-                                    {showPlayerDetails && team2Players.length > 0 && (
+                                  {showPlayerDetails && team2Players.length > 0 && (
                                     <div style={{
                                       fontSize: '0.8rem',
                                       color: '#3498db',
@@ -913,26 +914,6 @@ This action cannot be undone.`;
                                       Skill: {calculateTeamSkillRating(team2Players).toFixed(1)}
                                     </div>
                                   )}
-                                  <ul style={{ listStyle: 'none', fontSize: '0.9rem', marginTop: '0.5rem' }}>
-                                    {team1Players.map(p => (
-                                      <li key={p.id}>
-                                        {p.name}
-                                        {showPlayerDetails && (
-                                          <div style={{ fontSize: '0.75rem', color: '#666', marginTop: '0.1rem' }}>
-                                            {p.gender} • {p.skill_level}{p.is_setter ? ' • Setter' : ''}
-                                          </div>
-                                        )}
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </div>
-                                
-                                <div style={{ textAlign: 'center' }}>
-                                  <strong>VS</strong>
-                                </div>
-                                
-                                <div>
-                                  <strong>Team 2</strong>
                                   <ul style={{ listStyle: 'none', fontSize: '0.9rem', marginTop: '0.5rem' }}>
                                     {team2Players.map(p => (
                                       <li key={p.id}>
