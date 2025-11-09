@@ -78,11 +78,12 @@ function resetTeammateTracking() {
 }
 
 function getSkillRating(player) {
+  // Enhanced weighting that better reflects net play advantages
   const skillValues = {
     'male': {
-      'A': 3.0,
-      'BB': 2.0,
-      'B': 1.0
+      'A': 4.0,    // Increased from 3.0
+      'BB': 3.0,   // Increased from 2.0
+      'B': 2.0     // Increased from 1.0
     },
     'female': {
       'A': 2.5,
@@ -191,8 +192,18 @@ function generateAllRounds(players, settings) {
   
   logTeammateRotationStats(players);
   
+  // ENHANCED: Validate team constraints
+  console.log('\n=== Final Tournament Constraint Validation ===');
+  const allTeams = allRounds.flatMap(round => round.teams.filter(t => !t.is_bye_team));
+  const constraintValidation = validateAllTeamsConstraints(allTeams);
+  
   console.log('\n=== Flexible Tournament Generation Complete ===');
-  return allRounds;
+  
+  // ENHANCED: Return both rounds and validation results
+  return {
+    rounds: allRounds,
+    validation: constraintValidation
+  };
 }
 
 function logTeammateRotationStats(players) {
@@ -772,8 +783,13 @@ function tryPlayerCentricSolution(totalPlayers, totalPlayerMatches, settings, ca
   return rounds;
 }
 
+/**
+ * Enhanced generateFlexibleByeSchedule with gender-balanced bye selection
+ * Replace the existing function in teamGenerator.js with this version
+ */
+
 function generateFlexibleByeSchedule(players, flexibleRounds) {
-  console.log(`\n=== Robust Match-Guaranteed Bye Schedule ===`);
+  console.log(`\n=== Robust Match-Guaranteed Bye Schedule (Gender-Balanced) ===`);
 
   if (players.length === 37 && flexibleRounds.length === 4 && 
       flexibleRounds.every(round => round.playersPlaying === 37)) {
@@ -799,6 +815,15 @@ function generateFlexibleByeSchedule(players, flexibleRounds) {
   if (matchesPerPlayer !== Math.floor(matchesPerPlayer)) {
     throw new Error(`Invalid tournament structure: matches per player must be whole number, got ${matchesPerPlayer}`);
   }
+  
+  // Calculate overall gender distribution
+  const totalMales = players.filter(p => p.gender === 'male').length;
+  const totalFemales = players.filter(p => p.gender === 'female').length;
+  const overallMalePercent = totalMales / totalPlayers;
+  
+  console.log(`\n=== Player Pool Gender Distribution ===`);
+  console.log(`Males: ${totalMales} (${(overallMalePercent * 100).toFixed(1)}%)`);
+  console.log(`Females: ${totalFemales} (${((1 - overallMalePercent) * 100).toFixed(1)}%)`);
   
   const playerRoundAssignments = {};
   players.forEach(player => {
@@ -831,6 +856,9 @@ function generateFlexibleByeSchedule(players, flexibleRounds) {
       femaleSetterByeCounts[player.id] = 0;
     }
   });
+  
+  // Track bye composition for analysis
+  const byeCompositionLog = [];
   
   for (let roundIndex = 0; roundIndex < totalRounds; roundIndex++) {
     const round = flexibleRounds[roundIndex];
@@ -879,9 +907,24 @@ function generateFlexibleByeSchedule(players, flexibleRounds) {
     console.log(`  Female setters playing (${femaleSettersPlaying.length}): ${femaleSettersPlaying.map(p => p.name).join(', ')}`);
     console.log(`  Female setters on bye (${femaleSettersGoingOnBye.length}): ${femaleSettersGoingOnBye.map(p => p.name).join(', ')}`);
     
+    // ENHANCED: Gender-balanced bye selection for other players
     const otherPlayers = players.filter(p => !(p.gender === 'female' && p.is_setter));
+    const otherByesNeeded = byesNeeded - femaleSettersGoingOnBye.length;
     
-    const otherPlayersSorted = otherPlayers.sort((a, b) => {
+    console.log(`  Need ${otherByesNeeded} more bye slots from ${otherPlayers.length} other players`);
+    
+    // Calculate target gender distribution for remaining byes
+    const otherMales = otherPlayers.filter(p => p.gender === 'male').length;
+    const otherFemales = otherPlayers.filter(p => p.gender === 'female').length;
+    const otherMalePercent = otherMales / (otherMales + otherFemales);
+    
+    const targetMalesOnBye = Math.round(otherByesNeeded * otherMalePercent);
+    const targetFemalesOnBye = otherByesNeeded - targetMalesOnBye;
+    
+    console.log(`  Target other bye composition: ${targetMalesOnBye}M : ${targetFemalesOnBye}F (maintaining ${(otherMalePercent * 100).toFixed(1)}% male ratio)`);
+    
+    // Separate other players by gender and sort by priority
+    const sortByPriority = (a, b) => {
       const aAssignment = playerRoundAssignments[a.id];
       const bAssignment = playerRoundAssignments[b.id];
       
@@ -909,14 +952,62 @@ function generateFlexibleByeSchedule(players, flexibleRounds) {
       }
       
       return Math.random() - 0.5;
-    });
+    };
     
-    const otherPlayersNeeded = playersNeeded - femaleSettersPlaying.length;
-    const otherPlayersPlaying = otherPlayersSorted.slice(0, otherPlayersNeeded);
-    const otherPlayersOnBye = otherPlayersSorted.slice(otherPlayersNeeded);
+    const malesSorted = otherPlayers.filter(p => p.gender === 'male').sort(sortByPriority);
+    const femalesSorted = otherPlayers.filter(p => p.gender === 'female').sort(sortByPriority);
     
-    const selectedPlayers = [...femaleSettersPlaying, ...otherPlayersPlaying];
+    // Select from each gender to maintain ratio
+    const selectedMales = malesSorted.slice(0, Math.min(targetMalesOnBye, malesSorted.length));
+    const selectedFemales = femalesSorted.slice(0, Math.min(targetFemalesOnBye, femalesSorted.length));
+    
+    let otherPlayersOnBye = [...selectedMales, ...selectedFemales];
+    
+    // If we're short, fill from the remaining pool
+    if (otherPlayersOnBye.length < otherByesNeeded) {
+      const remaining = otherPlayers.filter(p => 
+        !otherPlayersOnBye.some(bye => bye.id === p.id)
+      );
+      remaining.sort(sortByPriority);
+      const needed = otherByesNeeded - otherPlayersOnBye.length;
+      otherPlayersOnBye.push(...remaining.slice(0, needed));
+      console.log(`  Added ${needed} more players from remaining pool to reach ${otherByesNeeded} byes`);
+    }
+    
+    // If we're over, trim (shouldn't happen but safety check)
+    if (otherPlayersOnBye.length > otherByesNeeded) {
+      console.warn(`  WARNING: Selected ${otherPlayersOnBye.length} but only need ${otherByesNeeded}, trimming excess`);
+      otherPlayersOnBye = otherPlayersOnBye.slice(0, otherByesNeeded);
+    }
+    
+    const actualOtherMales = otherPlayersOnBye.filter(p => p.gender === 'male').length;
+    const actualOtherFemales = otherPlayersOnBye.filter(p => p.gender === 'female').length;
+    
+    console.log(`  Actual other bye composition: ${actualOtherMales}M : ${actualOtherFemales}F`);
+    
+    // Combine female setters and other players for final bye list
+    const selectedPlayers = [...femaleSettersPlaying, ...otherPlayers.filter(p => 
+      !otherPlayersOnBye.some(bye => bye.id === p.id)
+    )];
     const byePlayers = [...femaleSettersGoingOnBye, ...otherPlayersOnBye];
+    
+    // Calculate total bye composition including female setters
+    const totalByeMales = byePlayers.filter(p => p.gender === 'male').length;
+    const totalByeFemales = byePlayers.filter(p => p.gender === 'female').length;
+    const totalByeMalePercent = byePlayers.length > 0 ? totalByeMales / byePlayers.length : 0;
+    const byeGenderDeviation = Math.abs(totalByeMalePercent - overallMalePercent) * 100;
+    
+    console.log(`  Total bye composition: ${totalByeMales}M : ${totalByeFemales}F (${(totalByeMalePercent * 100).toFixed(1)}% male)`);
+    console.log(`  Deviation from overall: ${byeGenderDeviation.toFixed(1)}% ${byeGenderDeviation < 10 ? '✓ Good' : '⚠ Could be better'}`);
+    
+    // Log for summary
+    byeCompositionLog.push({
+      round: roundIndex + 1,
+      byeMales: totalByeMales,
+      byeFemales: totalByeFemales,
+      byeMalePercent: totalByeMalePercent,
+      deviation: byeGenderDeviation
+    });
     
     if (selectedPlayers.length !== playersNeeded) {
       console.error(`ERROR: Selected ${selectedPlayers.length} players but needed ${playersNeeded}`);
@@ -999,6 +1090,42 @@ function generateFlexibleByeSchedule(players, flexibleRounds) {
     throw new Error(`Bye schedule validation failed: ${finalValidation.errors.join(', ')}`);
   }
   
+  // ENHANCED: Bye Gender Balance Summary
+  console.log(`\n=== Bye Gender Balance Summary ===`);
+  console.log(`Overall player pool: ${totalMales}M (${(overallMalePercent * 100).toFixed(1)}%) : ${totalFemales}F (${((1 - overallMalePercent) * 100).toFixed(1)}%)`);
+  console.log(`\nRound-by-round bye composition:`);
+  
+  let totalDeviation = 0;
+  let maxDeviation = 0;
+  let roundsWithGoodBalance = 0;
+  
+  byeCompositionLog.forEach((log, index) => {
+    const status = log.deviation < 10 ? '✓ Good' : log.deviation < 15 ? '○ OK' : '⚠ Poor';
+    console.log(`  Round ${log.round}: ${log.byeMales}M : ${log.byeFemales}F (${(log.byeMalePercent * 100).toFixed(1)}% male) - Deviation: ${log.deviation.toFixed(1)}% ${status}`);
+    
+    totalDeviation += log.deviation;
+    maxDeviation = Math.max(maxDeviation, log.deviation);
+    if (log.deviation < 10) roundsWithGoodBalance++;
+  });
+  
+  const avgDeviation = totalDeviation / byeCompositionLog.length;
+  const balanceQuality = roundsWithGoodBalance / byeCompositionLog.length * 100;
+  
+  console.log(`\nOverall bye balance quality:`);
+  console.log(`  Average deviation: ${avgDeviation.toFixed(1)}%`);
+  console.log(`  Max deviation: ${maxDeviation.toFixed(1)}%`);
+  console.log(`  Rounds with good balance (<10%): ${roundsWithGoodBalance}/${byeCompositionLog.length} (${balanceQuality.toFixed(0)}%)`);
+  
+  if (avgDeviation < 8) {
+    console.log(`  ✅ Excellent bye gender balance`);
+  } else if (avgDeviation < 12) {
+    console.log(`  ✅ Good bye gender balance`);
+  } else if (avgDeviation < 18) {
+    console.log(`  ○ Acceptable bye gender balance`);
+  } else {
+    console.log(`  ⚠️  Bye gender balance could be improved`);
+  }
+  
   if (totalFemaleSetters > 0) {
     console.log(`\n=== Female Setter Distribution Summary ===`);
     console.log(`Total female setters: ${totalFemaleSetters}`);
@@ -1045,6 +1172,120 @@ function generateFlexibleByeSchedule(players, flexibleRounds) {
   
   console.log(`✅ Robust bye schedule created successfully`);
   return byeSchedule;
+}
+
+// Helper functions (should already exist in teamGenerator.js)
+// Included here for completeness
+
+function tryFixAssignments(playerRoundAssignments, flexibleRounds, matchesPerPlayer, players) {
+  console.log(`\nAttempting to fix assignment imbalances...`);
+  
+  const overAssigned = [];
+  const underAssigned = [];
+  
+  players.forEach(player => {
+    const assignment = playerRoundAssignments[player.id];
+    const actualMatches = assignment.matchesAssigned;
+    
+    if (actualMatches > matchesPerPlayer) {
+      overAssigned.push({ player, excess: actualMatches - matchesPerPlayer, assignment });
+    } else if (actualMatches < matchesPerPlayer) {
+      underAssigned.push({ player, deficit: matchesPerPlayer - actualMatches, assignment });
+    }
+  });
+  
+  console.log(`Over-assigned: ${overAssigned.length}, Under-assigned: ${underAssigned.length}`);
+  
+  if (overAssigned.length === 0 || underAssigned.length === 0) {
+    return false;
+  }
+  
+  let fixAttempts = 0;
+  const maxAttempts = 50;
+  
+  while (overAssigned.length > 0 && underAssigned.length > 0 && fixAttempts < maxAttempts) {
+    fixAttempts++;
+    
+    const overPlayer = overAssigned[0];
+    const underPlayer = underAssigned[0];
+    
+    let swapRound = -1;
+    
+    for (const roundIndex of overPlayer.assignment.roundsPlaying) {
+      if (underPlayer.assignment.roundsOnBye.includes(roundIndex)) {
+        swapRound = roundIndex;
+        break;
+      }
+    }
+    
+    if (swapRound >= 0) {
+      console.log(`  Swapping ${overPlayer.player.name} and ${underPlayer.player.name} in round ${swapRound + 1}`);
+      
+      overPlayer.assignment.roundsPlaying = overPlayer.assignment.roundsPlaying.filter(r => r !== swapRound);
+      overPlayer.assignment.roundsOnBye.push(swapRound);
+      overPlayer.assignment.matchesAssigned--;
+      
+      underPlayer.assignment.roundsOnBye = underPlayer.assignment.roundsOnBye.filter(r => r !== swapRound);
+      underPlayer.assignment.roundsPlaying.push(swapRound);
+      underPlayer.assignment.matchesAssigned++;
+      
+      overPlayer.excess--;
+      underPlayer.deficit--;
+      
+      if (overPlayer.excess === 0) {
+        overAssigned.shift();
+      }
+      if (underPlayer.deficit === 0) {
+        underAssigned.shift();
+      }
+    } else {
+      overAssigned.push(overAssigned.shift());
+      if (overAssigned.length === 1) {
+        underAssigned.push(underAssigned.shift());
+      }
+    }
+  }
+  
+  const remainingImbalances = overAssigned.length + underAssigned.length;
+  console.log(`Fix completed: ${remainingImbalances} remaining imbalances after ${fixAttempts} attempts`);
+  
+  return remainingImbalances === 0;
+}
+
+function validateByeScheduleCorrectness(players, byeSchedule, flexibleRounds, expectedMatchesPerPlayer) {
+  const errors = [];
+  const playerMatchCounts = {};
+  
+  players.forEach(player => {
+    playerMatchCounts[player.id] = 0;
+  });
+  
+  byeSchedule.forEach((roundByes, roundIndex) => {
+    const round = flexibleRounds[roundIndex];
+    const byePlayerIds = new Set(roundByes.map(p => p.id));
+    
+    const playingPlayers = players.filter(player => !byePlayerIds.has(player.id));
+    
+    if (playingPlayers.length !== round.playersPlaying) {
+      errors.push(`Round ${roundIndex + 1}: expected ${round.playersPlaying} players, got ${playingPlayers.length}`);
+    }
+    
+    playingPlayers.forEach(player => {
+      playerMatchCounts[player.id]++;
+    });
+  });
+  
+  players.forEach(player => {
+    const actualMatches = playerMatchCounts[player.id];
+    if (actualMatches !== expectedMatchesPerPlayer) {
+      errors.push(`${player.name}: ${actualMatches}/${expectedMatchesPerPlayer} matches`);
+    }
+  });
+  
+  return {
+    isValid: errors.length === 0,
+    errors: errors
+  };
 }
 
 function tryFixAssignments(playerRoundAssignments, flexibleRounds, matchesPerPlayer, players) {
@@ -1779,7 +2020,7 @@ function createBalancedTeams(players, teamConfig, roundNumber) {
     });
   }
 
-  console.log(`\nCreating ${teamPairs.length} balanced match pairs with teammate rotation...`);
+  console.log(`\nCreating ${teamPairs.length} balanced match pairs with constraints...`);
 
   const shuffledPlayers = shuffleArray([...players]);
   const categories = {
@@ -1796,13 +2037,14 @@ function createBalancedTeams(players, teamConfig, roundNumber) {
     )
   };
   
+  // ENHANCED: Pre-distribute B-rated males to larger teams first
   const distributionOrder = [
     'femaleSetters',
+    'maleB',        // MOVED UP - distribute B males early to get size-6 teams
     'maleA',
     'femaleA',
     'maleBB',
     'femaleBB',
-    'maleB',
     'femaleB',
     'maleOther'
   ];
@@ -1811,7 +2053,8 @@ function createBalancedTeams(players, teamConfig, roundNumber) {
     const playersInCategory = categories[category];
     
     playersInCategory.forEach(player => {
-      const bestTeam = findBestTeamForPlayerMatchAware(teams, teamPairs, player, category);
+      // ENHANCED: Use constraint-aware team selection
+      const bestTeam = findBestTeamForPlayerWithConstraints(teams, teamPairs, player, category);
       if (bestTeam) {
         bestTeam.players.push(player);
         updateTeamStats(bestTeam.stats, player);
@@ -1821,6 +2064,7 @@ function createBalancedTeams(players, teamConfig, roundNumber) {
     console.log(`Distributed ${playersInCategory.length} ${category} players`);
   });
   
+  // Handle any unassigned players
   const assignedPlayerIds = new Set();
   teams.forEach(team => {
     team.players.forEach(player => assignedPlayerIds.add(player.id));
@@ -1828,16 +2072,16 @@ function createBalancedTeams(players, teamConfig, roundNumber) {
   
   const unassignedPlayers = shuffledPlayers.filter(p => !assignedPlayerIds.has(p.id));
   unassignedPlayers.forEach(player => {
-    const availableTeams = teams.filter(team => team.players.length < team.targetSize);
-    if (availableTeams.length > 0) {
-      const bestTeam = findBestTeamForPlayerMatchAware(teams, teamPairs, player, 'remaining');
-      if (bestTeam && bestTeam.players.length < bestTeam.targetSize) {
-        bestTeam.players.push(player);
-        updateTeamStats(bestTeam.stats, player);
-      } else {
-        const fallbackTeam = availableTeams[0];
-        fallbackTeam.players.push(player);
-        updateTeamStats(fallbackTeam.stats, player);
+    const bestTeam = findBestTeamForPlayerWithConstraints(teams, teamPairs, player, 'remaining');
+    if (bestTeam && bestTeam.players.length < bestTeam.targetSize) {
+      bestTeam.players.push(player);
+      updateTeamStats(bestTeam.stats, player);
+    } else {
+      // Fallback: find ANY team with space
+      const anyTeamWithSpace = teams.find(t => t.players.length < t.targetSize);
+      if (anyTeamWithSpace) {
+        anyTeamWithSpace.players.push(player);
+        updateTeamStats(anyTeamWithSpace.stats, player);
       }
     }
   });
@@ -1861,10 +2105,210 @@ function createBalancedTeams(players, teamConfig, roundNumber) {
   });
   
   validateGenderBalance(teams);
-  
   validateMatchBalance(teamPairs);
   
+  // NEW: Validate team constraints
+  const constraintValidation = validateAllTeamsConstraints(teams);
+  
   return teams;
+}
+
+// NEW: Check if team can accept a player given constraints
+function canTeamAcceptPlayer(team, player) {
+  if (team.players.length >= team.targetSize) {
+    return { canAccept: false, reason: 'Team full' };
+  }
+
+  const targetSize = team.targetSize;
+  if (targetSize >= 5 && targetSize <= 6) {
+    const currentMales = team.players.filter(p => p.gender === 'male');
+    const currentMaleCount = currentMales.length;
+    const spotsRemaining = targetSize - team.players.length;
+
+    // Enforce minimum 2 males
+    if (spotsRemaining <= 2) {
+      const projectedMaleCount = currentMaleCount + (player.gender === 'male' ? 1 : 0);
+      
+      if (spotsRemaining === 1 && projectedMaleCount < 2) {
+        if (player.gender !== 'male') {
+          return { canAccept: false, reason: 'Need male to meet minimum' };
+        }
+      }
+
+      // Enforce "no two B-rated males" rule
+      if (projectedMaleCount === 2 && player.gender === 'male' && player.skill_level === 'B') {
+        const currentBMales = currentMales.filter(m => m.skill_level === 'B');
+        if (currentBMales.length === 1) {
+          return { canAccept: false, reason: 'Would create two B-rated males' };
+        }
+      }
+    }
+  }
+
+  return { canAccept: true };
+}
+
+// NEW: Enhanced team selection with constraints
+function findBestTeamForPlayerWithConstraints(teams, teamPairs, player, category) {
+  const availableTeams = teams.filter(team => {
+    const check = canTeamAcceptPlayer(team, player);
+    return check.canAccept;
+  });
+  
+  if (availableTeams.length === 0) {
+    console.warn(`  WARNING: No available teams for ${player.name} (${player.gender} ${player.skill_level})`);
+    return null;
+  }
+
+  availableTeams.sort((a, b) => {
+    // Priority 1: For B-rated males, prefer size-6 teams
+    if (category === 'maleB') {
+      if (a.targetSize !== b.targetSize) {
+        return b.targetSize - a.targetSize;
+      }
+    }
+
+    // Priority 2: Balance category distribution
+    const aCategoryCount = getCategoryCount(a.stats, category);
+    const bCategoryCount = getCategoryCount(b.stats, category);
+    if (aCategoryCount !== bCategoryCount) {
+      return aCategoryCount - bCategoryCount;
+    }
+    
+    // Priority 3: Match balance
+    const aOpponent = getOpponentTeam(teams, teamPairs, a);
+    const bOpponent = getOpponentTeam(teams, teamPairs, b);
+    
+    if (aOpponent && bOpponent) {
+      const aMatchBalance = calculateMatchBalanceScore(a, aOpponent, player);
+      const bMatchBalance = calculateMatchBalanceScore(b, bOpponent, player);
+      
+      if (Math.abs(aMatchBalance - bMatchBalance) > 0.5) {
+        return bMatchBalance - aMatchBalance;
+      }
+    }
+    
+    // Priority 4: Teammate rotation
+    const aTeammateCount = getTeammateCount(player.id, a.players);
+    const bTeammateCount = getTeammateCount(player.id, b.players);
+    if (aTeammateCount !== bTeammateCount) {
+      return aTeammateCount - bTeammateCount;
+    }
+    
+    // Priority 5: Gender balance
+    const aGenderImbalance = calculateGenderImbalanceAfterAdding(a, player);
+    const bGenderImbalance = calculateGenderImbalanceAfterAdding(b, player);
+    if (aGenderImbalance !== bGenderImbalance) {
+      return aGenderImbalance - bGenderImbalance;
+    }
+    
+    return a.players.length - b.players.length;
+  });
+  
+  return availableTeams[0];
+}
+
+// NEW: Validate team constraints
+function validateTeamConstraints(team) {
+  const constraints = {
+    isValid: true,
+    violations: []
+  };
+
+  const teamSize = team.players.length;
+  
+  if (teamSize < 5 || teamSize > 6) {
+    return constraints;
+  }
+
+  const males = team.players.filter(p => p.gender === 'male');
+  const maleCount = males.length;
+
+  // Constraint 1: Minimum 2 males
+  if (maleCount < 2) {
+    constraints.isValid = false;
+    constraints.violations.push({
+      type: 'INSUFFICIENT_MALES',
+      severity: 'HIGH',
+      message: `Team ${team.team_number} has only ${maleCount} male(s) (requires 2+ for teams of ${teamSize})`,
+      teamSize,
+      maleCount,
+      femaleCount: team.players.length - maleCount
+    });
+  }
+
+  // Constraint 2: No two B-rated males
+  if (maleCount === 2) {
+    const bRatedMales = males.filter(m => m.skill_level === 'B');
+    if (bRatedMales.length === 2) {
+      constraints.isValid = false;
+      constraints.violations.push({
+        type: 'TWO_B_RATED_MALES',
+        severity: 'MEDIUM',
+        message: `Team ${team.team_number} has 2 B-rated males (at least one should be A or BB)`,
+        players: bRatedMales.map(p => p.name)
+      });
+    }
+  }
+
+  return constraints;
+}
+
+// NEW: Validate all teams
+function validateAllTeamsConstraints(teams) {
+  console.log('\n=== Team Constraint Validation ===');
+  
+  const allViolations = [];
+  let teamsWithViolations = 0;
+  let highSeverityCount = 0;
+  let mediumSeverityCount = 0;
+
+  teams.forEach(team => {
+    if (team.is_bye_team) return;
+
+    const validation = validateTeamConstraints(team);
+    
+    if (!validation.isValid) {
+      teamsWithViolations++;
+      
+      validation.violations.forEach(violation => {
+        allViolations.push({
+          teamNumber: team.team_number,
+          court: team.court,
+          ...violation
+        });
+
+        if (violation.severity === 'HIGH') highSeverityCount++;
+        if (violation.severity === 'MEDIUM') mediumSeverityCount++;
+
+        console.warn(`⚠️  ${violation.message}`);
+      });
+    }
+  });
+
+  const summary = {
+    totalTeams: teams.filter(t => !t.is_bye_team).length,
+    teamsWithViolations,
+    totalViolations: allViolations.length,
+    highSeverityCount,
+    mediumSeverityCount,
+    violations: allViolations,
+    isValid: allViolations.length === 0
+  };
+
+  console.log(`\nValidation Summary:`);
+  console.log(`  Teams checked: ${summary.totalTeams}`);
+  console.log(`  Teams with violations: ${teamsWithViolations}`);
+  console.log(`  High severity: ${highSeverityCount}`);
+  console.log(`  Medium severity: ${mediumSeverityCount}`);
+
+  if (summary.isValid) {
+    console.log('✅ All teams meet constraints');
+  } else {
+    console.log(`❌ ${summary.totalViolations} constraint violation(s) detected`);
+  }
+
+  return summary;
 }
 
 function findBestTeamForPlayerMatchAware(teams, teamPairs, player, category) {
