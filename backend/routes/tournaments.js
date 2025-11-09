@@ -359,6 +359,9 @@ router.delete('/:id/players/:playerId', authenticateToken, async (req, res) => {
 });
 
 // Start tournament (generate all teams and rounds at once) - FIXED TO NOT PRE-COUNT MATCHES
+// FIXED VERSION of the Start Tournament Route
+// Replace the existing router.post('/:id/start', ...) route with this updated version
+
 router.post('/:id/start', authenticateToken, async (req, res) => {
   const client = await pool.connect();
   try {
@@ -396,7 +399,9 @@ router.post('/:id/start', authenticateToken, async (req, res) => {
     console.log(`\n=== Starting Tournament Generation ===`);
     console.log(`Players: ${players.length}, Courts: ${settings.courtsAvailable}, Min per team: ${settings.minPlayersPerTeam}, Matches per player: ${settings.matchesPerPlayer}`);
     
-    const allRounds = generateAllRounds(players, settings);
+    // FIXED: Handle the new return format from generateAllRounds
+    const generationResult = generateAllRounds(players, settings);
+    const allRounds = generationResult.rounds || generationResult; // Support both formats
     
     console.log(`\n=== Database Insertion ===`);
     console.log(`Generated ${allRounds.length} rounds for tournament ${id}`);
@@ -414,52 +419,51 @@ router.post('/:id/start', authenticateToken, async (req, res) => {
       const roundId = roundResult.rows[0].id;
       
       // Create playing teams and assign players
-     // Create playing teams and assign players
-const teamIdMap = {}; // Track team IDs for match creation
-let playingTeamCount = 0;
+      const teamIdMap = {}; // Track team IDs for match creation
+      let playingTeamCount = 0;
 
-for (let i = 0; i < roundData.teams.length; i++) {
-  const team = roundData.teams[i];
-  
-  if (team.is_bye_team) {
-    // Handle bye team separately
-    console.log(`  Bye team: ${team.players.length} players`);
-    const byeTeamResult = await client.query(`
-      INSERT INTO teams (round_id, team_number, court, is_bye_team) 
-      VALUES ($1, $2, NULL, true) RETURNING id
-    `, [roundId, i + 1]);
-    
-    const byeTeamId = byeTeamResult.rows[0].id;
-    
-    // Assign bye players to bye team
-    for (const player of team.players) {
-      await client.query(`
-        INSERT INTO team_players (team_id, player_id) VALUES ($1, $2)
-      `, [byeTeamId, player.id]);
-    }
-  } else {
-    // Handle playing team
-    playingTeamCount++;
-    const court = Math.floor((playingTeamCount - 1) / 2) + 1;
-    
-    const teamResult = await client.query(`
-      INSERT INTO teams (round_id, team_number, court, is_bye_team) 
-      VALUES ($1, $2, $3, false) RETURNING id
-    `, [roundId, i + 1, court]);
-    
-    const teamId = teamResult.rows[0].id;
-    teamIdMap[i] = teamId;
-    
-    console.log(`  Team ${i + 1}: ${team.players.length} players on Court ${court}`);
-    
-    // Assign players to team
-    for (const player of team.players) {
-      await client.query(`
-        INSERT INTO team_players (team_id, player_id) VALUES ($1, $2)
-      `, [teamId, player.id]);
-    }
-  }
-}
+      for (let i = 0; i < roundData.teams.length; i++) {
+        const team = roundData.teams[i];
+        
+        if (team.is_bye_team) {
+          // Handle bye team separately
+          console.log(`  Bye team: ${team.players.length} players`);
+          const byeTeamResult = await client.query(`
+            INSERT INTO teams (round_id, team_number, court, is_bye_team) 
+            VALUES ($1, $2, NULL, true) RETURNING id
+          `, [roundId, i + 1]);
+          
+          const byeTeamId = byeTeamResult.rows[0].id;
+          
+          // Assign bye players to bye team
+          for (const player of team.players) {
+            await client.query(`
+              INSERT INTO team_players (team_id, player_id) VALUES ($1, $2)
+            `, [byeTeamId, player.id]);
+          }
+        } else {
+          // Handle playing team
+          playingTeamCount++;
+          const court = Math.floor((playingTeamCount - 1) / 2) + 1;
+          
+          const teamResult = await client.query(`
+            INSERT INTO teams (round_id, team_number, court, is_bye_team) 
+            VALUES ($1, $2, $3, false) RETURNING id
+          `, [roundId, i + 1, court]);
+          
+          const teamId = teamResult.rows[0].id;
+          teamIdMap[i] = teamId;
+          
+          console.log(`  Team ${i + 1}: ${team.players.length} players on Court ${court}`);
+          
+          // Assign players to team
+          for (const player of team.players) {
+            await client.query(`
+              INSERT INTO team_players (team_id, player_id) VALUES ($1, $2)
+            `, [teamId, player.id]);
+          }
+        }
+      }
       
       // Create "On Bye" team if there are bye players
       if (roundData.byePlayers && roundData.byePlayers.length > 0) {
@@ -773,6 +777,9 @@ router.delete('/:id', authenticateToken, async (req, res) => {
 });
 
 // Re-generate teams (authenticated users only) - NEW ROUTE
+// FIXED VERSION of the Regenerate Teams Route
+// Replace the existing router.post('/:id/regenerate', ...) route with this updated version
+
 router.post('/:id/regenerate', authenticateToken, async (req, res) => {
   const client = await pool.connect();
   try {
@@ -825,7 +832,11 @@ router.post('/:id/regenerate', authenticateToken, async (req, res) => {
     };
     
     console.log(`Regenerating with ${players.length} players`);
-    const allRounds = generateAllRounds(players, settings);
+    
+    // FIXED: Handle the new return format from generateAllRounds
+    const generationResult = generateAllRounds(players, settings);
+    const allRounds = generationResult.rounds || generationResult; // Support both formats
+    
     console.log(`Generated ${allRounds.length} new rounds`);
     
     // Step 5: Create new rounds, teams, and matches in database
