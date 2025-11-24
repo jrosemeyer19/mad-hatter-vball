@@ -60,19 +60,56 @@ function TournamentDetail({ user }) {
   };
 
   const calculateTeamSkillRating = (players) => {
-  if (!players || players.length === 0) return 0;
-  
-  const skillValues = {
-    'A': 3.0,
-    'BB': 2.0,
-    'B': 1.0
+    if (!players || players.length === 0) return 0;
+
+    const skillValues = {
+      'A': 3.0,
+      'BB': 2.0,
+      'B': 1.0
+    };
+
+    return players.reduce((total, player) => {
+      const baseSkill = skillValues[player.skill_level] || 1.5;
+      const setterBonus = player.is_setter ? 0.3 : 0;
+      return total + baseSkill + setterBonus;
+    }, 0);
   };
-  
-  return players.reduce((total, player) => {
-    const baseSkill = skillValues[player.skill_level] || 1.5;
-    const setterBonus = player.is_setter ? 0.3 : 0;
-    return total + baseSkill + setterBonus;
-  }, 0);
+
+  // Helper function to get player color styling based on gender, skill level, and setter status
+  const getPlayerStyle = (player) => {
+    // Color scheme:
+    // Males: blue tones, Females: pink/purple tones
+    // A: darker/stronger, BB: medium, B: lighter
+    // Setters get a special indicator
+
+    const colors = {
+      male: {
+        A: { bg: '#1a5276', text: '#ffffff' },    // Dark blue
+        BB: { bg: '#3498db', text: '#ffffff' },   // Medium blue
+        B: { bg: '#85c1e9', text: '#1a5276' }     // Light blue
+      },
+      female: {
+        A: { bg: '#7b241c', text: '#ffffff' },    // Dark red/maroon
+        BB: { bg: '#c0392b', text: '#ffffff' },   // Medium red
+        B: { bg: '#f1948a', text: '#7b241c' }     // Light pink
+      }
+    };
+
+    const gender = player.gender?.toLowerCase() || 'male';
+    const skill = player.skill_level || 'BB';
+    const colorSet = colors[gender]?.[skill] || colors.male.BB;
+
+    return {
+      backgroundColor: colorSet.bg,
+      color: colorSet.text,
+      padding: '0.25rem 0.5rem',
+      borderRadius: '4px',
+      display: 'inline-block',
+      fontSize: '0.85rem',
+      fontWeight: player.is_setter ? 'bold' : 'normal',
+      border: player.is_setter ? '2px solid #f39c12' : 'none',
+      boxShadow: player.is_setter ? '0 0 4px #f39c12' : 'none'
+    };
   };
 
   const handleScoreChange = (matchId, field, value) => {
@@ -383,6 +420,28 @@ This action cannot be undone.`;
                 />
                 Show player details in teams
               </label>
+              {showPlayerDetails && (
+                <div style={{
+                  marginTop: '0.75rem',
+                  padding: '0.75rem',
+                  backgroundColor: '#f8f9fa',
+                  borderRadius: '4px',
+                  fontSize: '0.8rem'
+                }}>
+                  <div style={{ marginBottom: '0.5rem', fontWeight: 'bold' }}>Color Legend:</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+                    <span style={{ backgroundColor: '#1a5276', color: '#fff', padding: '0.15rem 0.4rem', borderRadius: '3px' }}>M-A</span>
+                    <span style={{ backgroundColor: '#3498db', color: '#fff', padding: '0.15rem 0.4rem', borderRadius: '3px' }}>M-BB</span>
+                    <span style={{ backgroundColor: '#85c1e9', color: '#1a5276', padding: '0.15rem 0.4rem', borderRadius: '3px' }}>M-B</span>
+                    <span style={{ margin: '0 0.25rem', color: '#999' }}>|</span>
+                    <span style={{ backgroundColor: '#7b241c', color: '#fff', padding: '0.15rem 0.4rem', borderRadius: '3px' }}>F-A</span>
+                    <span style={{ backgroundColor: '#c0392b', color: '#fff', padding: '0.15rem 0.4rem', borderRadius: '3px' }}>F-BB</span>
+                    <span style={{ backgroundColor: '#f1948a', color: '#7b241c', padding: '0.15rem 0.4rem', borderRadius: '3px' }}>F-B</span>
+                    <span style={{ margin: '0 0.25rem', color: '#999' }}>|</span>
+                    <span style={{ backgroundColor: '#3498db', color: '#fff', padding: '0.15rem 0.4rem', borderRadius: '3px', border: '2px solid #f39c12', boxShadow: '0 0 4px #f39c12', fontWeight: 'bold' }}>★ Setter</span>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -782,12 +841,14 @@ This action cannot be undone.`;
                                 </div>
                                 <ul className="player-list">
                                   {team.players?.map((player) => (
-                                    <li key={player.id}>
-                                      {player.name}
-                                      {showPlayerDetails && (
-                                        <div style={{ fontSize: '0.8rem', color: '#666', marginTop: '0.2rem' }}>
-                                          {player.gender} • {player.skill_level}{player.is_setter ? ' • Setter' : ''}
-                                        </div>
+                                    <li key={player.id} style={{ marginBottom: showPlayerDetails ? '0.4rem' : '0' }}>
+                                      {showPlayerDetails ? (
+                                        <span style={getPlayerStyle(player)}>
+                                          {player.name}
+                                          {player.is_setter ? ' ★' : ''}
+                                        </span>
+                                      ) : (
+                                        player.name
                                       )}
                                     </li>
                                   )) || []}
@@ -806,12 +867,14 @@ This action cannot be undone.`;
                             </div>
                             <ul className="player-list">
                               {byePlayers.map((player) => (
-                                <li key={player.id} style={{ color: '#856404' }}>
-                                  {player.name}
-                                  {showPlayerDetails && (
-                                    <div style={{ fontSize: '0.8rem', color: '#856404', opacity: 0.8, marginTop: '0.2rem' }}>
-                                      {player.gender} • {player.skill_level}{player.is_setter ? ' • Setter' : ''}
-                                    </div>
+                                <li key={player.id} style={{ marginBottom: showPlayerDetails ? '0.4rem' : '0' }}>
+                                  {showPlayerDetails ? (
+                                    <span style={getPlayerStyle(player)}>
+                                      {player.name}
+                                      {player.is_setter ? ' ★' : ''}
+                                    </span>
+                                  ) : (
+                                    <span style={{ color: '#856404' }}>{player.name}</span>
                                   )}
                                 </li>
                               ))}
@@ -851,14 +914,16 @@ This action cannot be undone.`;
                                       Skill: {calculateTeamSkillRating(team1Players).toFixed(1)}
                                     </div>
                                   )}
-                                  <ul style={{ listStyle: 'none', fontSize: '0.9rem', marginTop: '0.5rem' }}>
+                                  <ul style={{ listStyle: 'none', fontSize: '0.9rem', marginTop: '0.5rem', padding: 0 }}>
                                     {team1Players.map(p => (
-                                      <li key={p.id}>
-                                        {p.name}
-                                        {showPlayerDetails && (
-                                          <div style={{ fontSize: '0.75rem', color: '#666', marginTop: '0.1rem' }}>
-                                            {p.gender} • {p.skill_level}{p.is_setter ? ' • Setter' : ''}
-                                          </div>
+                                      <li key={p.id} style={{ marginBottom: showPlayerDetails ? '0.4rem' : '0.2rem' }}>
+                                        {showPlayerDetails ? (
+                                          <span style={getPlayerStyle(p)}>
+                                            {p.name}
+                                            {p.is_setter ? ' ★' : ''}
+                                          </span>
+                                        ) : (
+                                          p.name
                                         )}
                                       </li>
                                     ))}
@@ -914,14 +979,16 @@ This action cannot be undone.`;
                                       Skill: {calculateTeamSkillRating(team2Players).toFixed(1)}
                                     </div>
                                   )}
-                                  <ul style={{ listStyle: 'none', fontSize: '0.9rem', marginTop: '0.5rem' }}>
+                                  <ul style={{ listStyle: 'none', fontSize: '0.9rem', marginTop: '0.5rem', padding: 0 }}>
                                     {team2Players.map(p => (
-                                      <li key={p.id}>
-                                        {p.name}
-                                        {showPlayerDetails && (
-                                          <div style={{ fontSize: '0.75rem', color: '#666', marginTop: '0.1rem' }}>
-                                            {p.gender} • {p.skill_level}{p.is_setter ? ' • Setter' : ''}
-                                          </div>
+                                      <li key={p.id} style={{ marginBottom: showPlayerDetails ? '0.4rem' : '0.2rem' }}>
+                                        {showPlayerDetails ? (
+                                          <span style={getPlayerStyle(p)}>
+                                            {p.name}
+                                            {p.is_setter ? ' ★' : ''}
+                                          </span>
+                                        ) : (
+                                          p.name
                                         )}
                                       </li>
                                     ))}
