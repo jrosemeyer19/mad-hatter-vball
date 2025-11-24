@@ -2084,19 +2084,55 @@ function createBalancedTeams(players, teamConfig, roundNumber) {
   teams.forEach(team => {
     team.players.forEach(player => assignedPlayerIds.add(player.id));
   });
-  
+
   const unassignedPlayers = shuffledPlayers.filter(p => !assignedPlayerIds.has(p.id));
+  if (unassignedPlayers.length > 0) {
+    console.log(`\n--- Handling ${unassignedPlayers.length} unassigned player(s) ---`);
+  }
+
   unassignedPlayers.forEach(player => {
     const bestTeam = findBestTeamForPlayerWithConstraints(teams, teamPairs, player, 'remaining');
     if (bestTeam && bestTeam.players.length < bestTeam.targetSize) {
       bestTeam.players.push(player);
       updateTeamStats(bestTeam.stats, player);
+      console.log(`  Assigned ${player.name} to Team ${bestTeam.team_number} (via constraints)`);
     } else {
-      // Fallback: find ANY team with space
-      const anyTeamWithSpace = teams.find(t => t.players.length < t.targetSize);
-      if (anyTeamWithSpace) {
-        anyTeamWithSpace.players.push(player);
-        updateTeamStats(anyTeamWithSpace.stats, player);
+      // FIXED: Smart fallback that still respects constraints where possible
+      const teamsWithSpace = teams.filter(t => t.players.length < t.targetSize);
+
+      if (teamsWithSpace.length > 0) {
+        // For B players, prefer teams without B players
+        if (player.skill_level === 'B') {
+          const teamsWithoutB = teamsWithSpace.filter(t =>
+            t.players.filter(p => p.skill_level === 'B').length === 0
+          );
+          if (teamsWithoutB.length > 0) {
+            // Sort by fewest B players of same gender
+            teamsWithoutB.sort((a, b) => {
+              const aCount = a.players.filter(p => p.skill_level === 'B' && p.gender === player.gender).length;
+              const bCount = b.players.filter(p => p.skill_level === 'B' && p.gender === player.gender).length;
+              return aCount - bCount;
+            });
+            teamsWithoutB[0].players.push(player);
+            updateTeamStats(teamsWithoutB[0].stats, player);
+            console.log(`  Assigned ${player.name} (B) to Team ${teamsWithoutB[0].team_number} (no existing B players)`);
+          } else {
+            // All teams have B players - pick the one with fewest
+            teamsWithSpace.sort((a, b) => {
+              const aB = a.players.filter(p => p.skill_level === 'B').length;
+              const bB = b.players.filter(p => p.skill_level === 'B').length;
+              return aB - bB;
+            });
+            teamsWithSpace[0].players.push(player);
+            updateTeamStats(teamsWithSpace[0].stats, player);
+            console.warn(`  ⚠️  Assigned ${player.name} (B) to Team ${teamsWithSpace[0].team_number} - creates multiple B players (unavoidable)`);
+          }
+        } else {
+          // Non-B player fallback
+          teamsWithSpace[0].players.push(player);
+          updateTeamStats(teamsWithSpace[0].stats, player);
+          console.log(`  Assigned ${player.name} to Team ${teamsWithSpace[0].team_number} (fallback)`);
+        }
       }
     }
   });
@@ -2148,25 +2184,30 @@ function refineTeamBalance(teams, teamPairs) {
       const team2 = pair.team2;
 
       const skillDiff = Math.abs(team1.stats.skillRating - team2.stats.skillRating);
+      const genderDiff = Math.abs(team1.stats.male - team2.stats.male);
 
-      // Only try to improve if skill difference is significant (> 2 points)
-      if (skillDiff <= 2) continue;
+      // Try to improve if skill difference > 2 OR gender difference > 2
+      const needsSkillBalance = skillDiff > 2;
+      const needsGenderBalance = genderDiff > 2;
 
-      // Determine which team is stronger
-      const strongerTeam = team1.stats.skillRating > team2.stats.skillRating ? team1 : team2;
-      const weakerTeam = team1.stats.skillRating > team2.stats.skillRating ? team2 : team1;
+      if (!needsSkillBalance && !needsGenderBalance) continue;
 
-      // Try to find a beneficial swap
-      const swap = findBeneficialSwap(strongerTeam, weakerTeam, skillDiff, teams);
+      // Try to find a beneficial swap (considers both skill and gender)
+      const swap = findBeneficialSwap(team1, team2, skillDiff, genderDiff, teams);
 
       if (swap) {
         // Perform the swap
-        executeSwap(swap.fromTeam, swap.toTeam, swap.playerFrom, swap.playerTo);
+        executeSwap(swap.team1, swap.team2, swap.player1, swap.player2);
         swapsThisIteration++;
         totalSwaps++;
 
-        console.log(`  Swap ${totalSwaps}: ${swap.playerFrom.name} (${swap.fromTeam.team_number}) <-> ${swap.playerTo.name} (${swap.toTeam.team_number})`);
-        console.log(`    Skill diff improved: ${skillDiff.toFixed(1)} -> ${swap.newDiff.toFixed(1)}`);
+        console.log(`  Swap ${totalSwaps}: ${swap.player1.name} (Team ${swap.team1.team_number}) <-> ${swap.player2.name} (Team ${swap.team2.team_number})`);
+        if (swap.skillImprovement > 0) {
+          console.log(`    Skill diff: ${skillDiff.toFixed(1)} -> ${swap.newSkillDiff.toFixed(1)}`);
+        }
+        if (swap.genderImprovement > 0) {
+          console.log(`    Gender diff: ${genderDiff} -> ${swap.newGenderDiff}`);
+        }
       }
     }
 
@@ -2182,43 +2223,59 @@ function refineTeamBalance(teams, teamPairs) {
   }
 }
 
-// Find a swap that would reduce skill difference while maintaining constraints
-function findBeneficialSwap(strongerTeam, weakerTeam, currentDiff, allTeams) {
+// Find a swap that would improve skill and/or gender balance while maintaining constraints
+function findBeneficialSwap(team1, team2, currentSkillDiff, currentGenderDiff, allTeams) {
   let bestSwap = null;
-  let bestImprovement = 0;
+  let bestScore = 0;
 
-  for (const playerFrom of strongerTeam.players) {
-    for (const playerTo of weakerTeam.players) {
+  for (const player1 of team1.players) {
+    for (const player2 of team2.players) {
       // Skip if same gender and skill - no point swapping
-      if (playerFrom.gender === playerTo.gender && playerFrom.skill_level === playerTo.skill_level) {
+      if (player1.gender === player2.gender && player1.skill_level === player2.skill_level) {
         continue;
       }
 
       // Check if swap maintains constraints
-      if (!isSwapValid(strongerTeam, weakerTeam, playerFrom, playerTo, allTeams)) {
+      if (!isSwapValid(team1, team2, player1, player2, allTeams)) {
         continue;
       }
 
       // Calculate new skill difference after swap
-      const playerFromSkill = getSkillRating(playerFrom);
-      const playerToSkill = getSkillRating(playerTo);
+      const player1Skill = getSkillRating(player1);
+      const player2Skill = getSkillRating(player2);
 
-      const newStrongerSkill = strongerTeam.stats.skillRating - playerFromSkill + playerToSkill;
-      const newWeakerSkill = weakerTeam.stats.skillRating - playerToSkill + playerFromSkill;
-      const newDiff = Math.abs(newStrongerSkill - newWeakerSkill);
+      const newTeam1Skill = team1.stats.skillRating - player1Skill + player2Skill;
+      const newTeam2Skill = team2.stats.skillRating - player2Skill + player1Skill;
+      const newSkillDiff = Math.abs(newTeam1Skill - newTeam2Skill);
 
-      const improvement = currentDiff - newDiff;
+      // Calculate new gender difference after swap
+      const team1MalesAfter = team1.stats.male - (player1.gender === 'male' ? 1 : 0) + (player2.gender === 'male' ? 1 : 0);
+      const team2MalesAfter = team2.stats.male - (player2.gender === 'male' ? 1 : 0) + (player1.gender === 'male' ? 1 : 0);
+      const newGenderDiff = Math.abs(team1MalesAfter - team2MalesAfter);
 
-      // Only consider swaps that improve balance by at least 0.5 points
-      if (improvement > 0.5 && improvement > bestImprovement) {
-        bestImprovement = improvement;
+      const skillImprovement = currentSkillDiff - newSkillDiff;
+      const genderImprovement = currentGenderDiff - newGenderDiff;
+
+      // Combined score: prioritize gender balance slightly, but consider both
+      // Gender improvement is weighted more heavily since skill balance is often already good
+      const combinedScore = skillImprovement * 0.5 + genderImprovement * 1.5;
+
+      // Only consider swaps that provide meaningful improvement
+      const isWorthwhile = (skillImprovement > 0.5 && newSkillDiff <= currentSkillDiff) ||
+                           (genderImprovement >= 1 && newGenderDiff < currentGenderDiff);
+
+      if (isWorthwhile && combinedScore > bestScore && newSkillDiff <= currentSkillDiff + 0.5) {
+        // Don't allow swaps that make skill significantly worse
+        bestScore = combinedScore;
         bestSwap = {
-          fromTeam: strongerTeam,
-          toTeam: weakerTeam,
-          playerFrom,
-          playerTo,
-          newDiff,
-          improvement
+          team1,
+          team2,
+          player1,
+          player2,
+          newSkillDiff,
+          newGenderDiff,
+          skillImprovement,
+          genderImprovement
         };
       }
     }
