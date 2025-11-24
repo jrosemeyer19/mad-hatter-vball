@@ -908,17 +908,29 @@ function generateFlexibleByeSchedule(players, flexibleRounds) {
     console.log(`  Female setters on bye (${femaleSettersGoingOnBye.length}): ${femaleSettersGoingOnBye.map(p => p.name).join(', ')}`);
     
     // ENHANCED: Gender-balanced bye selection for other players
+    // WITH CONSTRAINT: Ensure enough males remain to have 2+ per team
     const otherPlayers = players.filter(p => !(p.gender === 'female' && p.is_setter));
     const otherByesNeeded = byesNeeded - femaleSettersGoingOnBye.length;
-    
+
     console.log(`  Need ${otherByesNeeded} more bye slots from ${otherPlayers.length} other players`);
-    
+
     // Calculate target gender distribution for remaining byes
     const otherMales = otherPlayers.filter(p => p.gender === 'male').length;
     const otherFemales = otherPlayers.filter(p => p.gender === 'female').length;
     const otherMalePercent = otherMales / (otherMales + otherFemales);
-    
-    const targetMalesOnBye = Math.round(otherByesNeeded * otherMalePercent);
+
+    // ENHANCED: Calculate max males that can go on bye to ensure 2 males per team
+    // Estimate number of teams: playersPlaying / avgTeamSize (assume ~5.5)
+    const estimatedTeams = Math.ceil(playersNeeded / 5.5);
+    const malesNeededForTeams = estimatedTeams * 2; // Need at least 2 males per team
+    const maxMalesOnBye = Math.max(0, totalMales - malesNeededForTeams);
+
+    let targetMalesOnBye = Math.round(otherByesNeeded * otherMalePercent);
+    // Cap male byes to ensure enough males remain for team composition
+    if (targetMalesOnBye > maxMalesOnBye) {
+      console.log(`  ⚠️  Reducing male byes from ${targetMalesOnBye} to ${maxMalesOnBye} to ensure 2 males per team`);
+      targetMalesOnBye = maxMalesOnBye;
+    }
     const targetFemalesOnBye = otherByesNeeded - targetMalesOnBye;
     
     console.log(`  Target other bye composition: ${targetMalesOnBye}M : ${targetFemalesOnBye}F (maintaining ${(otherMalePercent * 100).toFixed(1)}% male ratio)`);
@@ -2037,16 +2049,21 @@ function createBalancedTeams(players, teamConfig, roundNumber) {
     )
   };
   
-  // ENHANCED: Pre-distribute B-rated males to larger teams first
+  // ENHANCED: Distribution order optimized for constraints:
+  // 1. Female setters FIRST - most important for even distribution
+  // 2. maleA next - ensures A males distributed evenly across teams
+  // 3. Other males (BB) - helps meet 2-male minimum requirement
+  // 4. Other skilled players
+  // 5. B players LAST - ensures max 1 B player per team after others are placed
   const distributionOrder = [
-    'femaleSetters',
-    'maleB',        // MOVED UP - distribute B males early to get size-6 teams
-    'maleA',
+    'femaleSetters', // FIRST - top priority for even distribution
+    'maleA',         // Second - distribute A males evenly across teams
+    'maleBB',        // Third - ensure male presence on teams
     'femaleA',
-    'maleBB',
     'femaleBB',
-    'femaleB',
-    'maleOther'
+    'maleOther',
+    'maleB',         // LAST among males - B players distributed after others
+    'femaleB'        // LAST - B players distributed after others
   ];
   
   distributionOrder.forEach(category => {
@@ -2113,7 +2130,7 @@ function createBalancedTeams(players, teamConfig, roundNumber) {
   return teams;
 }
 
-// NEW: Check if team can accept a player given constraints
+// ENHANCED: Check if team can accept a player given constraints
 function canTeamAcceptPlayer(team, player) {
   if (team.players.length >= team.targetSize) {
     return { canAccept: false, reason: 'Team full' };
@@ -2125,22 +2142,21 @@ function canTeamAcceptPlayer(team, player) {
     const currentMaleCount = currentMales.length;
     const spotsRemaining = targetSize - team.players.length;
 
-    // Enforce minimum 2 males
-    if (spotsRemaining <= 2) {
-      const projectedMaleCount = currentMaleCount + (player.gender === 'male' ? 1 : 0);
-      
-      if (spotsRemaining === 1 && projectedMaleCount < 2) {
-        if (player.gender !== 'male') {
-          return { canAccept: false, reason: 'Need male to meet minimum' };
-        }
-      }
+    // ENHANCED: Enforce minimum 2 males - check earlier in the process
+    // Calculate how many males we need vs how many spots we have
+    const malesNeeded = Math.max(0, 2 - currentMaleCount);
+    const femalesAllowed = spotsRemaining - malesNeeded;
 
-      // Enforce "no two B-rated males" rule
-      if (projectedMaleCount === 2 && player.gender === 'male' && player.skill_level === 'B') {
-        const currentBMales = currentMales.filter(m => m.skill_level === 'B');
-        if (currentBMales.length === 1) {
-          return { canAccept: false, reason: 'Would create two B-rated males' };
-        }
+    // If adding a female would make it impossible to get 2 males
+    if (player.gender === 'female' && femalesAllowed <= 0) {
+      return { canAccept: false, reason: 'Need male to meet minimum 2 males requirement' };
+    }
+
+    // ENHANCED: Enforce "no more than one B-rated player per team" rule (any gender)
+    if (player.skill_level === 'B') {
+      const currentBPlayers = team.players.filter(p => p.skill_level === 'B');
+      if (currentBPlayers.length >= 1) {
+        return { canAccept: false, reason: 'Would create multiple B-rated players on team' };
       }
     }
   }
@@ -2148,67 +2164,85 @@ function canTeamAcceptPlayer(team, player) {
   return { canAccept: true };
 }
 
-// NEW: Enhanced team selection with constraints
+// ENHANCED: Team selection with stronger constraints for male/B distribution
 function findBestTeamForPlayerWithConstraints(teams, teamPairs, player, category) {
   const availableTeams = teams.filter(team => {
     const check = canTeamAcceptPlayer(team, player);
     return check.canAccept;
   });
-  
+
   if (availableTeams.length === 0) {
     console.warn(`  WARNING: No available teams for ${player.name} (${player.gender} ${player.skill_level})`);
     return null;
   }
 
   availableTeams.sort((a, b) => {
-    // Priority 1: For B-rated males, prefer size-6 teams
-    if (category === 'maleB') {
+    // Priority 1: For maleA, strongly prefer teams with fewer A males (even distribution)
+    if (category === 'maleA') {
+      const aMaleA = a.stats.maleA || 0;
+      const bMaleA = b.stats.maleA || 0;
+      if (aMaleA !== bMaleA) {
+        return aMaleA - bMaleA; // Prefer team with fewer A males
+      }
+    }
+
+    // Priority 2: For B-rated players, prefer larger teams (more room for balance)
+    if (category === 'maleB' || category === 'femaleB') {
       if (a.targetSize !== b.targetSize) {
         return b.targetSize - a.targetSize;
       }
     }
 
-    // Priority 2: Balance category distribution
+    // Priority 3: Balance category distribution
     const aCategoryCount = getCategoryCount(a.stats, category);
     const bCategoryCount = getCategoryCount(b.stats, category);
     if (aCategoryCount !== bCategoryCount) {
       return aCategoryCount - bCategoryCount;
     }
-    
-    // Priority 3: Match balance
+
+    // Priority 4: For males, prefer teams that need males to meet minimum
+    if (player.gender === 'male') {
+      const aMalesNeeded = Math.max(0, 2 - (a.stats.male || 0));
+      const bMalesNeeded = Math.max(0, 2 - (b.stats.male || 0));
+      if (aMalesNeeded !== bMalesNeeded) {
+        return bMalesNeeded - aMalesNeeded; // Prefer team that needs males more
+      }
+    }
+
+    // Priority 5: Match balance
     const aOpponent = getOpponentTeam(teams, teamPairs, a);
     const bOpponent = getOpponentTeam(teams, teamPairs, b);
-    
+
     if (aOpponent && bOpponent) {
       const aMatchBalance = calculateMatchBalanceScore(a, aOpponent, player);
       const bMatchBalance = calculateMatchBalanceScore(b, bOpponent, player);
-      
+
       if (Math.abs(aMatchBalance - bMatchBalance) > 0.5) {
         return bMatchBalance - aMatchBalance;
       }
     }
-    
-    // Priority 4: Teammate rotation
+
+    // Priority 6: Teammate rotation
     const aTeammateCount = getTeammateCount(player.id, a.players);
     const bTeammateCount = getTeammateCount(player.id, b.players);
     if (aTeammateCount !== bTeammateCount) {
       return aTeammateCount - bTeammateCount;
     }
-    
-    // Priority 5: Gender balance
+
+    // Priority 7: Gender balance
     const aGenderImbalance = calculateGenderImbalanceAfterAdding(a, player);
     const bGenderImbalance = calculateGenderImbalanceAfterAdding(b, player);
     if (aGenderImbalance !== bGenderImbalance) {
       return aGenderImbalance - bGenderImbalance;
     }
-    
+
     return a.players.length - b.players.length;
   });
-  
+
   return availableTeams[0];
 }
 
-// NEW: Validate team constraints
+// ENHANCED: Validate team constraints including B player distribution
 function validateTeamConstraints(team) {
   const constraints = {
     isValid: true,
@@ -2216,7 +2250,7 @@ function validateTeamConstraints(team) {
   };
 
   const teamSize = team.players.length;
-  
+
   if (teamSize < 5 || teamSize > 6) {
     return constraints;
   }
@@ -2237,18 +2271,16 @@ function validateTeamConstraints(team) {
     });
   }
 
-  // Constraint 2: No two B-rated males
-  if (maleCount === 2) {
-    const bRatedMales = males.filter(m => m.skill_level === 'B');
-    if (bRatedMales.length === 2) {
-      constraints.isValid = false;
-      constraints.violations.push({
-        type: 'TWO_B_RATED_MALES',
-        severity: 'MEDIUM',
-        message: `Team ${team.team_number} has 2 B-rated males (at least one should be A or BB)`,
-        players: bRatedMales.map(p => p.name)
-      });
-    }
+  // Constraint 2: No more than one B-rated player (any gender)
+  const bRatedPlayers = team.players.filter(p => p.skill_level === 'B');
+  if (bRatedPlayers.length > 1) {
+    constraints.isValid = false;
+    constraints.violations.push({
+      type: 'MULTIPLE_B_RATED_PLAYERS',
+      severity: 'MEDIUM',
+      message: `Team ${team.team_number} has ${bRatedPlayers.length} B-rated players (should have max 1)`,
+      players: bRatedPlayers.map(p => `${p.name} (${p.gender})`)
+    });
   }
 
   return constraints;
@@ -2257,20 +2289,34 @@ function validateTeamConstraints(team) {
 // NEW: Validate all teams
 function validateAllTeamsConstraints(teams) {
   console.log('\n=== Team Constraint Validation ===');
-  
+
   const allViolations = [];
   let teamsWithViolations = 0;
   let highSeverityCount = 0;
   let mediumSeverityCount = 0;
 
+  // Track distribution stats
+  const maleADistribution = [];
+  const bPlayerDistribution = [];
+  const maleCountDistribution = [];
+
   teams.forEach(team => {
     if (team.is_bye_team) return;
 
     const validation = validateTeamConstraints(team);
-    
+
+    // Track distributions for reporting
+    const maleACount = team.players.filter(p => p.gender === 'male' && p.skill_level === 'A').length;
+    const bPlayerCount = team.players.filter(p => p.skill_level === 'B').length;
+    const maleCount = team.players.filter(p => p.gender === 'male').length;
+
+    maleADistribution.push(maleACount);
+    bPlayerDistribution.push(bPlayerCount);
+    maleCountDistribution.push(maleCount);
+
     if (!validation.isValid) {
       teamsWithViolations++;
-      
+
       validation.violations.forEach(violation => {
         allViolations.push({
           teamNumber: team.team_number,
@@ -2286,8 +2332,45 @@ function validateAllTeamsConstraints(teams) {
     }
   });
 
+  // Report distribution stats
+  const playingTeams = teams.filter(t => !t.is_bye_team);
+  if (playingTeams.length > 0) {
+    console.log(`\n--- Distribution Analysis ---`);
+
+    // Male A distribution
+    const minMaleA = Math.min(...maleADistribution);
+    const maxMaleA = Math.max(...maleADistribution);
+    const avgMaleA = (maleADistribution.reduce((a, b) => a + b, 0) / maleADistribution.length).toFixed(1);
+    console.log(`  A-rated males per team: min=${minMaleA}, max=${maxMaleA}, avg=${avgMaleA}`);
+    if (maxMaleA - minMaleA <= 1) {
+      console.log(`    ✅ A males evenly distributed`);
+    } else {
+      console.log(`    ⚠️  A male distribution could be more even`);
+    }
+
+    // B player distribution
+    const maxB = Math.max(...bPlayerDistribution);
+    const teamsWithMultipleB = bPlayerDistribution.filter(b => b > 1).length;
+    console.log(`  B-rated players per team: max=${maxB}, teams with >1 B player: ${teamsWithMultipleB}`);
+    if (teamsWithMultipleB === 0) {
+      console.log(`    ✅ B players evenly distributed (max 1 per team)`);
+    } else {
+      console.log(`    ⚠️  ${teamsWithMultipleB} team(s) have multiple B players`);
+    }
+
+    // Male count distribution
+    const minMales = Math.min(...maleCountDistribution);
+    const teamsWithOneMale = maleCountDistribution.filter(m => m < 2).length;
+    console.log(`  Males per team: min=${minMales}, teams with <2 males: ${teamsWithOneMale}`);
+    if (teamsWithOneMale === 0) {
+      console.log(`    ✅ All teams have 2+ males`);
+    } else {
+      console.log(`    ❌ ${teamsWithOneMale} team(s) have fewer than 2 males`);
+    }
+  }
+
   const summary = {
-    totalTeams: teams.filter(t => !t.is_bye_team).length,
+    totalTeams: playingTeams.length,
     teamsWithViolations,
     totalViolations: allViolations.length,
     highSeverityCount,
@@ -2655,59 +2738,62 @@ function balancePlayerMatches(allPlayers, tournamentRounds, matchesPerPlayer) {
 
 function createSpecial37PlayerTeams(players, roundNumber) {
   console.log(`\n=== Creating Special 37-Player Teams (Round ${roundNumber}) ===`);
-  
+
   if (!special37PlayerHistory.initialized) {
     initializeSpecial37PlayerTracking(players);
   }
-  
+
   const playerCounts = special37PlayerHistory.playersOn7Teams;
-  
+
   console.log(`Current 7-player team assignments:`);
   const sortedCounts = Object.entries(playerCounts)
-    .map(([id, count]) => ({ 
-      player: players.find(p => p.id === parseInt(id)), 
-      count 
+    .map(([id, count]) => ({
+      player: players.find(p => p.id === parseInt(id)),
+      count
     }))
     .sort((a, b) => a.count - b.count);
-  
+
   sortedCounts.forEach(({ player, count }) => {
     if (count > 0) {
       console.log(`  ${player.name}: ${count} time${count === 1 ? '' : 's'} on 7-player team`);
     }
   });
-  
+
   const candidatesFor7Team = sortedCounts.slice(0, 7);
   const playersFor7Team = candidatesFor7Team.map(c => c.player);
   const remainingPlayers = players.filter(p => !playersFor7Team.some(selected => selected.id === p.id));
-  
+
   console.log(`Selected for 7-player team (lowest previous assignments):`);
   playersFor7Team.forEach(player => {
     const count = playerCounts[player.id];
     console.log(`  ${player.name} (previously on 7-team ${count} time${count === 1 ? '' : 's'})`);
   });
-  
+
   playersFor7Team.forEach(player => {
     playerCounts[player.id]++;
   });
-  
-  const teams = [];
-  
-  const shuffledRemaining = shuffleArray([...remainingPlayers]);
-  
-  for (let i = 0; i < 5; i++) {
-    const teamPlayers = shuffledRemaining.splice(0, 6);
-    
-    teams.push({
-      id: `round_${roundNumber}_team_${i + 1}`,
-      team_number: i + 1,
-      court: Math.floor(i / 2) + 1,
-      is_bye_team: false,
-      players: teamPlayers,
-      specialTeamSize: 6
-    });
-  }
-  
-  teams.push({
+
+  // ENHANCED: Use balanced team creation for 37-player special case
+  // Create team config for 5 teams of 6 players
+  const teamConfig = {
+    teamCount: 5,
+    teamSizes: [6, 6, 6, 6, 6]
+  };
+
+  // Use the balanced team creation for the 30 remaining players
+  const balancedTeams = createBalancedTeams(remainingPlayers, teamConfig, roundNumber);
+
+  // Rename team IDs to match expected format
+  balancedTeams.forEach((team, index) => {
+    team.id = `round_${roundNumber}_team_${index + 1}`;
+    team.team_number = index + 1;
+    team.court = Math.floor(index / 2) + 1;
+    team.specialTeamSize = 6;
+  });
+
+  // Create the 7-player team with some balancing consideration
+  // Try to ensure at least 2 males and max 1 B player
+  const oversizeTeam = {
     id: `round_${roundNumber}_team_6`,
     team_number: 6,
     court: 3,
@@ -2715,25 +2801,43 @@ function createSpecial37PlayerTeams(players, roundNumber) {
     players: playersFor7Team,
     specialTeamSize: 7,
     isOversizeTeam: true
-  });
-  
+  };
+
+  // Check and log constraints for 7-player team
+  const malesIn7Team = playersFor7Team.filter(p => p.gender === 'male').length;
+  const bPlayersIn7Team = playersFor7Team.filter(p => p.skill_level === 'B').length;
+  console.log(`  7-player team: ${malesIn7Team} males, ${bPlayersIn7Team} B-rated players`);
+  if (malesIn7Team < 2) {
+    console.warn(`  ⚠️  7-player team has only ${malesIn7Team} male(s)`);
+  }
+  if (bPlayersIn7Team > 1) {
+    console.warn(`  ⚠️  7-player team has ${bPlayersIn7Team} B-rated players`);
+  }
+
+  const teams = [...balancedTeams, oversizeTeam];
+
   console.log(`\nTeam compositions:`);
   teams.forEach(team => {
     const marker = team.isOversizeTeam ? ' (7-PLAYER TEAM)' : '';
-    console.log(`  Team ${team.team_number}${marker}: ${team.players.length} players - Court ${team.court}`);
+    const males = team.players.filter(p => p.gender === 'male').length;
+    const females = team.players.length - males;
+    console.log(`  Team ${team.team_number}${marker}: ${team.players.length} players (${males}M:${females}F) - Court ${team.court}`);
   });
-  
+
   console.log(`\nRotation summary after Round ${roundNumber}:`);
   const maxCount = Math.max(...Object.values(playerCounts));
   const minCount = Math.min(...Object.values(playerCounts));
-  
+
   console.log(`  Most 7-team assignments: ${maxCount}, Least: ${minCount}`);
   if (maxCount - minCount <= 1) {
     console.log(`  ✅ Rotation is well balanced (max difference: ${maxCount - minCount})`);
   } else {
     console.log(`  ⚠️  Rotation imbalance detected (difference: ${maxCount - minCount})`);
   }
-  
+
+  // Validate all teams including the 7-player team
+  validateAllTeamsConstraints(teams);
+
   return teams;
 }
 
