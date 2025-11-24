@@ -2051,19 +2051,17 @@ function createBalancedTeams(players, teamConfig, roundNumber) {
   
   // ENHANCED: Distribution order optimized for constraints:
   // 1. Female setters FIRST - most important for even distribution
-  // 2. maleA next - ensures A males distributed evenly across teams
-  // 3. Other males (BB) - helps meet 2-male minimum requirement
-  // 4. Other skilled players
-  // 5. B players LAST - ensures max 1 B player per team after others are placed
+  // 2. Interleave genders by skill level for balanced team composition early
+  // 3. B players LAST - ensures max 1 B player per team after others are placed
   const distributionOrder = [
     'femaleSetters', // FIRST - top priority for even distribution
-    'maleA',         // Second - distribute A males evenly across teams
-    'maleBB',        // Third - ensure male presence on teams
+    'maleA',         // A players - alternating gender
     'femaleA',
+    'maleBB',        // BB players - alternating gender
     'femaleBB',
-    'maleOther',
-    'maleB',         // LAST among males - B players distributed after others
-    'femaleB'        // LAST - B players distributed after others
+    'maleOther',     // Any remaining males without standard skill level
+    'maleB',         // B players LAST - distributed after others
+    'femaleB'
   ];
   
   distributionOrder.forEach(category => {
@@ -2121,13 +2119,179 @@ function createBalancedTeams(players, teamConfig, roundNumber) {
     console.log(`  Match balance: ${balanceQuality}% difference ${skillDiff < 2 ? '✓ Excellent' : skillDiff < 4 ? '✓ Good' : '⚠ Fair'}`);
   });
   
+  // ENHANCED: Run refinement pass to improve match balance through player swaps
+  refineTeamBalance(teams, teamPairs);
+
   validateGenderBalance(teams);
   validateMatchBalance(teamPairs);
-  
+
   // NEW: Validate team constraints
   const constraintValidation = validateAllTeamsConstraints(teams);
-  
+
   return teams;
+}
+
+// NEW: Refinement pass to improve team balance through player swaps
+function refineTeamBalance(teams, teamPairs) {
+  console.log('\n=== Running Refinement Pass ===');
+
+  let totalSwaps = 0;
+  let iterations = 0;
+  const maxIterations = 10; // Prevent infinite loops
+
+  while (iterations < maxIterations) {
+    iterations++;
+    let swapsThisIteration = 0;
+
+    for (const pair of teamPairs) {
+      const team1 = pair.team1;
+      const team2 = pair.team2;
+
+      const skillDiff = Math.abs(team1.stats.skillRating - team2.stats.skillRating);
+
+      // Only try to improve if skill difference is significant (> 2 points)
+      if (skillDiff <= 2) continue;
+
+      // Determine which team is stronger
+      const strongerTeam = team1.stats.skillRating > team2.stats.skillRating ? team1 : team2;
+      const weakerTeam = team1.stats.skillRating > team2.stats.skillRating ? team2 : team1;
+
+      // Try to find a beneficial swap
+      const swap = findBeneficialSwap(strongerTeam, weakerTeam, skillDiff, teams);
+
+      if (swap) {
+        // Perform the swap
+        executeSwap(swap.fromTeam, swap.toTeam, swap.playerFrom, swap.playerTo);
+        swapsThisIteration++;
+        totalSwaps++;
+
+        console.log(`  Swap ${totalSwaps}: ${swap.playerFrom.name} (${swap.fromTeam.team_number}) <-> ${swap.playerTo.name} (${swap.toTeam.team_number})`);
+        console.log(`    Skill diff improved: ${skillDiff.toFixed(1)} -> ${swap.newDiff.toFixed(1)}`);
+      }
+    }
+
+    if (swapsThisIteration === 0) {
+      break; // No more improvements possible
+    }
+  }
+
+  if (totalSwaps > 0) {
+    console.log(`  ✅ Refinement complete: ${totalSwaps} swap(s) made in ${iterations} iteration(s)`);
+  } else {
+    console.log(`  ✓ No beneficial swaps found - teams already well balanced`);
+  }
+}
+
+// Find a swap that would reduce skill difference while maintaining constraints
+function findBeneficialSwap(strongerTeam, weakerTeam, currentDiff, allTeams) {
+  let bestSwap = null;
+  let bestImprovement = 0;
+
+  for (const playerFrom of strongerTeam.players) {
+    for (const playerTo of weakerTeam.players) {
+      // Skip if same gender and skill - no point swapping
+      if (playerFrom.gender === playerTo.gender && playerFrom.skill_level === playerTo.skill_level) {
+        continue;
+      }
+
+      // Check if swap maintains constraints
+      if (!isSwapValid(strongerTeam, weakerTeam, playerFrom, playerTo, allTeams)) {
+        continue;
+      }
+
+      // Calculate new skill difference after swap
+      const playerFromSkill = getSkillRating(playerFrom);
+      const playerToSkill = getSkillRating(playerTo);
+
+      const newStrongerSkill = strongerTeam.stats.skillRating - playerFromSkill + playerToSkill;
+      const newWeakerSkill = weakerTeam.stats.skillRating - playerToSkill + playerFromSkill;
+      const newDiff = Math.abs(newStrongerSkill - newWeakerSkill);
+
+      const improvement = currentDiff - newDiff;
+
+      // Only consider swaps that improve balance by at least 0.5 points
+      if (improvement > 0.5 && improvement > bestImprovement) {
+        bestImprovement = improvement;
+        bestSwap = {
+          fromTeam: strongerTeam,
+          toTeam: weakerTeam,
+          playerFrom,
+          playerTo,
+          newDiff,
+          improvement
+        };
+      }
+    }
+  }
+
+  return bestSwap;
+}
+
+// Check if a swap would violate any constraints
+function isSwapValid(team1, team2, player1, player2, allTeams) {
+  // Simulate the swap and check constraints
+
+  // Check male counts after swap
+  const team1Males = team1.stats.male - (player1.gender === 'male' ? 1 : 0) + (player2.gender === 'male' ? 1 : 0);
+  const team2Males = team2.stats.male - (player2.gender === 'male' ? 1 : 0) + (player1.gender === 'male' ? 1 : 0);
+
+  // Both teams need at least 2 males
+  if (team1Males < 2 || team2Males < 2) {
+    return false;
+  }
+
+  // Check B player constraint - max 1 per team
+  const team1BCount = team1.players.filter(p => p.skill_level === 'B' && p.id !== player1.id).length +
+                      (player2.skill_level === 'B' ? 1 : 0);
+  const team2BCount = team2.players.filter(p => p.skill_level === 'B' && p.id !== player2.id).length +
+                      (player1.skill_level === 'B' ? 1 : 0);
+
+  if (team1BCount > 1 || team2BCount > 1) {
+    return false;
+  }
+
+  return true;
+}
+
+// Execute a player swap between two teams
+function executeSwap(team1, team2, player1, player2) {
+  // Remove players from their current teams
+  team1.players = team1.players.filter(p => p.id !== player1.id);
+  team2.players = team2.players.filter(p => p.id !== player2.id);
+
+  // Add players to their new teams
+  team1.players.push(player2);
+  team2.players.push(player1);
+
+  // Update team stats
+  recalculateTeamStats(team1);
+  recalculateTeamStats(team2);
+}
+
+// Recalculate all stats for a team
+function recalculateTeamStats(team) {
+  team.stats = {
+    male: 0,
+    female: 0,
+    femaleSetters: 0,
+    maleA: 0, femaleA: 0,
+    maleBB: 0, femaleBB: 0,
+    maleB: 0, femaleB: 0,
+    skillRating: 0
+  };
+
+  for (const player of team.players) {
+    if (player.gender === 'male') team.stats.male++;
+    if (player.gender === 'female') team.stats.female++;
+    if (player.gender === 'female' && player.is_setter) team.stats.femaleSetters++;
+    if (player.gender === 'male' && player.skill_level === 'A') team.stats.maleA++;
+    if (player.gender === 'female' && player.skill_level === 'A') team.stats.femaleA++;
+    if (player.gender === 'male' && player.skill_level === 'BB') team.stats.maleBB++;
+    if (player.gender === 'female' && player.skill_level === 'BB') team.stats.femaleBB++;
+    if (player.gender === 'male' && player.skill_level === 'B') team.stats.maleB++;
+    if (player.gender === 'female' && player.skill_level === 'B') team.stats.femaleB++;
+    team.stats.skillRating += getSkillRating(player);
+  }
 }
 
 // ENHANCED: Check if team can accept a player given constraints
@@ -2219,6 +2383,32 @@ function findBestTeamForPlayerWithConstraints(teams, teamPairs, player, category
       const bMaleA = b.stats.maleA || 0;
       if (aMaleA !== bMaleA) {
         return aMaleA - bMaleA; // Prefer team with fewer A males
+      }
+    }
+
+    // Priority 2b: For femaleA, prefer teams with fewer A females (even distribution)
+    if (category === 'femaleA') {
+      const aFemaleA = a.stats.femaleA || 0;
+      const bFemaleA = b.stats.femaleA || 0;
+      if (aFemaleA !== bFemaleA) {
+        return aFemaleA - bFemaleA; // Prefer team with fewer A females
+      }
+    }
+
+    // Priority 2c: For BB-rated players, distribute evenly by gender
+    if (category === 'maleBB') {
+      const aMaleBB = a.stats.maleBB || 0;
+      const bMaleBB = b.stats.maleBB || 0;
+      if (aMaleBB !== bMaleBB) {
+        return aMaleBB - bMaleBB; // Prefer team with fewer BB males
+      }
+    }
+
+    if (category === 'femaleBB') {
+      const aFemaleBB = a.stats.femaleBB || 0;
+      const bFemaleBB = b.stats.femaleBB || 0;
+      if (aFemaleBB !== bFemaleBB) {
+        return aFemaleBB - bFemaleBB; // Prefer team with fewer BB females
       }
     }
 
@@ -2343,6 +2533,9 @@ function validateAllTeamsConstraints(teams) {
 
   // Track distribution stats
   const maleADistribution = [];
+  const femaleADistribution = [];
+  const maleBBDistribution = [];
+  const femaleBBDistribution = [];
   const bPlayerDistribution = [];
   const bMaleDistribution = [];
   const bFemaleDistribution = [];
@@ -2355,12 +2548,18 @@ function validateAllTeamsConstraints(teams) {
 
     // Track distributions for reporting
     const maleACount = team.players.filter(p => p.gender === 'male' && p.skill_level === 'A').length;
+    const femaleACount = team.players.filter(p => p.gender === 'female' && p.skill_level === 'A').length;
+    const maleBBCount = team.players.filter(p => p.gender === 'male' && p.skill_level === 'BB').length;
+    const femaleBBCount = team.players.filter(p => p.gender === 'female' && p.skill_level === 'BB').length;
     const bPlayerCount = team.players.filter(p => p.skill_level === 'B').length;
     const bMaleCount = team.players.filter(p => p.gender === 'male' && p.skill_level === 'B').length;
     const bFemaleCount = team.players.filter(p => p.gender === 'female' && p.skill_level === 'B').length;
     const maleCount = team.players.filter(p => p.gender === 'male').length;
 
     maleADistribution.push(maleACount);
+    femaleADistribution.push(femaleACount);
+    maleBBDistribution.push(maleBBCount);
+    femaleBBDistribution.push(femaleBBCount);
     bPlayerDistribution.push(bPlayerCount);
     bMaleDistribution.push(bMaleCount);
     bFemaleDistribution.push(bFemaleCount);
@@ -2390,14 +2589,55 @@ function validateAllTeamsConstraints(teams) {
     console.log(`\n--- Distribution Analysis ---`);
 
     // Male A distribution
-    const minMaleA = Math.min(...maleADistribution);
-    const maxMaleA = Math.max(...maleADistribution);
-    const avgMaleA = (maleADistribution.reduce((a, b) => a + b, 0) / maleADistribution.length).toFixed(1);
-    console.log(`  A-rated males per team: min=${minMaleA}, max=${maxMaleA}, avg=${avgMaleA}`);
-    if (maxMaleA - minMaleA <= 1) {
-      console.log(`    ✅ A males evenly distributed`);
-    } else {
-      console.log(`    ⚠️  A male distribution could be more even`);
+    const totalMaleA = maleADistribution.reduce((a, b) => a + b, 0);
+    if (totalMaleA > 0) {
+      const minMaleA = Math.min(...maleADistribution);
+      const maxMaleA = Math.max(...maleADistribution);
+      console.log(`  A-rated males: ${totalMaleA} total, min=${minMaleA}, max=${maxMaleA} per team`);
+      if (maxMaleA - minMaleA <= 1) {
+        console.log(`    ✅ A males evenly distributed`);
+      } else {
+        console.log(`    ⚠️  A male distribution could be more even`);
+      }
+    }
+
+    // Female A distribution
+    const totalFemaleA = femaleADistribution.reduce((a, b) => a + b, 0);
+    if (totalFemaleA > 0) {
+      const minFemaleA = Math.min(...femaleADistribution);
+      const maxFemaleA = Math.max(...femaleADistribution);
+      console.log(`  A-rated females: ${totalFemaleA} total, min=${minFemaleA}, max=${maxFemaleA} per team`);
+      if (maxFemaleA - minFemaleA <= 1) {
+        console.log(`    ✅ A females evenly distributed`);
+      } else {
+        console.log(`    ⚠️  A female distribution could be more even`);
+      }
+    }
+
+    // Male BB distribution
+    const totalMaleBB = maleBBDistribution.reduce((a, b) => a + b, 0);
+    if (totalMaleBB > 0) {
+      const minMaleBB = Math.min(...maleBBDistribution);
+      const maxMaleBB = Math.max(...maleBBDistribution);
+      console.log(`  BB-rated males: ${totalMaleBB} total, min=${minMaleBB}, max=${maxMaleBB} per team`);
+      if (maxMaleBB - minMaleBB <= 1) {
+        console.log(`    ✅ BB males evenly distributed`);
+      } else {
+        console.log(`    ⚠️  BB male distribution could be more even`);
+      }
+    }
+
+    // Female BB distribution
+    const totalFemaleBB = femaleBBDistribution.reduce((a, b) => a + b, 0);
+    if (totalFemaleBB > 0) {
+      const minFemaleBB = Math.min(...femaleBBDistribution);
+      const maxFemaleBB = Math.max(...femaleBBDistribution);
+      console.log(`  BB-rated females: ${totalFemaleBB} total, min=${minFemaleBB}, max=${maxFemaleBB} per team`);
+      if (maxFemaleBB - minFemaleBB <= 1) {
+        console.log(`    ✅ BB females evenly distributed`);
+      } else {
+        console.log(`    ⚠️  BB female distribution could be more even`);
+      }
     }
 
     // B player distribution (overall)
