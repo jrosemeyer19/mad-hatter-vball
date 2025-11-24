@@ -2552,33 +2552,37 @@ function validateMatchBalance(teamPairs) {
 
 function createSimpleMatches(teams) {
   const matches = [];
-  
+
   const teamsBySize = {};
   teams.forEach(team => {
     const size = team.players.length;
     if (!teamsBySize[size]) teamsBySize[size] = [];
     teamsBySize[size].push(team);
   });
-  
+
   console.log('\n--- Team Size Distribution ---');
   Object.keys(teamsBySize).forEach(size => {
     console.log(`${size} players: ${teamsBySize[size].length} teams`);
   });
-  
+
   const usedTeams = new Set();
   let courtNumber = 1;
-  
+
   Object.keys(teamsBySize).forEach(size => {
     const teamsOfThisSize = teamsBySize[size].filter(team => !usedTeams.has(team.id));
-    
+
     for (let i = 0; i < teamsOfThisSize.length - 1; i += 2) {
       if (usedTeams.has(teamsOfThisSize[i].id) || usedTeams.has(teamsOfThisSize[i + 1].id)) {
         continue;
       }
-      
+
       const team1 = teamsOfThisSize[i];
       const team2 = teamsOfThisSize[i + 1];
-      
+
+      // FIXED: Update team court assignments to match the match court
+      team1.court = courtNumber;
+      team2.court = courtNumber;
+
       matches.push({
         id: `match_${courtNumber}`,
         court: courtNumber,
@@ -2589,26 +2593,30 @@ function createSimpleMatches(teams) {
         is_completed: false,
         matchType: 'equal_size'
       });
-      
+
       usedTeams.add(team1.id);
       usedTeams.add(team2.id);
-      
+
       console.log(`Court ${courtNumber}: Team ${team1.team_number} (${team1.players.length}) vs Team ${team2.team_number} (${team2.players.length}) [EQUAL SIZE]`);
       courtNumber++;
     }
   });
-  
+
   const remainingTeams = teams.filter(team => !usedTeams.has(team.id));
-  
+
   if (remainingTeams.length >= 2) {
     console.log('\n--- Mixed Size Matches ---');
-    
+
     remainingTeams.sort((a, b) => a.players.length - b.players.length);
-    
+
     for (let i = 0; i < remainingTeams.length - 1; i += 2) {
       const team1 = remainingTeams[i];
       const team2 = remainingTeams[i + 1];
-      
+
+      // FIXED: Update team court assignments to match the match court
+      team1.court = courtNumber;
+      team2.court = courtNumber;
+
       matches.push({
         id: `match_${courtNumber}`,
         court: courtNumber,
@@ -2619,15 +2627,15 @@ function createSimpleMatches(teams) {
         is_completed: false,
         matchType: 'mixed_size'
       });
-      
+
       const sizeDiff = Math.abs(team1.players.length - team2.players.length);
       console.log(`Court ${courtNumber}: Team ${team1.team_number} (${team1.players.length}) vs Team ${team2.team_number} (${team2.players.length}) [MIXED SIZE +${sizeDiff}]`);
       courtNumber++;
     }
   }
-  
+
   validateMatchQuality(matches);
-  
+
   return matches;
 }
 
