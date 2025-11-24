@@ -2052,7 +2052,7 @@ function createBalancedTeams(players, teamConfig, roundNumber) {
   // ENHANCED: Distribution order optimized for constraints:
   // 1. Female setters FIRST - most important for even distribution
   // 2. Interleave genders by skill level for balanced team composition early
-  // 3. B players LAST - ensures max 1 B player per team after others are placed
+  // 3. B players LAST - ensures max 1 B player per gender per team after others are placed
   const distributionOrder = [
     'femaleSetters', // FIRST - top priority for even distribution
     'maleA',         // A players - alternating gender
@@ -2101,23 +2101,23 @@ function createBalancedTeams(players, teamConfig, roundNumber) {
       const teamsWithSpace = teams.filter(t => t.players.length < t.targetSize);
 
       if (teamsWithSpace.length > 0) {
-        // For B players, prefer teams without B players
+        // For B players, prefer teams without B players of the same gender
         if (player.skill_level === 'B') {
-          const teamsWithoutB = teamsWithSpace.filter(t =>
-            t.players.filter(p => p.skill_level === 'B').length === 0
+          const teamsWithoutBOfSameGender = teamsWithSpace.filter(t =>
+            t.players.filter(p => p.skill_level === 'B' && p.gender === player.gender).length === 0
           );
-          if (teamsWithoutB.length > 0) {
-            // Sort by fewest B players of same gender
-            teamsWithoutB.sort((a, b) => {
+          if (teamsWithoutBOfSameGender.length > 0) {
+            // Sort by fewest B players of same gender (should all be 0 at this point)
+            teamsWithoutBOfSameGender.sort((a, b) => {
               const aCount = a.players.filter(p => p.skill_level === 'B' && p.gender === player.gender).length;
               const bCount = b.players.filter(p => p.skill_level === 'B' && p.gender === player.gender).length;
               return aCount - bCount;
             });
-            teamsWithoutB[0].players.push(player);
-            updateTeamStats(teamsWithoutB[0].stats, player);
-            console.log(`  Assigned ${player.name} (B) to Team ${teamsWithoutB[0].team_number} (no existing B players)`);
+            teamsWithoutBOfSameGender[0].players.push(player);
+            updateTeamStats(teamsWithoutBOfSameGender[0].stats, player);
+            console.log(`  Assigned ${player.name} (B ${player.gender}) to Team ${teamsWithoutBOfSameGender[0].team_number} (no existing B ${player.gender}s)`);
           } else {
-            // All teams have B players - pick the one with fewest
+            // All teams already have a B player of this gender - pick the one with fewest overall B players
             teamsWithSpace.sort((a, b) => {
               const aB = a.players.filter(p => p.skill_level === 'B').length;
               const bB = b.players.filter(p => p.skill_level === 'B').length;
@@ -2125,7 +2125,7 @@ function createBalancedTeams(players, teamConfig, roundNumber) {
             });
             teamsWithSpace[0].players.push(player);
             updateTeamStats(teamsWithSpace[0].stats, player);
-            console.warn(`  ⚠️  Assigned ${player.name} (B) to Team ${teamsWithSpace[0].team_number} - creates multiple B players (unavoidable)`);
+            console.warn(`  ⚠️  Assigned ${player.name} (B ${player.gender}) to Team ${teamsWithSpace[0].team_number} - creates multiple B ${player.gender}s (unavoidable)`);
           }
         } else {
           // Non-B player fallback
@@ -2297,13 +2297,18 @@ function isSwapValid(team1, team2, player1, player2, allTeams) {
     return false;
   }
 
-  // Check B player constraint - max 1 per team
-  const team1BCount = team1.players.filter(p => p.skill_level === 'B' && p.id !== player1.id).length +
-                      (player2.skill_level === 'B' ? 1 : 0);
-  const team2BCount = team2.players.filter(p => p.skill_level === 'B' && p.id !== player2.id).length +
-                      (player1.skill_level === 'B' ? 1 : 0);
+  // Check B player constraint - max 1 per gender per team
+  const team1BMaleCount = team1.players.filter(p => p.skill_level === 'B' && p.gender === 'male' && p.id !== player1.id).length +
+                          (player2.skill_level === 'B' && player2.gender === 'male' ? 1 : 0);
+  const team1BFemaleCount = team1.players.filter(p => p.skill_level === 'B' && p.gender === 'female' && p.id !== player1.id).length +
+                            (player2.skill_level === 'B' && player2.gender === 'female' ? 1 : 0);
 
-  if (team1BCount > 1 || team2BCount > 1) {
+  const team2BMaleCount = team2.players.filter(p => p.skill_level === 'B' && p.gender === 'male' && p.id !== player2.id).length +
+                          (player1.skill_level === 'B' && player1.gender === 'male' ? 1 : 0);
+  const team2BFemaleCount = team2.players.filter(p => p.skill_level === 'B' && p.gender === 'female' && p.id !== player2.id).length +
+                            (player1.skill_level === 'B' && player1.gender === 'female' ? 1 : 0);
+
+  if (team1BMaleCount > 1 || team1BFemaleCount > 1 || team2BMaleCount > 1 || team2BFemaleCount > 1) {
     return false;
   }
 
@@ -2389,11 +2394,13 @@ function canTeamAcceptPlayer(team, player, allTeams = null) {
       }
     }
 
-    // ENHANCED: Enforce "no more than one B-rated player per team" rule (any gender)
+    // ENHANCED: Enforce "no more than one B-rated player per gender per team" rule
     if (player.skill_level === 'B') {
-      const currentBPlayers = team.players.filter(p => p.skill_level === 'B');
-      if (currentBPlayers.length >= 1) {
-        return { canAccept: false, reason: 'Would create multiple B-rated players on team' };
+      const currentBPlayersOfSameGender = team.players.filter(p =>
+        p.skill_level === 'B' && p.gender === player.gender
+      );
+      if (currentBPlayersOfSameGender.length >= 1) {
+        return { canAccept: false, reason: `Would create multiple B-rated ${player.gender} players on team` };
       }
     }
   }
@@ -2564,15 +2571,26 @@ function validateTeamConstraints(team) {
     });
   }
 
-  // Constraint 2: No more than one B-rated player (any gender)
-  const bRatedPlayers = team.players.filter(p => p.skill_level === 'B');
-  if (bRatedPlayers.length > 1) {
+  // Constraint 2: No more than one B-rated player per gender
+  const bRatedMales = team.players.filter(p => p.skill_level === 'B' && p.gender === 'male');
+  if (bRatedMales.length > 1) {
     constraints.isValid = false;
     constraints.violations.push({
-      type: 'MULTIPLE_B_RATED_PLAYERS',
+      type: 'MULTIPLE_B_RATED_MALES',
       severity: 'MEDIUM',
-      message: `Team ${team.team_number} has ${bRatedPlayers.length} B-rated players (should have max 1)`,
-      players: bRatedPlayers.map(p => `${p.name} (${p.gender})`)
+      message: `Team ${team.team_number} has ${bRatedMales.length} B-rated males (should have max 1)`,
+      players: bRatedMales.map(p => p.name)
+    });
+  }
+
+  const bRatedFemales = team.players.filter(p => p.skill_level === 'B' && p.gender === 'female');
+  if (bRatedFemales.length > 1) {
+    constraints.isValid = false;
+    constraints.violations.push({
+      type: 'MULTIPLE_B_RATED_FEMALES',
+      severity: 'MEDIUM',
+      message: `Team ${team.team_number} has ${bRatedFemales.length} B-rated females (should have max 1)`,
+      players: bRatedFemales.map(p => p.name)
     });
   }
 
