@@ -2222,8 +2222,27 @@ function findBestTeamForPlayerWithConstraints(teams, teamPairs, player, category
       }
     }
 
-    // Priority 3: For B-rated players, prefer larger teams (more room for balance)
-    if (category === 'maleB' || category === 'femaleB') {
+    // Priority 3: For B-rated players, distribute evenly by gender
+    // B males should go to different teams, B females should go to different teams
+    if (category === 'maleB') {
+      const aBMale = a.stats.maleB || 0;
+      const bBMale = b.stats.maleB || 0;
+      if (aBMale !== bBMale) {
+        return aBMale - bBMale; // Prefer team with fewer B males
+      }
+      // Also prefer larger teams for B players (more room for balance)
+      if (a.targetSize !== b.targetSize) {
+        return b.targetSize - a.targetSize;
+      }
+    }
+
+    if (category === 'femaleB') {
+      const aBFemale = a.stats.femaleB || 0;
+      const bBFemale = b.stats.femaleB || 0;
+      if (aBFemale !== bBFemale) {
+        return aBFemale - bBFemale; // Prefer team with fewer B females
+      }
+      // Also prefer larger teams for B players (more room for balance)
       if (a.targetSize !== b.targetSize) {
         return b.targetSize - a.targetSize;
       }
@@ -2325,6 +2344,8 @@ function validateAllTeamsConstraints(teams) {
   // Track distribution stats
   const maleADistribution = [];
   const bPlayerDistribution = [];
+  const bMaleDistribution = [];
+  const bFemaleDistribution = [];
   const maleCountDistribution = [];
 
   teams.forEach(team => {
@@ -2335,10 +2356,14 @@ function validateAllTeamsConstraints(teams) {
     // Track distributions for reporting
     const maleACount = team.players.filter(p => p.gender === 'male' && p.skill_level === 'A').length;
     const bPlayerCount = team.players.filter(p => p.skill_level === 'B').length;
+    const bMaleCount = team.players.filter(p => p.gender === 'male' && p.skill_level === 'B').length;
+    const bFemaleCount = team.players.filter(p => p.gender === 'female' && p.skill_level === 'B').length;
     const maleCount = team.players.filter(p => p.gender === 'male').length;
 
     maleADistribution.push(maleACount);
     bPlayerDistribution.push(bPlayerCount);
+    bMaleDistribution.push(bMaleCount);
+    bFemaleDistribution.push(bFemaleCount);
     maleCountDistribution.push(maleCount);
 
     if (!validation.isValid) {
@@ -2375,14 +2400,40 @@ function validateAllTeamsConstraints(teams) {
       console.log(`    ⚠️  A male distribution could be more even`);
     }
 
-    // B player distribution
+    // B player distribution (overall)
     const maxB = Math.max(...bPlayerDistribution);
     const teamsWithMultipleB = bPlayerDistribution.filter(b => b > 1).length;
     console.log(`  B-rated players per team: max=${maxB}, teams with >1 B player: ${teamsWithMultipleB}`);
     if (teamsWithMultipleB === 0) {
-      console.log(`    ✅ B players evenly distributed (max 1 per team)`);
+      console.log(`    ✅ B players distributed (max 1 per team)`);
     } else {
       console.log(`    ⚠️  ${teamsWithMultipleB} team(s) have multiple B players`);
+    }
+
+    // B male distribution
+    const totalBMales = bMaleDistribution.reduce((a, b) => a + b, 0);
+    const teamsWithBMale = bMaleDistribution.filter(b => b > 0).length;
+    const maxBMale = Math.max(...bMaleDistribution);
+    if (totalBMales > 0) {
+      console.log(`  B-rated males: ${totalBMales} total, spread across ${teamsWithBMale} team(s), max per team: ${maxBMale}`);
+      if (maxBMale <= 1) {
+        console.log(`    ✅ B males evenly distributed`);
+      } else {
+        console.log(`    ⚠️  B male distribution could be more even`);
+      }
+    }
+
+    // B female distribution
+    const totalBFemales = bFemaleDistribution.reduce((a, b) => a + b, 0);
+    const teamsWithBFemale = bFemaleDistribution.filter(b => b > 0).length;
+    const maxBFemale = Math.max(...bFemaleDistribution);
+    if (totalBFemales > 0) {
+      console.log(`  B-rated females: ${totalBFemales} total, spread across ${teamsWithBFemale} team(s), max per team: ${maxBFemale}`);
+      if (maxBFemale <= 1) {
+        console.log(`    ✅ B females evenly distributed`);
+      } else {
+        console.log(`    ⚠️  B female distribution could be more even`);
+      }
     }
 
     // Male count distribution
