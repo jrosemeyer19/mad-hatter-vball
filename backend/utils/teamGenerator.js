@@ -2131,15 +2131,15 @@ function createBalancedTeams(players, teamConfig, roundNumber) {
 }
 
 // ENHANCED: Check if team can accept a player given constraints
-function canTeamAcceptPlayer(team, player) {
+// Now accepts allTeams to enforce even male distribution across teams
+function canTeamAcceptPlayer(team, player, allTeams = null) {
   if (team.players.length >= team.targetSize) {
     return { canAccept: false, reason: 'Team full' };
   }
 
   const targetSize = team.targetSize;
-  if (targetSize >= 5 && targetSize <= 6) {
-    const currentMales = team.players.filter(p => p.gender === 'male');
-    const currentMaleCount = currentMales.length;
+  if (targetSize >= 5 && targetSize <= 7) {
+    const currentMaleCount = team.stats?.male || team.players.filter(p => p.gender === 'male').length;
     const spotsRemaining = targetSize - team.players.length;
 
     // ENHANCED: Enforce minimum 2 males - check earlier in the process
@@ -2150,6 +2150,22 @@ function canTeamAcceptPlayer(team, player) {
     // If adding a female would make it impossible to get 2 males
     if (player.gender === 'female' && femalesAllowed <= 0) {
       return { canAccept: false, reason: 'Need male to meet minimum 2 males requirement' };
+    }
+
+    // ENHANCED: Prevent adding a 3rd+ male to a team when other teams still need males
+    // This ensures males are distributed evenly (2 per team) before any team gets extras
+    if (player.gender === 'male' && currentMaleCount >= 2 && allTeams) {
+      const teamsNeedingMales = allTeams.filter(t => {
+        if (t.is_bye_team) return false;
+        const tMaleCount = t.stats?.male || t.players.filter(p => p.gender === 'male').length;
+        const tSpotsRemaining = t.targetSize - t.players.length;
+        // Team needs males if it has < 2 males and has room for more players
+        return tMaleCount < 2 && tSpotsRemaining > 0;
+      });
+
+      if (teamsNeedingMales.length > 0) {
+        return { canAccept: false, reason: 'Other teams need males first (ensuring 2 per team)' };
+      }
     }
 
     // ENHANCED: Enforce "no more than one B-rated player per team" rule (any gender)
@@ -2167,7 +2183,8 @@ function canTeamAcceptPlayer(team, player) {
 // ENHANCED: Team selection with stronger constraints for male/B distribution
 function findBestTeamForPlayerWithConstraints(teams, teamPairs, player, category) {
   const availableTeams = teams.filter(team => {
-    const check = canTeamAcceptPlayer(team, player);
+    // Pass all teams to canTeamAcceptPlayer for cross-team constraint checking
+    const check = canTeamAcceptPlayer(team, player, teams);
     return check.canAccept;
   });
 
@@ -2177,7 +2194,26 @@ function findBestTeamForPlayerWithConstraints(teams, teamPairs, player, category
   }
 
   availableTeams.sort((a, b) => {
-    // Priority 1: For maleA, strongly prefer teams with fewer A males (even distribution)
+    // Priority 1: For ALL males, STRONGLY prefer teams that need males to reach minimum of 2
+    // This is the highest priority to ensure every team gets 2 males before any gets 3+
+    if (player.gender === 'male') {
+      const aMaleCount = a.stats.male || 0;
+      const bMaleCount = b.stats.male || 0;
+
+      // Strongly prefer teams with fewer than 2 males
+      const aNeeds = aMaleCount < 2;
+      const bNeeds = bMaleCount < 2;
+      if (aNeeds !== bNeeds) {
+        return aNeeds ? -1 : 1; // Team that needs males comes first
+      }
+
+      // If both need or both don't need, prefer team with fewer males
+      if (aMaleCount !== bMaleCount) {
+        return aMaleCount - bMaleCount;
+      }
+    }
+
+    // Priority 2: For maleA specifically, prefer teams with fewer A males (even distribution)
     if (category === 'maleA') {
       const aMaleA = a.stats.maleA || 0;
       const bMaleA = b.stats.maleA || 0;
@@ -2186,27 +2222,18 @@ function findBestTeamForPlayerWithConstraints(teams, teamPairs, player, category
       }
     }
 
-    // Priority 2: For B-rated players, prefer larger teams (more room for balance)
+    // Priority 3: For B-rated players, prefer larger teams (more room for balance)
     if (category === 'maleB' || category === 'femaleB') {
       if (a.targetSize !== b.targetSize) {
         return b.targetSize - a.targetSize;
       }
     }
 
-    // Priority 3: Balance category distribution
+    // Priority 4: Balance category distribution
     const aCategoryCount = getCategoryCount(a.stats, category);
     const bCategoryCount = getCategoryCount(b.stats, category);
     if (aCategoryCount !== bCategoryCount) {
       return aCategoryCount - bCategoryCount;
-    }
-
-    // Priority 4: For males, prefer teams that need males to meet minimum
-    if (player.gender === 'male') {
-      const aMalesNeeded = Math.max(0, 2 - (a.stats.male || 0));
-      const bMalesNeeded = Math.max(0, 2 - (b.stats.male || 0));
-      if (aMalesNeeded !== bMalesNeeded) {
-        return bMalesNeeded - aMalesNeeded; // Prefer team that needs males more
-      }
     }
 
     // Priority 5: Match balance
@@ -2553,85 +2580,50 @@ function validateMatchBalance(teamPairs) {
 function createSimpleMatches(teams) {
   const matches = [];
 
-  const teamsBySize = {};
-  teams.forEach(team => {
-    const size = team.players.length;
-    if (!teamsBySize[size]) teamsBySize[size] = [];
-    teamsBySize[size].push(team);
-  });
+  // FIXED: Sort teams by team_number to ensure consistent pairing
+  // Teams 1&2 → Court 1, Teams 3&4 → Court 2, Teams 5&6 → Court 3, etc.
+  const sortedTeams = [...teams].sort((a, b) => a.team_number - b.team_number);
 
   console.log('\n--- Team Size Distribution ---');
-  Object.keys(teamsBySize).forEach(size => {
-    console.log(`${size} players: ${teamsBySize[size].length} teams`);
+  const sizeCount = {};
+  sortedTeams.forEach(team => {
+    const size = team.players.length;
+    sizeCount[size] = (sizeCount[size] || 0) + 1;
+  });
+  Object.keys(sizeCount).forEach(size => {
+    console.log(`${size} players: ${sizeCount[size]} teams`);
   });
 
-  const usedTeams = new Set();
-  let courtNumber = 1;
+  console.log('\n--- Creating Matches (Teams paired by number) ---');
 
-  Object.keys(teamsBySize).forEach(size => {
-    const teamsOfThisSize = teamsBySize[size].filter(team => !usedTeams.has(team.id));
+  // Pair teams sequentially by team_number
+  for (let i = 0; i < sortedTeams.length - 1; i += 2) {
+    const team1 = sortedTeams[i];
+    const team2 = sortedTeams[i + 1];
 
-    for (let i = 0; i < teamsOfThisSize.length - 1; i += 2) {
-      if (usedTeams.has(teamsOfThisSize[i].id) || usedTeams.has(teamsOfThisSize[i + 1].id)) {
-        continue;
-      }
+    // Court number is based on the pair index (1-indexed)
+    const courtNumber = Math.floor(i / 2) + 1;
 
-      const team1 = teamsOfThisSize[i];
-      const team2 = teamsOfThisSize[i + 1];
+    // Update team court assignments
+    team1.court = courtNumber;
+    team2.court = courtNumber;
 
-      // FIXED: Update team court assignments to match the match court
-      team1.court = courtNumber;
-      team2.court = courtNumber;
+    const sizeDiff = Math.abs(team1.players.length - team2.players.length);
+    const matchType = sizeDiff === 0 ? 'equal_size' : 'mixed_size';
 
-      matches.push({
-        id: `match_${courtNumber}`,
-        court: courtNumber,
-        team1_id: team1.id,
-        team2_id: team2.id,
-        team1,
-        team2,
-        is_completed: false,
-        matchType: 'equal_size'
-      });
+    matches.push({
+      id: `match_${courtNumber}`,
+      court: courtNumber,
+      team1_id: team1.id,
+      team2_id: team2.id,
+      team1,
+      team2,
+      is_completed: false,
+      matchType
+    });
 
-      usedTeams.add(team1.id);
-      usedTeams.add(team2.id);
-
-      console.log(`Court ${courtNumber}: Team ${team1.team_number} (${team1.players.length}) vs Team ${team2.team_number} (${team2.players.length}) [EQUAL SIZE]`);
-      courtNumber++;
-    }
-  });
-
-  const remainingTeams = teams.filter(team => !usedTeams.has(team.id));
-
-  if (remainingTeams.length >= 2) {
-    console.log('\n--- Mixed Size Matches ---');
-
-    remainingTeams.sort((a, b) => a.players.length - b.players.length);
-
-    for (let i = 0; i < remainingTeams.length - 1; i += 2) {
-      const team1 = remainingTeams[i];
-      const team2 = remainingTeams[i + 1];
-
-      // FIXED: Update team court assignments to match the match court
-      team1.court = courtNumber;
-      team2.court = courtNumber;
-
-      matches.push({
-        id: `match_${courtNumber}`,
-        court: courtNumber,
-        team1_id: team1.id,
-        team2_id: team2.id,
-        team1,
-        team2,
-        is_completed: false,
-        matchType: 'mixed_size'
-      });
-
-      const sizeDiff = Math.abs(team1.players.length - team2.players.length);
-      console.log(`Court ${courtNumber}: Team ${team1.team_number} (${team1.players.length}) vs Team ${team2.team_number} (${team2.players.length}) [MIXED SIZE +${sizeDiff}]`);
-      courtNumber++;
-    }
+    const sizeLabel = sizeDiff === 0 ? 'EQUAL SIZE' : `MIXED SIZE +${sizeDiff}`;
+    console.log(`Court ${courtNumber}: Team ${team1.team_number} (${team1.players.length}) vs Team ${team2.team_number} (${team2.players.length}) [${sizeLabel}]`);
   }
 
   validateMatchQuality(matches);
