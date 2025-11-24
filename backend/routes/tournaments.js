@@ -444,7 +444,9 @@ router.post('/:id/start', authenticateToken, async (req, res) => {
         } else {
           // Handle playing team
           playingTeamCount++;
-          const court = Math.floor((playingTeamCount - 1) / 2) + 1;
+          // FIXED: Use the court assignment from the team generator instead of recalculating
+          // The team.court value is set by createSimpleMatches to match the match court
+          const court = team.court;
           
           const teamResult = await client.query(`
             INSERT INTO teams (round_id, team_number, court, is_bye_team) 
@@ -878,7 +880,9 @@ router.post('/:id/regenerate', authenticateToken, async (req, res) => {
         } else {
           // Handle playing team
           playingTeamCount++;
-          const court = Math.floor((playingTeamCount - 1) / 2) + 1;
+          // FIXED: Use the court assignment from the team generator instead of recalculating
+          // The team.court value is set by createSimpleMatches to match the match court
+          const court = team.court;
           
           const teamResult = await client.query(`
             INSERT INTO teams (round_id, team_number, court, is_bye_team) 
