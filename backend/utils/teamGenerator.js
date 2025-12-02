@@ -2019,6 +2019,7 @@ function createBalancedTeams(players, teamConfig, roundNumber) {
         male: 0,
         female: 0,
         femaleSetters: 0,
+        maleAA: 0, femaleAA: 0,
         maleA: 0, femaleA: 0,
         maleBB: 0, femaleBB: 0,
         maleB: 0, femaleB: 0,
@@ -2041,24 +2042,28 @@ function createBalancedTeams(players, teamConfig, roundNumber) {
   const shuffledPlayers = shuffleArray([...players]);
   const categories = {
     femaleSetters: shuffledPlayers.filter(p => p.gender === 'female' && p.is_setter),
+    maleAA: shuffledPlayers.filter(p => p.gender === 'male' && p.skill_level === 'AA'),
+    femaleAA: shuffledPlayers.filter(p => p.gender === 'female' && p.skill_level === 'AA' && !p.is_setter),
     maleA: shuffledPlayers.filter(p => p.gender === 'male' && p.skill_level === 'A'),
     femaleA: shuffledPlayers.filter(p => p.gender === 'female' && p.skill_level === 'A' && !p.is_setter),
     maleBB: shuffledPlayers.filter(p => p.gender === 'male' && p.skill_level === 'BB'),
     femaleBB: shuffledPlayers.filter(p => p.gender === 'female' && p.skill_level === 'BB' && !p.is_setter),
     maleB: shuffledPlayers.filter(p => p.gender === 'male' && p.skill_level === 'B'),
     femaleB: shuffledPlayers.filter(p => p.gender === 'female' && p.skill_level === 'B' && !p.is_setter),
-    maleOther: shuffledPlayers.filter(p => 
-      p.gender === 'male' && !p.is_setter && 
-      !['A', 'BB', 'B'].includes(p.skill_level)
+    maleOther: shuffledPlayers.filter(p =>
+      p.gender === 'male' && !p.is_setter &&
+      !['AA', 'A', 'BB', 'B'].includes(p.skill_level)
     )
   };
-  
+
   // ENHANCED: Distribution order optimized for constraints:
   // 1. Female setters FIRST - most important for even distribution
   // 2. Interleave genders by skill level for balanced team composition early
   // 3. B players LAST - ensures max 1 B player per gender per team after others are placed
   const distributionOrder = [
     'femaleSetters', // FIRST - top priority for even distribution
+    'maleAA',        // AA players - alternating gender
+    'femaleAA',
     'maleA',         // A players - alternating gender
     'femaleA',
     'maleBB',        // BB players - alternating gender
@@ -2340,6 +2345,7 @@ function recalculateTeamStats(team) {
     male: 0,
     female: 0,
     femaleSetters: 0,
+    maleAA: 0, femaleAA: 0,
     maleA: 0, femaleA: 0,
     maleBB: 0, femaleBB: 0,
     maleB: 0, femaleB: 0,
@@ -2445,7 +2451,35 @@ function findBestTeamForPlayerWithConstraints(teams, teamPairs, player, category
       }
     }
 
-    // Priority 2: For maleA specifically, prefer teams with fewer A males (even distribution)
+    // Priority 1b: CRITICAL - Female setters must be distributed evenly
+    // This is the HIGHEST priority for female setters to ensure max 1 per team
+    if (category === 'femaleSetters') {
+      const aFemaleSetterCount = a.stats.femaleSetters || 0;
+      const bFemaleSetterCount = b.stats.femaleSetters || 0;
+      if (aFemaleSetterCount !== bFemaleSetterCount) {
+        return aFemaleSetterCount - bFemaleSetterCount; // Strongly prefer team with fewer female setters
+      }
+    }
+
+    // Priority 2: For maleAA specifically, prefer teams with fewer AA males (even distribution)
+    if (category === 'maleAA') {
+      const aMaleAA = a.stats.maleAA || 0;
+      const bMaleAA = b.stats.maleAA || 0;
+      if (aMaleAA !== bMaleAA) {
+        return aMaleAA - bMaleAA; // Prefer team with fewer AA males
+      }
+    }
+
+    // Priority 2a: For femaleAA, prefer teams with fewer AA females (even distribution)
+    if (category === 'femaleAA') {
+      const aFemaleAA = a.stats.femaleAA || 0;
+      const bFemaleAA = b.stats.femaleAA || 0;
+      if (aFemaleAA !== bFemaleAA) {
+        return aFemaleAA - bFemaleAA; // Prefer team with fewer AA females
+      }
+    }
+
+    // Priority 2b: For maleA specifically, prefer teams with fewer A males (even distribution)
     if (category === 'maleA') {
       const aMaleA = a.stats.maleA || 0;
       const bMaleA = b.stats.maleA || 0;
@@ -2454,7 +2488,7 @@ function findBestTeamForPlayerWithConstraints(teams, teamPairs, player, category
       }
     }
 
-    // Priority 2b: For femaleA, prefer teams with fewer A females (even distribution)
+    // Priority 2c: For femaleA, prefer teams with fewer A females (even distribution)
     if (category === 'femaleA') {
       const aFemaleA = a.stats.femaleA || 0;
       const bFemaleA = b.stats.femaleA || 0;
@@ -2837,13 +2871,15 @@ function findBestTeamForPlayerMatchAware(teams, teamPairs, player, category) {
 function getCategoryCount(stats, category) {
   switch (category) {
     case 'femaleSetters': return stats.femaleSetters;
+    case 'maleAA': return stats.maleAA;
+    case 'femaleAA': return stats.femaleAA;
     case 'maleA': return stats.maleA;
     case 'femaleA': return stats.femaleA;
     case 'maleBB': return stats.maleBB;
     case 'femaleBB': return stats.femaleBB;
     case 'maleB': return stats.maleB;
     case 'femaleB': return stats.femaleB;
-    case 'maleOther': return stats.male - stats.maleA - stats.maleBB - stats.maleB;
+    case 'maleOther': return stats.male - stats.maleAA - stats.maleA - stats.maleBB - stats.maleB;
     default: return 0;
   }
 }
@@ -2861,8 +2897,10 @@ function calculateGenderImbalanceAfterAdding(team, player) {
 function updateTeamStats(stats, player) {
   if (player.gender === 'male') stats.male++;
   if (player.gender === 'female') stats.female++;
-  
+
   if (player.gender === 'female' && player.is_setter) stats.femaleSetters++;
+  if (player.gender === 'male' && player.skill_level === 'AA') stats.maleAA++;
+  if (player.gender === 'female' && player.skill_level === 'AA') stats.femaleAA++;
   if (player.gender === 'male' && player.skill_level === 'A') stats.maleA++;
   if (player.gender === 'female' && player.skill_level === 'A') stats.femaleA++;
   if (player.gender === 'male' && player.skill_level === 'BB') stats.maleBB++;
