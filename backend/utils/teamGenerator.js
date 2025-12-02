@@ -78,25 +78,29 @@ function resetTeammateTracking() {
 }
 
 function getSkillRating(player) {
-  // Enhanced weighting that better reflects net play advantages
+  // Enhanced weighting with AA tier at top and improved consistency
+  // Gender multiplier is ~1.67-1.7x across all levels
   const skillValues = {
     'male': {
-      'A': 4.0,    // Increased from 3.0
-      'BB': 3.0,   // Increased from 2.0
-      'B': 2.0     // Increased from 1.0
+      'AA': 5.0,   // Elite/competitive player
+      'A': 3.8,    // Strong player
+      'BB': 2.6,   // Intermediate player
+      'B': 1.7     // Developing player
     },
     'female': {
-      'A': 2.5,
-      'BB': 1.5,
-      'B': 0.5
+      'AA': 3.0,   // Elite/competitive player
+      'A': 2.2,    // Strong player
+      'BB': 1.5,   // Intermediate player
+      'B': 1.0     // Developing player
     }
   };
-  
+
   const gender = player.gender.toLowerCase();
   const baseSkill = skillValues[gender]?.[player.skill_level] || 1.5;
-  
-  const setterBonus = player.is_setter ? 0.3 : 0;
-  
+
+  // Scale setter bonus based on skill level (better setters have more impact)
+  const setterBonus = player.is_setter ? baseSkill * 0.15 : 0;
+
   return baseSkill + setterBonus;
 }
 

@@ -471,9 +471,10 @@ function TournamentSetup({ isEditing = false }) {
                   value={currentPlayer.skillLevel}
                   onChange={handlePlayerChange}
                 >
-                  <option value="A">A (Advanced)</option>
-                  <option value="BB">BB (Intermediate+)</option>
-                  <option value="B">B (Beginner)</option>
+                  <option value="AA">AA (Elite/Competitive)</option>
+                  <option value="A">A (Strong)</option>
+                  <option value="BB">BB (Intermediate)</option>
+                  <option value="B">B (Developing)</option>
                 </select>
               </div>
 

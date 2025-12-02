@@ -294,8 +294,8 @@ router.post('/:id/players', authenticateToken, async (req, res) => {
       return res.status(400).json({ message: 'Gender must be male or female' });
     }
     
-    if (!['A', 'BB', 'B'].includes(skillLevel)) {
-      return res.status(400).json({ message: 'Skill level must be A, BB, or B' });
+    if (!['AA', 'A', 'BB', 'B'].includes(skillLevel)) {
+      return res.status(400).json({ message: 'Skill level must be AA, A, BB, or B' });
     }
     
     // Check tournament exists and is in setup

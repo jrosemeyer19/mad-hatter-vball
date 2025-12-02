@@ -63,6 +63,7 @@ function TournamentDetail({ user }) {
     if (!players || players.length === 0) return 0;
 
     const skillValues = {
+      'AA': 4.0,
       'A': 3.0,
       'BB': 2.0,
       'B': 1.0
@@ -79,17 +80,19 @@ function TournamentDetail({ user }) {
   const getPlayerStyle = (player) => {
     // Color scheme:
     // Males: blue tones, Females: pink/purple tones
-    // A: darker/stronger, BB: medium, B: lighter
+    // AA: darkest/elite, A: darker/strong, BB: medium, B: lighter
     // Setters get a special indicator
 
     const colors = {
       male: {
-        A: { bg: '#1a5276', text: '#ffffff' },    // Dark blue
+        AA: { bg: '#0d2f4a', text: '#ffffff' },   // Very dark blue (elite)
+        A: { bg: '#1a5276', text: '#ffffff' },    // Dark blue (strong)
         BB: { bg: '#3498db', text: '#ffffff' },   // Medium blue
         B: { bg: '#85c1e9', text: '#1a5276' }     // Light blue
       },
       female: {
-        A: { bg: '#7b241c', text: '#ffffff' },    // Dark red/maroon
+        AA: { bg: '#4a0d0d', text: '#ffffff' },   // Very dark red/maroon (elite)
+        A: { bg: '#7b241c', text: '#ffffff' },    // Dark red/maroon (strong)
         BB: { bg: '#c0392b', text: '#ffffff' },   // Medium red
         B: { bg: '#f1948a', text: '#7b241c' }     // Light pink
       }

@@ -30,7 +30,7 @@ CREATE TABLE players (
     tournament_id INTEGER REFERENCES tournaments(id) ON DELETE CASCADE,
     name VARCHAR(100) NOT NULL,
     gender VARCHAR(10) NOT NULL, -- 'male', 'female'
-    skill_level VARCHAR(2) NOT NULL, -- 'A', 'BB', 'B'
+    skill_level VARCHAR(2) NOT NULL, -- 'AA', 'A', 'BB', 'B'
     is_setter BOOLEAN DEFAULT FALSE,
     total_points INTEGER DEFAULT 0,
     matches_played INTEGER DEFAULT 0
