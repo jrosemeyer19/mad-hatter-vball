@@ -433,10 +433,12 @@ This action cannot be undone.`;
                 }}>
                   <div style={{ marginBottom: '0.5rem', fontWeight: 'bold' }}>Color Legend:</div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+                    <span style={{ backgroundColor: '#0d2f4a', color: '#fff', padding: '0.15rem 0.4rem', borderRadius: '3px' }}>M-AA</span>
                     <span style={{ backgroundColor: '#1a5276', color: '#fff', padding: '0.15rem 0.4rem', borderRadius: '3px' }}>M-A</span>
                     <span style={{ backgroundColor: '#3498db', color: '#fff', padding: '0.15rem 0.4rem', borderRadius: '3px' }}>M-BB</span>
                     <span style={{ backgroundColor: '#85c1e9', color: '#1a5276', padding: '0.15rem 0.4rem', borderRadius: '3px' }}>M-B</span>
                     <span style={{ margin: '0 0.25rem', color: '#999' }}>|</span>
+                    <span style={{ backgroundColor: '#4a0d0d', color: '#fff', padding: '0.15rem 0.4rem', borderRadius: '3px' }}>F-AA</span>
                     <span style={{ backgroundColor: '#7b241c', color: '#fff', padding: '0.15rem 0.4rem', borderRadius: '3px' }}>F-A</span>
                     <span style={{ backgroundColor: '#c0392b', color: '#fff', padding: '0.15rem 0.4rem', borderRadius: '3px' }}>F-BB</span>
                     <span style={{ backgroundColor: '#f1948a', color: '#7b241c', padding: '0.15rem 0.4rem', borderRadius: '3px' }}>F-B</span>

@@ -2195,9 +2195,9 @@ function refineTeamBalance(teams, teamPairs) {
       const skillDiff = Math.abs(team1.stats.skillRating - team2.stats.skillRating);
       const genderDiff = Math.abs(team1.stats.male - team2.stats.male);
 
-      // Try to improve if skill difference > 2 OR gender difference > 2
+      // Try to improve if skill difference > 2 OR gender difference >= 1
       const needsSkillBalance = skillDiff > 2;
-      const needsGenderBalance = genderDiff > 2;
+      const needsGenderBalance = genderDiff >= 1;
 
       if (!needsSkillBalance && !needsGenderBalance) continue;
 
