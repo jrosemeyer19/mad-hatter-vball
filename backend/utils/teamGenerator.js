@@ -1233,26 +1233,60 @@ function tryFixAssignments(playerRoundAssignments, flexibleRounds, matchesPerPla
         break;
       }
     }
-    
+
     if (swapRound >= 0) {
-      console.log(`  Swapping ${overPlayer.player.name} and ${underPlayer.player.name} in round ${swapRound + 1}`);
-      
-      overPlayer.assignment.roundsPlaying = overPlayer.assignment.roundsPlaying.filter(r => r !== swapRound);
-      overPlayer.assignment.roundsOnBye.push(swapRound);
-      overPlayer.assignment.matchesAssigned--;
-      
-      underPlayer.assignment.roundsOnBye = underPlayer.assignment.roundsOnBye.filter(r => r !== swapRound);
-      underPlayer.assignment.roundsPlaying.push(swapRound);
-      underPlayer.assignment.matchesAssigned++;
-      
-      overPlayer.excess--;
-      underPlayer.deficit--;
-      
-      if (overPlayer.excess === 0) {
-        overAssigned.shift();
+      // ENHANCED: Check if swap would violate minimum males per team constraint
+      const round = flexibleRounds[swapRound];
+
+      // Build current bye list from player assignments
+      const currentByePlayers = players.filter(p =>
+        playerRoundAssignments[p.id].roundsOnBye.includes(swapRound)
+      );
+
+      // Calculate males playing after this potential swap
+      const currentByeMales = currentByePlayers.filter(p => p.gender === 'male').length;
+      const totalMales = players.filter(p => p.gender === 'male').length;
+
+      let malesPlayingAfterSwap = totalMales - currentByeMales;
+
+      // Adjust for the gender swap effect
+      if (overPlayer.player.gender === 'male' && underPlayer.player.gender !== 'male') {
+        malesPlayingAfterSwap--;  // Swapping a male out of playing
+      } else if (overPlayer.player.gender !== 'male' && underPlayer.player.gender === 'male') {
+        malesPlayingAfterSwap++;  // Swapping a male into playing
       }
-      if (underPlayer.deficit === 0) {
-        underAssigned.shift();
+
+      // Calculate teams for this round and check constraint
+      const estimatedTeams = Math.ceil(round.playersPlaying / 5.5);
+      const minMalesNeeded = estimatedTeams * 2;
+
+      if (malesPlayingAfterSwap < minMalesNeeded) {
+        console.log(`  ⚠️  Skipping swap of ${overPlayer.player.name} and ${underPlayer.player.name} in round ${swapRound + 1} - would leave only ${malesPlayingAfterSwap}/${minMalesNeeded} males needed for ${estimatedTeams} teams`);
+        // Skip this swap, try next combination
+        overAssigned.push(overAssigned.shift());
+        if (overAssigned.length === 1) {
+          underAssigned.push(underAssigned.shift());
+        }
+      } else {
+        console.log(`  Swapping ${overPlayer.player.name} and ${underPlayer.player.name} in round ${swapRound + 1}`);
+
+        overPlayer.assignment.roundsPlaying = overPlayer.assignment.roundsPlaying.filter(r => r !== swapRound);
+        overPlayer.assignment.roundsOnBye.push(swapRound);
+        overPlayer.assignment.matchesAssigned--;
+
+        underPlayer.assignment.roundsOnBye = underPlayer.assignment.roundsOnBye.filter(r => r !== swapRound);
+        underPlayer.assignment.roundsPlaying.push(swapRound);
+        underPlayer.assignment.matchesAssigned++;
+
+        overPlayer.excess--;
+        underPlayer.deficit--;
+
+        if (overPlayer.excess === 0) {
+          overAssigned.shift();
+        }
+        if (underPlayer.deficit === 0) {
+          underAssigned.shift();
+        }
       }
     } else {
       overAssigned.push(overAssigned.shift());
@@ -1344,26 +1378,60 @@ function tryFixAssignments(playerRoundAssignments, flexibleRounds, matchesPerPla
         break;
       }
     }
-    
+
     if (swapRound >= 0) {
-      console.log(`  Swapping ${overPlayer.player.name} and ${underPlayer.player.name} in round ${swapRound + 1}`);
-      
-      overPlayer.assignment.roundsPlaying = overPlayer.assignment.roundsPlaying.filter(r => r !== swapRound);
-      overPlayer.assignment.roundsOnBye.push(swapRound);
-      overPlayer.assignment.matchesAssigned--;
-      
-      underPlayer.assignment.roundsOnBye = underPlayer.assignment.roundsOnBye.filter(r => r !== swapRound);
-      underPlayer.assignment.roundsPlaying.push(swapRound);
-      underPlayer.assignment.matchesAssigned++;
-      
-      overPlayer.excess--;
-      underPlayer.deficit--;
-      
-      if (overPlayer.excess === 0) {
-        overAssigned.shift();
+      // ENHANCED: Check if swap would violate minimum males per team constraint
+      const round = flexibleRounds[swapRound];
+
+      // Build current bye list from player assignments
+      const currentByePlayers = players.filter(p =>
+        playerRoundAssignments[p.id].roundsOnBye.includes(swapRound)
+      );
+
+      // Calculate males playing after this potential swap
+      const currentByeMales = currentByePlayers.filter(p => p.gender === 'male').length;
+      const totalMales = players.filter(p => p.gender === 'male').length;
+
+      let malesPlayingAfterSwap = totalMales - currentByeMales;
+
+      // Adjust for the gender swap effect
+      if (overPlayer.player.gender === 'male' && underPlayer.player.gender !== 'male') {
+        malesPlayingAfterSwap--;  // Swapping a male out of playing
+      } else if (overPlayer.player.gender !== 'male' && underPlayer.player.gender === 'male') {
+        malesPlayingAfterSwap++;  // Swapping a male into playing
       }
-      if (underPlayer.deficit === 0) {
-        underAssigned.shift();
+
+      // Calculate teams for this round and check constraint
+      const estimatedTeams = Math.ceil(round.playersPlaying / 5.5);
+      const minMalesNeeded = estimatedTeams * 2;
+
+      if (malesPlayingAfterSwap < minMalesNeeded) {
+        console.log(`  ⚠️  Skipping swap of ${overPlayer.player.name} and ${underPlayer.player.name} in round ${swapRound + 1} - would leave only ${malesPlayingAfterSwap}/${minMalesNeeded} males needed for ${estimatedTeams} teams`);
+        // Skip this swap, try next combination
+        overAssigned.push(overAssigned.shift());
+        if (overAssigned.length === 1) {
+          underAssigned.push(underAssigned.shift());
+        }
+      } else {
+        console.log(`  Swapping ${overPlayer.player.name} and ${underPlayer.player.name} in round ${swapRound + 1}`);
+
+        overPlayer.assignment.roundsPlaying = overPlayer.assignment.roundsPlaying.filter(r => r !== swapRound);
+        overPlayer.assignment.roundsOnBye.push(swapRound);
+        overPlayer.assignment.matchesAssigned--;
+
+        underPlayer.assignment.roundsOnBye = underPlayer.assignment.roundsOnBye.filter(r => r !== swapRound);
+        underPlayer.assignment.roundsPlaying.push(swapRound);
+        underPlayer.assignment.matchesAssigned++;
+
+        overPlayer.excess--;
+        underPlayer.deficit--;
+
+        if (overPlayer.excess === 0) {
+          overAssigned.shift();
+        }
+        if (underPlayer.deficit === 0) {
+          underAssigned.shift();
+        }
       }
     } else {
       overAssigned.push(overAssigned.shift());
