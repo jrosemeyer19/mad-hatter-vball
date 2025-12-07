@@ -12,8 +12,7 @@ function TournamentSetup({ isEditing = false }) {
     minPlayersPerTeam: 5,
     matchesPerPlayer: 4,
     entryFee: 0,
-    directorCost: 0,
-    hasPowerMatch: false
+    directorCost: 0
   });
   
   const [players, setPlayers] = useState([]);
@@ -27,12 +26,14 @@ function TournamentSetup({ isEditing = false }) {
   // New state for generate players feature
   const [generateCount, setGenerateCount] = useState(20);
   const [isGenerating, setIsGenerating] = useState(false);
-  
+
   const [step, setStep] = useState(isEditing ? 2 : 1); // Skip to step 2 if editing
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [tournamentId, setTournamentId] = useState(isEditing ? id : null);
-  
+  const [showStartModal, setShowStartModal] = useState(false);
+  const [finalByePlayerName, setFinalByePlayerName] = useState('');
+
   const navigate = useNavigate();
 
   // Arrays for generating random player data
@@ -92,8 +93,7 @@ function TournamentSetup({ isEditing = false }) {
         minPlayersPerTeam: tournament.min_players_per_team,
         matchesPerPlayer: tournament.matches_per_player,
         entryFee: tournament.entry_fee,
-        directorCost: tournament.director_cost,
-        hasPowerMatch: tournament.has_power_match
+        directorCost: tournament.director_cost
       });
       
       setPlayers(response.data.players);
@@ -260,20 +260,32 @@ function TournamentSetup({ isEditing = false }) {
     }
   };
 
-  const startTournament = async () => {
+  const initiateStart = () => {
     if (players.length < tournamentData.minPlayersPerTeam * 2) {
       setError(`Need at least ${tournamentData.minPlayersPerTeam * 2} players to start tournament`);
       return;
     }
+    setShowStartModal(true);
+  };
 
+  const confirmStart = async () => {
     setLoading(true);
+    setShowStartModal(false);
     try {
-      await axios.post(`/api/tournaments/${tournamentId}/start`);
+      await axios.post(`/api/tournaments/${tournamentId}/start`, {
+        finalByePlayerName: finalByePlayerName || null
+      });
+      setFinalByePlayerName(''); // Reset selection
       navigate(`/tournament/${tournamentId}`);
     } catch (error) {
       setError(error.response?.data?.message || 'Failed to start tournament');
       setLoading(false);
     }
+  };
+
+  const cancelStart = () => {
+    setShowStartModal(false);
+    setFinalByePlayerName('');
   };
 
   const getPlayerCounts = () => {
@@ -396,19 +408,6 @@ function TournamentSetup({ isEditing = false }) {
               min="0"
               step="0.01"
             />
-          </div>
-
-          <div className="form-group">
-            <div className="checkbox-group">
-              <input
-                type="checkbox"
-                id="hasPowerMatch"
-                name="hasPowerMatch"
-                checked={tournamentData.hasPowerMatch}
-                onChange={handleTournamentChange}
-              />
-              <label htmlFor="hasPowerMatch">Add power match?</label>
-            </div>
           </div>
 
           <button 
@@ -605,7 +604,7 @@ function TournamentSetup({ isEditing = false }) {
           <div className="mt-2">
             <button
               className="btn btn-primary"
-              onClick={startTournament}
+              onClick={initiateStart}
               disabled={loading}
               style={{ fontSize: '1.1rem', padding: '1rem 2rem' }}
             >
@@ -623,6 +622,81 @@ function TournamentSetup({ isEditing = false }) {
           </div>
         )}
       </div>
+
+      {/* Start Tournament Modal */}
+      {showStartModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000
+        }}>
+          <div style={{
+            backgroundColor: 'white',
+            padding: '2rem',
+            borderRadius: '8px',
+            maxWidth: '500px',
+            width: '90%',
+            maxHeight: '90vh',
+            overflowY: 'auto'
+          }}>
+            <h2>Start Tournament</h2>
+            <p style={{ marginBottom: '1.5rem' }}>
+              Ready to generate teams and start the tournament?
+            </p>
+
+            <div style={{ marginBottom: '1.5rem' }}>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+                Final Round Bye Player (Optional)
+              </label>
+              <select
+                value={finalByePlayerName}
+                onChange={(e) => setFinalByePlayerName(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  fontSize: '1rem'
+                }}
+              >
+                <option value="">No preference (automatic assignment)</option>
+                {players
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map(player => (
+                    <option key={player.id} value={player.name}>
+                      {player.name} ({player.gender}, {player.skill_level})
+                    </option>
+                  ))}
+              </select>
+              <div style={{ fontSize: '0.85rem', color: '#666', marginTop: '0.25rem' }}>
+                Select a player to guarantee they get a bye in the final round
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
+              <button
+                className="btn btn-secondary"
+                onClick={cancelStart}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={confirmStart}
+              >
+                Start Tournament
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

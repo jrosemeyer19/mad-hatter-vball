@@ -138,14 +138,17 @@ function generateAllRounds(players, settings) {
   console.log(`Courts Available: ${settings.courtsAvailable}`);
   console.log(`Min Players Per Team: ${settings.minPlayersPerTeam}`);
   console.log(`Matches Per Player: ${settings.matchesPerPlayer}`);
-  
+  if (settings.finalByePlayerName) {
+    console.log(`Final Bye Player Requested: ${settings.finalByePlayerName}`);
+  }
+
   initializeTeammateTracking(players);
-  
+
   validateInputs(players, settings);
-  
+
   const structure = calculateOptimalStructure(players.length, settings);
-  
-  const byeSchedule = generateFlexibleByeSchedule(players, structure.flexibleRounds);
+
+  const byeSchedule = generateFlexibleByeSchedule(players, structure.flexibleRounds, settings.finalByePlayerName);
   
   const allRounds = [];
   
@@ -792,22 +795,33 @@ function tryPlayerCentricSolution(totalPlayers, totalPlayerMatches, settings, ca
  * Replace the existing function in teamGenerator.js with this version
  */
 
-function generateFlexibleByeSchedule(players, flexibleRounds) {
+function generateFlexibleByeSchedule(players, flexibleRounds, finalByePlayerName = null) {
   console.log(`\n=== Robust Match-Guaranteed Bye Schedule (Gender-Balanced) ===`);
 
-  if (players.length === 37 && flexibleRounds.length === 4 && 
+  if (players.length === 37 && flexibleRounds.length === 4 &&
       flexibleRounds.every(round => round.playersPlaying === 37)) {
-    
+
     console.log(`🎯 Special 37-player case: no byes needed (all players play every round)`);
-    
+
     return flexibleRounds.map((round, index) => {
       console.log(`Round ${index + 1} byes: none (all 37 players play)`);
       return [];
     });
   }
-  
+
   const totalPlayers = players.length;
   const totalRounds = flexibleRounds.length;
+
+  // Find the requested player for final bye if specified
+  let finalByePlayer = null;
+  if (finalByePlayerName) {
+    finalByePlayer = players.find(p => p.name === finalByePlayerName);
+    if (finalByePlayer) {
+      console.log(`\n🎯 Final round bye requested for: ${finalByePlayerName}`);
+    } else {
+      console.log(`\n⚠️ Player "${finalByePlayerName}" not found in player list. Ignoring final bye request.`);
+    }
+  }
   
   const totalPlayerMatches = flexibleRounds.reduce((sum, round) => sum + round.playersPlaying, 0);
   const matchesPerPlayer = totalPlayerMatches / totalPlayers;
@@ -868,43 +882,68 @@ function generateFlexibleByeSchedule(players, flexibleRounds) {
     const round = flexibleRounds[roundIndex];
     const playersNeeded = round.playersPlaying;
     const byesNeeded = totalPlayers - playersNeeded;
-    
+    const isFinalRound = (roundIndex === totalRounds - 1);
+
     console.log(`\n--- Assigning Round ${roundIndex + 1}: ${playersNeeded} players needed, ${byesNeeded} on bye ---`);
-    
+
+    // Check if we should force a specific player to bye in the final round
+    let forcedByePlayer = null;
+    if (isFinalRound && finalByePlayer && byesNeeded > 0) {
+      const assignment = playerRoundAssignments[finalByePlayer.id];
+      const matchesNeeded = matchesPerPlayer - assignment.matchesAssigned;
+      const roundsLeft = totalRounds - roundIndex;
+
+      // Only force bye if the player can afford to miss this round
+      if (matchesNeeded < roundsLeft) {
+        forcedByePlayer = finalByePlayer;
+        console.log(`\n  🎯 Forcing ${finalByePlayer.name} to bye in final round`);
+      } else {
+        console.log(`\n  ⚠️ Cannot give ${finalByePlayer.name} a bye in final round - they need to play`);
+      }
+    }
+
     const shouldUseExtra = roundIndex >= (totalRounds - extraRoundsNeeded);
     const optimalFemaleSetterByes = shouldUseExtra ? (minByesPerRound + 1) : minByesPerRound;
-    
+
     console.log(`  Optimal female setter byes this round: ${optimalFemaleSetterByes} (${shouldUseExtra ? 'using extra' : 'using minimum'})`);
-    
+
+    // Filter female setters for bye, excluding the forced bye player if they are a female setter
     const femaleSettersCanGoOnByeList = femaleSetters.filter(fs => {
+      if (forcedByePlayer && fs.id === forcedByePlayer.id) return false; // Skip if already forced
       const assignment = playerRoundAssignments[fs.id];
       const matchesNeeded = matchesPerPlayer - assignment.matchesAssigned;
       const roundsLeft = totalRounds - roundIndex;
-      
+
       return matchesNeeded < roundsLeft;
     });
-    
-    const femaleSetterByeSlotsThisRound = Math.min(
+
+    // Adjust female setter bye slots if forced player is a female setter
+    let femaleSetterByeSlotsThisRound = Math.min(
       optimalFemaleSetterByes,
       femaleSettersCanGoOnByeList.length,
-      byesNeeded
+      byesNeeded - (forcedByePlayer && forcedByePlayer.gender === 'female' && forcedByePlayer.is_setter ? 1 : 0)
     );
-    
+
     console.log(`  Will put ${femaleSetterByeSlotsThisRound} female setter(s) on bye (${femaleSettersCanGoOnByeList.length} available)`);
-    
+
     const femaleSettersGoingOnBye = femaleSettersCanGoOnByeList
       .sort((a, b) => {
         const aCount = femaleSetterByeCounts[a.id] || 0;
         const bCount = femaleSetterByeCounts[b.id] || 0;
         if (aCount !== bCount) return aCount - bCount;
-        
+
         const aMatches = playerRoundAssignments[a.id].matchesAssigned;
         const bMatches = playerRoundAssignments[b.id].matchesAssigned;
         if (aMatches !== bMatches) return bMatches - aMatches;
-        
+
         return Math.random() - 0.5;
       })
       .slice(0, femaleSetterByeSlotsThisRound);
+
+    // Add forced bye player if they are a female setter
+    if (forcedByePlayer && forcedByePlayer.gender === 'female' && forcedByePlayer.is_setter) {
+      femaleSettersGoingOnBye.push(forcedByePlayer);
+    }
     
     const femaleSettersPlaying = femaleSetters.filter(fs => !femaleSettersGoingOnBye.includes(fs));
     
@@ -943,41 +982,65 @@ function generateFlexibleByeSchedule(players, flexibleRounds) {
     const sortByPriority = (a, b) => {
       const aAssignment = playerRoundAssignments[a.id];
       const bAssignment = playerRoundAssignments[b.id];
-      
+
       const aMatchesNeeded = matchesPerPlayer - aAssignment.matchesAssigned;
       const bMatchesNeeded = matchesPerPlayer - bAssignment.matchesAssigned;
-      
+
       if (aMatchesNeeded !== bMatchesNeeded) {
         return bMatchesNeeded - aMatchesNeeded;
       }
-      
-      const aLastRound = aAssignment.roundsPlaying.length > 0 ? 
+
+      const aLastRound = aAssignment.roundsPlaying.length > 0 ?
         Math.max(...aAssignment.roundsPlaying) : -2;
-      const bLastRound = bAssignment.roundsPlaying.length > 0 ? 
+      const bLastRound = bAssignment.roundsPlaying.length > 0 ?
         Math.max(...bAssignment.roundsPlaying) : -2;
-      
+
       const aIsConsecutive = (roundIndex - aLastRound) === 1;
       const bIsConsecutive = (roundIndex - bLastRound) === 1;
-      
+
       if (aIsConsecutive !== bIsConsecutive) {
         return aIsConsecutive ? 1 : -1;
       }
-      
+
       if (aAssignment.matchesAssigned !== bAssignment.matchesAssigned) {
         return aAssignment.matchesAssigned - bAssignment.matchesAssigned;
       }
-      
+
       return Math.random() - 0.5;
     };
-    
-    const malesSorted = otherPlayers.filter(p => p.gender === 'male').sort(sortByPriority);
-    const femalesSorted = otherPlayers.filter(p => p.gender === 'female').sort(sortByPriority);
-    
+
+    // Filter out the forced bye player from selection (if they're not a female setter)
+    const isForcedPlayerOther = forcedByePlayer && !(forcedByePlayer.gender === 'female' && forcedByePlayer.is_setter);
+    const malesSorted = otherPlayers.filter(p => {
+      if (isForcedPlayerOther && p.id === forcedByePlayer.id) return false;
+      return p.gender === 'male';
+    }).sort(sortByPriority);
+    const femalesSorted = otherPlayers.filter(p => {
+      if (isForcedPlayerOther && p.id === forcedByePlayer.id) return false;
+      return p.gender === 'female';
+    }).sort(sortByPriority);
+
+    // Adjust target counts if we have a forced bye player who is not a female setter
+    let adjustedTargetMales = targetMalesOnBye;
+    let adjustedTargetFemales = targetFemalesOnBye;
+    if (isForcedPlayerOther) {
+      if (forcedByePlayer.gender === 'male') {
+        adjustedTargetMales = Math.max(0, targetMalesOnBye - 1);
+      } else {
+        adjustedTargetFemales = Math.max(0, targetFemalesOnBye - 1);
+      }
+    }
+
     // Select from each gender to maintain ratio
-    const selectedMales = malesSorted.slice(0, Math.min(targetMalesOnBye, malesSorted.length));
-    const selectedFemales = femalesSorted.slice(0, Math.min(targetFemalesOnBye, femalesSorted.length));
-    
+    const selectedMales = malesSorted.slice(0, Math.min(adjustedTargetMales, malesSorted.length));
+    const selectedFemales = femalesSorted.slice(0, Math.min(adjustedTargetFemales, femalesSorted.length));
+
     let otherPlayersOnBye = [...selectedMales, ...selectedFemales];
+
+    // Add the forced bye player if they're not a female setter
+    if (isForcedPlayerOther) {
+      otherPlayersOnBye.push(forcedByePlayer);
+    }
     
     // If we're short, fill from the remaining pool
     if (otherPlayersOnBye.length < otherByesNeeded) {

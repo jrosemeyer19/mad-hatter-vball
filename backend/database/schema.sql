@@ -18,7 +18,6 @@ CREATE TABLE tournaments (
     matches_per_player INTEGER DEFAULT 4,
     entry_fee DECIMAL(10,2) DEFAULT 0,
     director_cost DECIMAL(10,2) DEFAULT 0,
-    has_power_match BOOLEAN DEFAULT FALSE,
     status VARCHAR(20) DEFAULT 'setup', -- 'setup', 'in_progress', 'completed'
     created_by INTEGER REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -40,8 +39,7 @@ CREATE TABLE players (
 CREATE TABLE rounds (
     id SERIAL PRIMARY KEY,
     tournament_id INTEGER REFERENCES tournaments(id) ON DELETE CASCADE,
-    round_number INTEGER NOT NULL,
-    is_power_round BOOLEAN DEFAULT FALSE
+    round_number INTEGER NOT NULL
 );
 
 -- Teams table (UPDATED for bye team support)

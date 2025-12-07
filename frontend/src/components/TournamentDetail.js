@@ -17,6 +17,8 @@ function TournamentDetail({ user }) {
   const [showPlayerDetails, setShowPlayerDetails] = useState(false);
   const [showPayouts, setShowPayouts] = useState(false);
   const [leaderboardTab, setLeaderboardTab] = useState('all'); // 'all', 'male', 'female'
+  const [showRegenerateModal, setShowRegenerateModal] = useState(false);
+  const [finalByePlayerName, setFinalByePlayerName] = useState('');
 
   useEffect(() => {
     fetchTournamentData();
@@ -224,35 +226,33 @@ function TournamentDetail({ user }) {
     }
   };
 
-  const regenerateTeams = async () => {
+  const initiateRegenerate = () => {
     if (!user) {
       setError('You must be logged in to regenerate teams');
       return;
     }
+    setShowRegenerateModal(true);
+  };
 
-    const confirmMessage = `Are you sure you want to regenerate all teams for this tournament?
-
-This will:
-- Delete ALL existing teams and matches
-- Reset all player scores to 0
-- Generate completely new team assignments
-- Lose all match results entered so far
-
-This action cannot be undone.`;
-
-    if (!window.confirm(confirmMessage)) {
-      return;
-    }
-
+  const confirmRegenerate = async () => {
     try {
       setLoading(true);
-      await axios.post(`/api/tournaments/${id}/regenerate`);
+      setShowRegenerateModal(false);
+      await axios.post(`/api/tournaments/${id}/regenerate`, {
+        finalByePlayerName: finalByePlayerName || null
+      });
+      setFinalByePlayerName(''); // Reset selection
       await fetchTournamentData(); // Refresh the tournament data
     } catch (error) {
       setError(error.response?.data?.message || 'Failed to regenerate teams');
     } finally {
       setLoading(false);
     }
+  };
+
+  const cancelRegenerate = () => {
+    setShowRegenerateModal(false);
+    setFinalByePlayerName('');
   };
 
   const getTeamPlayers = (teamId, roundNumber) => {
@@ -336,9 +336,9 @@ This action cannot be undone.`;
                   </Link>
                 )}
                 {tournament.status === 'in_progress' && user && (
-                  <button 
+                  <button
                     className="btn btn-secondary"
-                    onClick={regenerateTeams}
+                    onClick={initiateRegenerate}
                     disabled={loading}
                     title="Regenerate all teams and matches"
                   >
@@ -1326,6 +1326,93 @@ This action cannot be undone.`;
         <div className="card">
           <h2>Tournament Setup</h2>
           <p>This tournament is still in setup phase. Players are being added and teams haven't been generated yet.</p>
+        </div>
+      )}
+
+      {/* Regenerate Teams Modal */}
+      {showRegenerateModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000
+        }}>
+          <div style={{
+            backgroundColor: 'white',
+            padding: '2rem',
+            borderRadius: '8px',
+            maxWidth: '500px',
+            width: '90%',
+            maxHeight: '90vh',
+            overflowY: 'auto'
+          }}>
+            <h2>Regenerate Tournament Teams</h2>
+            <div style={{
+              backgroundColor: '#fff3cd',
+              border: '1px solid #ffc107',
+              padding: '1rem',
+              borderRadius: '4px',
+              marginBottom: '1rem'
+            }}>
+              <strong>Warning:</strong> This will:
+              <ul style={{ marginTop: '0.5rem', marginBottom: 0 }}>
+                <li>Delete ALL existing teams and matches</li>
+                <li>Reset all player scores to 0</li>
+                <li>Generate completely new team assignments</li>
+                <li>Lose all match results entered so far</li>
+              </ul>
+            </div>
+
+            <div style={{ marginBottom: '1.5rem' }}>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+                Final Round Bye Player (Optional)
+              </label>
+              <select
+                value={finalByePlayerName}
+                onChange={(e) => setFinalByePlayerName(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  fontSize: '1rem'
+                }}
+              >
+                <option value="">No preference (automatic assignment)</option>
+                {players
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map(player => (
+                    <option key={player.id} value={player.name}>
+                      {player.name} ({player.gender}, {player.skill_level})
+                    </option>
+                  ))}
+              </select>
+              <div style={{ fontSize: '0.85rem', color: '#666', marginTop: '0.25rem' }}>
+                Select a player to guarantee they get a bye in the final round
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
+              <button
+                className="btn btn-secondary"
+                onClick={cancelRegenerate}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-danger"
+                onClick={confirmRegenerate}
+              >
+                Regenerate Teams
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

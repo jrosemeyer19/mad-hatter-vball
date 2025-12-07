@@ -43,32 +43,32 @@ router.put('/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;
     const {
       name, date, location, courtsAvailable = 3, minPlayersPerTeam = 5,
-      matchesPerPlayer = 4, entryFee = 0, directorCost = 0, hasPowerMatch = false
+      matchesPerPlayer = 4, entryFee = 0, directorCost = 0
     } = req.body;
-    
+
     if (!name || !date || !location) {
       return res.status(400).json({ message: 'Name, date, and location are required' });
     }
-    
+
     // Check if tournament exists and is in setup phase
     const tournamentCheck = await pool.query('SELECT status FROM tournaments WHERE id = $1', [id]);
     if (tournamentCheck.rows.length === 0) {
       return res.status(404).json({ message: 'Tournament not found' });
     }
-    
+
     if (tournamentCheck.rows[0].status !== 'setup') {
       return res.status(400).json({ message: 'Can only edit tournaments in setup phase' });
     }
-    
+
     const result = await pool.query(`
-      UPDATE tournaments 
-      SET name = $1, date = $2, location = $3, courts_available = $4, 
-          min_players_per_team = $5, matches_per_player = $6, entry_fee = $7, 
-          director_cost = $8, has_power_match = $9
-      WHERE id = $10 
+      UPDATE tournaments
+      SET name = $1, date = $2, location = $3, courts_available = $4,
+          min_players_per_team = $5, matches_per_player = $6, entry_fee = $7,
+          director_cost = $8
+      WHERE id = $9
       RETURNING *
-    `, [name, date, location, courtsAvailable, minPlayersPerTeam, matchesPerPlayer, 
-        entryFee, directorCost, hasPowerMatch, id]);
+    `, [name, date, location, courtsAvailable, minPlayersPerTeam, matchesPerPlayer,
+        entryFee, directorCost, id]);
     
     res.json(result.rows[0]);
   } catch (error) {
@@ -82,24 +82,24 @@ router.post('/', authenticateToken, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    
+
     const {
       name, date, location, courtsAvailable = 3, minPlayersPerTeam = 5,
-      matchesPerPlayer = 4, entryFee = 0, directorCost = 0, hasPowerMatch = false
+      matchesPerPlayer = 4, entryFee = 0, directorCost = 0
     } = req.body;
-    
+
     if (!name || !date || !location) {
       return res.status(400).json({ message: 'Name, date, and location are required' });
     }
-    
+
     const result = await client.query(`
       INSERT INTO tournaments (
         name, date, location, courts_available, min_players_per_team,
-        matches_per_player, entry_fee, director_cost, has_power_match, created_by
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        matches_per_player, entry_fee, director_cost, created_by
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *
-    `, [name, date, location, courtsAvailable, minPlayersPerTeam, matchesPerPlayer, 
-        entryFee, directorCost, hasPowerMatch, req.user.id]);
+    `, [name, date, location, courtsAvailable, minPlayersPerTeam, matchesPerPlayer,
+        entryFee, directorCost, req.user.id]);
     
     await client.query('COMMIT');
     res.status(201).json(result.rows[0]);
@@ -366,34 +366,35 @@ router.post('/:id/start', authenticateToken, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    
+
     const { id } = req.params;
-    
+    const { finalByePlayerName } = req.body;
+
     // Get tournament and validate
     const tournamentResult = await client.query('SELECT * FROM tournaments WHERE id = $1', [id]);
     if (tournamentResult.rows.length === 0) {
       return res.status(404).json({ message: 'Tournament not found' });
     }
-    
+
     const tournament = tournamentResult.rows[0];
     if (tournament.status !== 'setup') {
       return res.status(400).json({ message: 'Tournament already started' });
     }
-    
+
     // Get players
     const playersResult = await client.query('SELECT * FROM players WHERE tournament_id = $1', [id]);
     const players = playersResult.rows;
-    
+
     if (players.length < tournament.min_players_per_team * 2) {
       return res.status(400).json({ message: 'Not enough players to start tournament' });
     }
-    
+
     // Generate all rounds at once
     const settings = {
       courtsAvailable: tournament.courts_available,
       minPlayersPerTeam: tournament.min_players_per_team,
       matchesPerPlayer: tournament.matches_per_player,
-      hasPowerMatch: tournament.has_power_match
+      finalByePlayerName: finalByePlayerName || null
     };
     
     console.log(`\n=== Starting Tournament Generation ===`);
@@ -786,51 +787,52 @@ router.post('/:id/regenerate', authenticateToken, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    
+
     const { id } = req.params;
-    
+    const { finalByePlayerName } = req.body;
+
     // Get tournament and validate
     const tournamentResult = await client.query('SELECT * FROM tournaments WHERE id = $1', [id]);
     if (tournamentResult.rows.length === 0) {
       return res.status(404).json({ message: 'Tournament not found' });
     }
-    
+
     const tournament = tournamentResult.rows[0];
     if (tournament.status === 'completed') {
       return res.status(400).json({ message: 'Cannot regenerate completed tournaments' });
     }
-    
+
     if (tournament.status === 'setup') {
       return res.status(400).json({ message: 'Tournament has not been started yet' });
     }
-    
+
     console.log(`\n=== Regenerating Tournament ${id} ===`);
-    
+
     // Step 1: Delete all existing rounds, teams, and matches (but keep players and their original data)
     await client.query('DELETE FROM matches WHERE round_id IN (SELECT id FROM rounds WHERE tournament_id = $1)', [id]);
     await client.query('DELETE FROM team_players WHERE team_id IN (SELECT id FROM teams WHERE round_id IN (SELECT id FROM rounds WHERE tournament_id = $1))', [id]);
     await client.query('DELETE FROM teams WHERE round_id IN (SELECT id FROM rounds WHERE tournament_id = $1)', [id]);
     await client.query('DELETE FROM rounds WHERE tournament_id = $1', [id]);
-    
+
     // Step 2: Reset all player match counts, points, and point differentials to zero
     await client.query('UPDATE players SET matches_played = 0, total_points = 0, point_differential = 0 WHERE tournament_id = $1', [id]);
-    
+
     console.log('Cleared existing tournament structure and reset player stats');
-    
+
     // Step 3: Get players for regeneration
     const playersResult = await client.query('SELECT * FROM players WHERE tournament_id = $1', [id]);
     const players = playersResult.rows;
-    
+
     if (players.length < tournament.min_players_per_team * 2) {
       return res.status(400).json({ message: 'Not enough players to regenerate tournament' });
     }
-    
+
     // Step 4: Generate new tournament structure
     const settings = {
       courtsAvailable: tournament.courts_available,
       minPlayersPerTeam: tournament.min_players_per_team,
       matchesPerPlayer: tournament.matches_per_player,
-      hasPowerMatch: tournament.has_power_match
+      finalByePlayerName: finalByePlayerName || null
     };
     
     console.log(`Regenerating with ${players.length} players`);
