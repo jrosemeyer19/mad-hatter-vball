@@ -74,7 +74,92 @@ function getTeammateCount(playerId, teamPlayers) {
 
 function resetTeammateTracking() {
   tournamentTeammateHistory = {};
+  bPlayerSupportHistory = {};
   console.log(`Teammate rotation tracking reset`);
+}
+
+// ===== B PLAYER SUPPORT TRACKING =====
+// Track which strong players (A/AA/BB) have supported B players across rounds
+// This ensures B players get different "mentors" each round for variety and development
+
+let bPlayerSupportHistory = {};
+
+function initializeBPlayerSupportTracking(players) {
+  bPlayerSupportHistory = {};
+
+  const bPlayers = players.filter(p => p.skill_level === 'B');
+  const strongPlayers = players.filter(p => ['AA', 'A', 'BB'].includes(p.skill_level));
+
+  console.log(`\n=== Initializing B Player Support Tracking ===`);
+  console.log(`B players: ${bPlayers.length}, Strong players (AA/A/BB): ${strongPlayers.length}`);
+
+  bPlayers.forEach(bPlayer => {
+    bPlayerSupportHistory[bPlayer.id] = {};
+    strongPlayers.forEach(strongPlayer => {
+      bPlayerSupportHistory[bPlayer.id][strongPlayer.id] = 0;
+    });
+  });
+}
+
+function recordBPlayerSupport(team) {
+  if (!team.players || team.players.length === 0) return;
+
+  const bPlayersOnTeam = team.players.filter(p => p.skill_level === 'B');
+  const strongPlayersOnTeam = team.players.filter(p => ['AA', 'A', 'BB'].includes(p.skill_level));
+
+  // Record each B player's support from strong players
+  bPlayersOnTeam.forEach(bPlayer => {
+    if (bPlayerSupportHistory[bPlayer.id]) {
+      strongPlayersOnTeam.forEach(strongPlayer => {
+        if (bPlayerSupportHistory[bPlayer.id][strongPlayer.id] !== undefined) {
+          bPlayerSupportHistory[bPlayer.id][strongPlayer.id]++;
+        }
+      });
+    }
+  });
+}
+
+// Get how many times a B player has been supported by the strong players on a potential team
+function getBPlayerSupportRepeatCount(bPlayerId, teamPlayers) {
+  if (!bPlayerSupportHistory[bPlayerId]) return 0;
+
+  let repeatCount = 0;
+  const strongPlayers = teamPlayers.filter(p => ['AA', 'A', 'BB'].includes(p.skill_level));
+
+  strongPlayers.forEach(strongPlayer => {
+    const timesWithThisPlayer = bPlayerSupportHistory[bPlayerId][strongPlayer.id] || 0;
+    repeatCount += timesWithThisPlayer;
+  });
+
+  return repeatCount;
+}
+
+// Calculate "support score" for a B player on a given team
+// Higher score = better support environment for the B player
+function calculateBPlayerSupportScore(bPlayer, team) {
+  const teammates = team.players.filter(p => p.id !== bPlayer.id);
+
+  if (teammates.length === 0) return 0;
+
+  // Calculate average skill of teammates (excluding other B players)
+  const nonBTeammates = teammates.filter(p => p.skill_level !== 'B');
+  if (nonBTeammates.length === 0) return 0;
+
+  const totalSkill = nonBTeammates.reduce((sum, p) => sum + getSkillRating(p), 0);
+  const avgSkill = totalSkill / nonBTeammates.length;
+
+  // Bonus for having strong players (AA/A)
+  const strongPlayerCount = teammates.filter(p => ['AA', 'A'].includes(p.skill_level)).length;
+  const strongPlayerBonus = strongPlayerCount * 0.5;
+
+  // Bonus for larger teams (more support)
+  const teamSizeBonus = team.targetSize >= 6 ? 0.3 : 0;
+
+  // Penalty for repeat support (same mentors as before)
+  const repeatCount = getBPlayerSupportRepeatCount(bPlayer.id, teammates);
+  const repeatPenalty = repeatCount * 0.2;
+
+  return avgSkill + strongPlayerBonus + teamSizeBonus - repeatPenalty;
 }
 
 function getSkillRating(player) {
@@ -143,6 +228,7 @@ function generateAllRounds(players, settings) {
   }
 
   initializeTeammateTracking(players);
+  initializeBPlayerSupportTracking(players);
 
   validateInputs(players, settings);
 
@@ -175,6 +261,7 @@ function generateAllRounds(players, settings) {
     round.teams.forEach(team => {
       if (!team.is_bye_team) {
         recordTeammates(team);
+        recordBPlayerSupport(team);
       }
     });
   });
@@ -196,9 +283,10 @@ function generateAllRounds(players, settings) {
   });
 
   validateFlexibleTournament(players, allRounds, settings.matchesPerPlayer);
-  
+
   logTeammateRotationStats(players);
-  
+  logBPlayerSupportStats(players);
+
   // ENHANCED: Validate team constraints
   console.log('\n=== Final Tournament Constraint Validation ===');
   const allTeams = allRounds.flatMap(round => round.teams.filter(t => !t.is_bye_team));
@@ -248,6 +336,68 @@ function logTeammateRotationStats(players) {
     console.log('✅ Good teammate rotation');
   } else {
     console.log('⚠️  High repeat pairing rate - consider algorithm improvements');
+  }
+}
+
+function logBPlayerSupportStats(players) {
+  const bPlayers = players.filter(p => p.skill_level === 'B');
+
+  if (bPlayers.length === 0) {
+    console.log('\n=== B Player Support Statistics ===');
+    console.log('No B players in tournament');
+    return;
+  }
+
+  console.log('\n=== B Player Support Statistics ===');
+  console.log(`Total B players: ${bPlayers.length}`);
+
+  const strongPlayers = players.filter(p => ['AA', 'A', 'BB'].includes(p.skill_level));
+  console.log(`Strong players (AA/A/BB): ${strongPlayers.length}`);
+
+  // Analyze variety of support for each B player
+  let totalVariety = 0;
+  let totalMaxRepeats = 0;
+
+  bPlayers.forEach(bPlayer => {
+    if (!bPlayerSupportHistory[bPlayer.id]) return;
+
+    const supportCounts = Object.values(bPlayerSupportHistory[bPlayer.id]);
+    const uniqueSupports = supportCounts.filter(c => c > 0).length;
+    const maxRepeat = Math.max(...supportCounts, 0);
+    const totalSupports = supportCounts.reduce((a, b) => a + b, 0);
+
+    totalVariety += uniqueSupports;
+    totalMaxRepeats += maxRepeat;
+
+    // Find most frequent supporters for this B player
+    const supporters = Object.entries(bPlayerSupportHistory[bPlayer.id])
+      .filter(([, count]) => count > 0)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3);
+
+    const supporterNames = supporters.map(([id, count]) => {
+      const supporter = strongPlayers.find(p => p.id == id);
+      return supporter ? `${supporter.name} (${count}x)` : `Unknown (${count}x)`;
+    }).join(', ');
+
+    console.log(`  ${bPlayer.name} (${bPlayer.gender}): ${uniqueSupports} unique mentors, ${totalSupports} total support instances, max repeat: ${maxRepeat}`);
+    if (supporterNames) {
+      console.log(`    Top supporters: ${supporterNames}`);
+    }
+  });
+
+  const avgVariety = totalVariety / bPlayers.length;
+  const avgMaxRepeat = totalMaxRepeats / bPlayers.length;
+
+  console.log(`\nAverage unique mentors per B player: ${avgVariety.toFixed(1)}`);
+  console.log(`Average max repeat with same mentor: ${avgMaxRepeat.toFixed(1)}`);
+
+  if (avgMaxRepeat <= 2) {
+    console.log('✅ Excellent B player support variety - good mentor rotation');
+  } else if (avgMaxRepeat <= 3) {
+    console.log('✓ Good B player support variety');
+  } else {
+    console.log('⚠️  B players could benefit from more variety in mentors');
   }
 }
 
@@ -2396,13 +2546,50 @@ function findBeneficialSwap(team1, team2, currentSkillDiff, currentGenderDiff, a
       const skillImprovement = currentSkillDiff - newSkillDiff;
       const genderImprovement = currentGenderDiff - newGenderDiff;
 
-      // Combined score: prioritize gender balance slightly, but consider both
-      // Gender improvement is weighted more heavily since skill balance is often already good
-      const combinedScore = skillImprovement * 0.5 + genderImprovement * 1.5;
+      // Calculate B player support impact
+      // If teams have B players, swaps that improve their support should be weighted
+      let bPlayerSupportBonus = 0;
+      const team1BPlayers = team1.players.filter(p => p.skill_level === 'B');
+      const team2BPlayers = team2.players.filter(p => p.skill_level === 'B');
+
+      if (team1BPlayers.length > 0 || team2BPlayers.length > 0) {
+        // Check if swap improves support for B players
+        // Strong player moving to team with B player = bonus
+        // B player moving to team with more strong players = bonus
+        const player1IsStrong = ['AA', 'A'].includes(player1.skill_level);
+        const player2IsStrong = ['AA', 'A'].includes(player2.skill_level);
+        const player1IsB = player1.skill_level === 'B';
+        const player2IsB = player2.skill_level === 'B';
+
+        // Strong player moving to team with B players
+        if (player1IsStrong && team2BPlayers.length > 0) bPlayerSupportBonus += 0.3;
+        if (player2IsStrong && team1BPlayers.length > 0) bPlayerSupportBonus += 0.3;
+
+        // B player moving to team with more strong players (not moving, but this is the pattern)
+        if (player1IsB) {
+          const team2StrongCount = team2.players.filter(p => ['AA', 'A'].includes(p.skill_level) && p.id !== player2.id).length;
+          const team1StrongCount = team1.players.filter(p => ['AA', 'A'].includes(p.skill_level) && p.id !== player1.id).length;
+          if (team2StrongCount > team1StrongCount) bPlayerSupportBonus += 0.2;
+        }
+        if (player2IsB) {
+          const team1StrongCount = team1.players.filter(p => ['AA', 'A'].includes(p.skill_level) && p.id !== player1.id).length;
+          const team2StrongCount = team2.players.filter(p => ['AA', 'A'].includes(p.skill_level) && p.id !== player2.id).length;
+          if (team1StrongCount > team2StrongCount) bPlayerSupportBonus += 0.2;
+        }
+      }
+
+      // Weight skill balance MORE heavily when teams have B players
+      // This ensures B player teams aren't disadvantaged
+      const hasBPlayers = team1BPlayers.length > 0 || team2BPlayers.length > 0;
+      const skillWeight = hasBPlayers ? 1.0 : 0.5; // Double weight when B players present
+
+      // Combined score with B player support consideration
+      const combinedScore = skillImprovement * skillWeight + genderImprovement * 1.5 + bPlayerSupportBonus;
 
       // Only consider swaps that provide meaningful improvement
       const isWorthwhile = (skillImprovement > 0.5 && newSkillDiff <= currentSkillDiff) ||
-                           (genderImprovement >= 1 && newGenderDiff < currentGenderDiff);
+                           (genderImprovement >= 1 && newGenderDiff < currentGenderDiff) ||
+                           (bPlayerSupportBonus > 0.3); // Also worthwhile if significantly helps B players
 
       if (isWorthwhile && combinedScore > bestScore && newSkillDiff <= currentSkillDiff + 0.5) {
         // Don't allow swaps that make skill significantly worse
@@ -2415,7 +2602,8 @@ function findBeneficialSwap(team1, team2, currentSkillDiff, currentGenderDiff, a
           newSkillDiff,
           newGenderDiff,
           skillImprovement,
-          genderImprovement
+          genderImprovement,
+          bPlayerSupportBonus
         };
       }
     }
@@ -2472,7 +2660,19 @@ function isSwapValid(team1, team2, player1, player2, allTeams) {
     return false;
   }
 
-  // Check B player constraint - max 1 per gender per team
+  // Check B player constraint - dynamic max based on even distribution
+  // (reuse playingTeams and teamCount from setter constraint above)
+
+  // Calculate total B males and B females across all teams
+  const totalBMales = playingTeams.reduce((sum, t) =>
+    sum + t.players.filter(p => p.skill_level === 'B' && p.gender === 'male').length, 0);
+  const totalBFemales = playingTeams.reduce((sum, t) =>
+    sum + t.players.filter(p => p.skill_level === 'B' && p.gender === 'female').length, 0);
+
+  const maxBMalesPerTeam = Math.ceil(totalBMales / teamCount);
+  const maxBFemalesPerTeam = Math.ceil(totalBFemales / teamCount);
+
+  // Count B players on each team after swap
   const team1BMaleCount = team1.players.filter(p => p.skill_level === 'B' && p.gender === 'male' && p.id !== player1.id).length +
                           (player2.skill_level === 'B' && player2.gender === 'male' ? 1 : 0);
   const team1BFemaleCount = team1.players.filter(p => p.skill_level === 'B' && p.gender === 'female' && p.id !== player1.id).length +
@@ -2483,7 +2683,33 @@ function isSwapValid(team1, team2, player1, player2, allTeams) {
   const team2BFemaleCount = team2.players.filter(p => p.skill_level === 'B' && p.gender === 'female' && p.id !== player2.id).length +
                             (player1.skill_level === 'B' && player1.gender === 'female' ? 1 : 0);
 
-  if (team1BMaleCount > 1 || team1BFemaleCount > 1 || team2BMaleCount > 1 || team2BFemaleCount > 1) {
+  // Reject if swap would exceed dynamic max
+  if (team1BMaleCount > maxBMalesPerTeam || team2BMaleCount > maxBMalesPerTeam) {
+    return false;
+  }
+  if (team1BFemaleCount > maxBFemalesPerTeam || team2BFemaleCount > maxBFemalesPerTeam) {
+    return false;
+  }
+
+  // Also reject swaps that would make B distribution less even
+  const team1BMaleBefore = team1.players.filter(p => p.skill_level === 'B' && p.gender === 'male').length;
+  const team2BMaleBefore = team2.players.filter(p => p.skill_level === 'B' && p.gender === 'male').length;
+  const team1BFemaleBefore = team1.players.filter(p => p.skill_level === 'B' && p.gender === 'female').length;
+  const team2BFemaleBefore = team2.players.filter(p => p.skill_level === 'B' && p.gender === 'female').length;
+
+  // Reject if team with more B males would gain another
+  if (team1BMaleCount > team1BMaleBefore && team1BMaleBefore > team2BMaleBefore) {
+    return false;
+  }
+  if (team2BMaleCount > team2BMaleBefore && team2BMaleBefore > team1BMaleBefore) {
+    return false;
+  }
+
+  // Reject if team with more B females would gain another
+  if (team1BFemaleCount > team1BFemaleBefore && team1BFemaleBefore > team2BFemaleBefore) {
+    return false;
+  }
+  if (team2BFemaleCount > team2BFemaleBefore && team2BFemaleBefore > team1BFemaleBefore) {
     return false;
   }
 
@@ -2570,13 +2796,35 @@ function canTeamAcceptPlayer(team, player, allTeams = null) {
       }
     }
 
-    // ENHANCED: Enforce "no more than one B-rated player per gender per team" rule
-    if (player.skill_level === 'B') {
-      const currentBPlayersOfSameGender = team.players.filter(p =>
+    // ENHANCED: Enforce even B-rated player distribution across teams
+    // Dynamic constraint: max B players per gender per team = ceil(totalBOfGender / teamCount)
+    if (player.skill_level === 'B' && allTeams) {
+      const playingTeams = allTeams.filter(t => !t.is_bye_team);
+      const teamCount = playingTeams.length;
+
+      // Count total B players of same gender already assigned + this one being placed
+      const totalBOfGenderAssigned = playingTeams.reduce((sum, t) =>
+        sum + t.players.filter(p => p.skill_level === 'B' && p.gender === player.gender).length, 0);
+      const totalBOfGender = totalBOfGenderAssigned + 1; // +1 for player being placed
+
+      // Calculate max allowed per team for even distribution
+      const maxBPerTeam = Math.ceil(totalBOfGender / teamCount);
+
+      const currentBOfGender = team.players.filter(p =>
         p.skill_level === 'B' && p.gender === player.gender
-      );
-      if (currentBPlayersOfSameGender.length >= 1) {
-        return { canAccept: false, reason: `Would create multiple B-rated ${player.gender} players on team` };
+      ).length;
+
+      // Only reject if this team already has the max allowed
+      if (currentBOfGender >= maxBPerTeam) {
+        // Check if other teams have fewer B players of this gender with room available
+        const teamsWithFewerB = playingTeams.filter(t => {
+          const bCount = t.players.filter(p => p.skill_level === 'B' && p.gender === player.gender).length;
+          return bCount < currentBOfGender && t.players.length < t.targetSize;
+        });
+
+        if (teamsWithFewerB.length > 0) {
+          return { canAccept: false, reason: `Other teams need B ${player.gender}s first (even distribution: max ${maxBPerTeam} per team)` };
+        }
       }
     }
 
@@ -2712,29 +2960,51 @@ function findBestTeamForPlayerWithConstraints(teams, teamPairs, player, category
       }
     }
 
-    // Priority 3: For B-rated players, distribute evenly by gender
-    // B males should go to different teams, B females should go to different teams
+    // Priority 3: For B-rated players, use comprehensive support scoring
+    // B players benefit from: larger teams, stronger teammates, variety of mentors
     if (category === 'maleB') {
       const aBMale = a.stats.maleB || 0;
       const bBMale = b.stats.maleB || 0;
+
+      // First, strongly prefer teams that don't have any B males yet (even distribution)
       if (aBMale !== bBMale) {
         return aBMale - bBMale; // Prefer team with fewer B males
       }
-      // Also prefer larger teams for B players (more room for balance)
+
+      // Use comprehensive support score for B player placement
+      const aSupportScore = calculateBPlayerSupportScore(player, a);
+      const bSupportScore = calculateBPlayerSupportScore(player, b);
+
+      if (Math.abs(aSupportScore - bSupportScore) > 0.2) {
+        return bSupportScore - aSupportScore; // Higher support score first
+      }
+
+      // Fallback: prefer larger teams for more support
       if (a.targetSize !== b.targetSize) {
-        return b.targetSize - a.targetSize;
+        return b.targetSize - a.targetSize; // Larger teams first
       }
     }
 
     if (category === 'femaleB') {
       const aBFemale = a.stats.femaleB || 0;
       const bBFemale = b.stats.femaleB || 0;
+
+      // First, strongly prefer teams that don't have any B females yet (even distribution)
       if (aBFemale !== bBFemale) {
         return aBFemale - bBFemale; // Prefer team with fewer B females
       }
-      // Also prefer larger teams for B players (more room for balance)
+
+      // Use comprehensive support score for B player placement
+      const aSupportScore = calculateBPlayerSupportScore(player, a);
+      const bSupportScore = calculateBPlayerSupportScore(player, b);
+
+      if (Math.abs(aSupportScore - bSupportScore) > 0.2) {
+        return bSupportScore - aSupportScore; // Higher support score first
+      }
+
+      // Fallback: prefer larger teams for more support
       if (a.targetSize !== b.targetSize) {
-        return b.targetSize - a.targetSize;
+        return b.targetSize - a.targetSize; // Larger teams first
       }
     }
 
@@ -2984,29 +3254,43 @@ function validateAllTeamsConstraints(teams) {
       console.log(`    ⚠️  ${teamsWithMultipleB} team(s) have multiple B players`);
     }
 
-    // B male distribution
+    // B male distribution - with dynamic max calculation
     const totalBMales = bMaleDistribution.reduce((a, b) => a + b, 0);
-    const teamsWithBMale = bMaleDistribution.filter(b => b > 0).length;
-    const maxBMale = Math.max(...bMaleDistribution);
     if (totalBMales > 0) {
-      console.log(`  B-rated males: ${totalBMales} total, spread across ${teamsWithBMale} team(s), max per team: ${maxBMale}`);
-      if (maxBMale <= 1) {
+      const bMaleTeamCount = bMaleDistribution.length;
+      const idealMaxBMales = Math.ceil(totalBMales / bMaleTeamCount);
+      const actualMaxBMale = Math.max(...bMaleDistribution);
+      const minBMale = Math.min(...bMaleDistribution);
+
+      console.log(`  B-rated males: ${totalBMales} total across ${bMaleTeamCount} teams, distribution: min=${minBMale}, max=${actualMaxBMale} (ideal max: ${idealMaxBMales})`);
+
+      if (actualMaxBMale <= idealMaxBMales && (actualMaxBMale - minBMale) <= 1) {
         console.log(`    ✅ B males evenly distributed`);
+      } else if (actualMaxBMale <= idealMaxBMales) {
+        console.log(`    ✓ B males within limits (max ${idealMaxBMales} per team)`);
       } else {
-        console.log(`    ⚠️  B male distribution could be more even`);
+        const teamsOverLimit = bMaleDistribution.filter(b => b > idealMaxBMales).length;
+        console.log(`    ❌ VIOLATION: ${teamsOverLimit} team(s) exceed ideal max of ${idealMaxBMales} B males!`);
       }
     }
 
-    // B female distribution
+    // B female distribution - with dynamic max calculation
     const totalBFemales = bFemaleDistribution.reduce((a, b) => a + b, 0);
-    const teamsWithBFemale = bFemaleDistribution.filter(b => b > 0).length;
-    const maxBFemale = Math.max(...bFemaleDistribution);
     if (totalBFemales > 0) {
-      console.log(`  B-rated females: ${totalBFemales} total, spread across ${teamsWithBFemale} team(s), max per team: ${maxBFemale}`);
-      if (maxBFemale <= 1) {
+      const bFemaleTeamCount = bFemaleDistribution.length;
+      const idealMaxBFemales = Math.ceil(totalBFemales / bFemaleTeamCount);
+      const actualMaxBFemale = Math.max(...bFemaleDistribution);
+      const minBFemale = Math.min(...bFemaleDistribution);
+
+      console.log(`  B-rated females: ${totalBFemales} total across ${bFemaleTeamCount} teams, distribution: min=${minBFemale}, max=${actualMaxBFemale} (ideal max: ${idealMaxBFemales})`);
+
+      if (actualMaxBFemale <= idealMaxBFemales && (actualMaxBFemale - minBFemale) <= 1) {
         console.log(`    ✅ B females evenly distributed`);
+      } else if (actualMaxBFemale <= idealMaxBFemales) {
+        console.log(`    ✓ B females within limits (max ${idealMaxBFemales} per team)`);
       } else {
-        console.log(`    ⚠️  B female distribution could be more even`);
+        const teamsOverLimit = bFemaleDistribution.filter(b => b > idealMaxBFemales).length;
+        console.log(`    ❌ VIOLATION: ${teamsOverLimit} team(s) exceed ideal max of ${idealMaxBFemales} B females!`);
       }
     }
 
