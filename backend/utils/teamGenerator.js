@@ -2426,7 +2426,10 @@ function createBalancedTeams(players, teamConfig, roundNumber) {
       }
     }
   });
-  
+
+  // NEW: B player rebalancing pass - fix teams with multiple B players of same gender
+  rebalanceBPlayers(teams, teamPairs);
+
   console.log(`\n=== Final Team Composition ===`);
   teamPairs.forEach(pair => {
     const team1 = pair.team1;
@@ -2455,6 +2458,158 @@ function createBalancedTeams(players, teamConfig, roundNumber) {
   const constraintValidation = validateAllTeamsConstraints(teams);
 
   return teams;
+}
+
+// NEW: B player rebalancing pass - ensures even distribution of B players
+// This runs after initial distribution to fix any teams with 2+ B players of same gender
+function rebalanceBPlayers(teams, teamPairs) {
+  console.log('\n=== B Player Rebalancing Pass ===');
+
+  const playingTeams = teams.filter(t => !t.is_bye_team);
+  let swapsMade = 0;
+
+  // Check for B male imbalances
+  const bMaleSwaps = rebalanceBPlayersByGender(playingTeams, teamPairs, 'male');
+  swapsMade += bMaleSwaps;
+
+  // Check for B female imbalances
+  const bFemaleSwaps = rebalanceBPlayersByGender(playingTeams, teamPairs, 'female');
+  swapsMade += bFemaleSwaps;
+
+  if (swapsMade > 0) {
+    console.log(`  ✅ B player rebalancing: ${swapsMade} swap(s) made`);
+  } else {
+    console.log(`  ✓ No B player rebalancing needed`);
+  }
+}
+
+function rebalanceBPlayersByGender(teams, _teamPairs, gender) {
+  let swapsMade = 0;
+  const maxIterations = 10;
+  let iteration = 0;
+
+  while (iteration < maxIterations) {
+    iteration++;
+
+    // Find teams with 2+ B players of this gender, prioritize smaller teams as sources
+    const teamsWithExcessB = teams
+      .filter(t => t.players.filter(p => p.skill_level === 'B' && p.gender === gender).length >= 2)
+      .sort((a, b) => a.targetSize - b.targetSize); // Smaller teams first (move B players OUT of small teams)
+
+    if (teamsWithExcessB.length === 0) break;
+
+    // Find teams with 0 B players of this gender, prioritize larger teams as targets
+    const teamsWithoutB = teams
+      .filter(t => t.players.filter(p => p.skill_level === 'B' && p.gender === gender).length === 0)
+      .sort((a, b) => b.targetSize - a.targetSize); // Larger teams first (move B players INTO large teams)
+
+    if (teamsWithoutB.length === 0) break;
+
+    let swappedThisIteration = false;
+
+    for (const sourceTeam of teamsWithExcessB) {
+      if (swappedThisIteration) break;
+
+      // Get the B players on this team
+      const bPlayersOnTeam = sourceTeam.players.filter(p =>
+        p.skill_level === 'B' && p.gender === gender
+      );
+
+      // Try to swap one B player to a team without B players
+      for (const bPlayer of bPlayersOnTeam.slice(1)) { // Keep one, try to move others
+        if (swappedThisIteration) break;
+
+        for (const targetTeam of teamsWithoutB) {
+          // Skip if target team is smaller than source (prefer moving to larger teams)
+          // But allow it if no larger team is available
+          const largerTeamAvailable = teamsWithoutB.some(t =>
+            t.targetSize > sourceTeam.targetSize &&
+            t.players.filter(p => p.skill_level !== 'B' && p.gender === gender).length > 0
+          );
+          if (largerTeamAvailable && targetTeam.targetSize < sourceTeam.targetSize) {
+            continue;
+          }
+          // Find a non-B player on target team to swap
+          const swapCandidates = targetTeam.players.filter(p =>
+            p.skill_level !== 'B' && p.gender === gender
+          );
+
+          for (const swapCandidate of swapCandidates) {
+            // Check if this swap maintains other constraints
+            if (canSwapForBRebalance(sourceTeam, targetTeam, bPlayer, swapCandidate, teams)) {
+              // Perform the swap
+              sourceTeam.players = sourceTeam.players.filter(p => p.id !== bPlayer.id);
+              targetTeam.players = targetTeam.players.filter(p => p.id !== swapCandidate.id);
+              sourceTeam.players.push(swapCandidate);
+              targetTeam.players.push(bPlayer);
+
+              // Recalculate stats
+              recalculateTeamStats(sourceTeam);
+              recalculateTeamStats(targetTeam);
+
+              console.log(`  Swapped ${bPlayer.name} (B ${gender}) from Team ${sourceTeam.team_number} <-> ${swapCandidate.name} from Team ${targetTeam.team_number}`);
+
+              // Prefer moving B players to larger teams
+              if (targetTeam.targetSize > sourceTeam.targetSize) {
+                console.log(`    → B player moved to larger team (${targetTeam.targetSize} vs ${sourceTeam.targetSize})`);
+              }
+
+              swapsMade++;
+              swappedThisIteration = true;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    if (!swappedThisIteration) break;
+  }
+
+  return swapsMade;
+}
+
+// Check if a swap for B player rebalancing is valid
+function canSwapForBRebalance(team1, team2, player1, player2, allTeams) {
+  // Check male counts after swap
+  const team1Males = team1.stats.male - (player1.gender === 'male' ? 1 : 0) + (player2.gender === 'male' ? 1 : 0);
+  const team2Males = team2.stats.male - (player2.gender === 'male' ? 1 : 0) + (player1.gender === 'male' ? 1 : 0);
+
+  // Both teams need at least 2 males
+  if (team1Males < 2 || team2Males < 2) {
+    return false;
+  }
+
+  // Don't create female setter imbalance
+  const player1IsFemSetter = player1.gender === 'female' && player1.is_setter;
+  const player2IsFemSetter = player2.gender === 'female' && player2.is_setter;
+
+  const playingTeams = allTeams.filter(t => !t.is_bye_team);
+  const teamCount = playingTeams.length;
+  const totalFemaleSetters = playingTeams.reduce((sum, t) =>
+    sum + t.players.filter(p => p.gender === 'female' && p.is_setter).length, 0);
+  const maxSettersPerTeam = Math.ceil(totalFemaleSetters / teamCount);
+
+  const team1SettersAfter = team1.players.filter(p => p.gender === 'female' && p.is_setter && p.id !== player1.id).length +
+                            (player2IsFemSetter ? 1 : 0);
+  const team2SettersAfter = team2.players.filter(p => p.gender === 'female' && p.is_setter && p.id !== player2.id).length +
+                            (player1IsFemSetter ? 1 : 0);
+
+  if (team1SettersAfter > maxSettersPerTeam || team2SettersAfter > maxSettersPerTeam) {
+    return false;
+  }
+
+  // Check skill difference doesn't get too bad (within reason for B player rebalancing)
+  const player1Skill = getSkillRating(player1);
+  const player2Skill = getSkillRating(player2);
+  const skillChange = Math.abs(player1Skill - player2Skill);
+
+  // Allow up to 2.0 skill difference for the purpose of B player distribution
+  if (skillChange > 2.0) {
+    return false;
+  }
+
+  return true;
 }
 
 // NEW: Refinement pass to improve team balance through player swaps
