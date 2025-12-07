@@ -2559,6 +2559,7 @@ function rebalanceBPlayersByGender(teams, _teamPairs, gender) {
               break;
             }
           }
+          if (swappedThisIteration) break; // Exit targetTeam loop after successful swap
         }
       }
     }
