@@ -2437,6 +2437,41 @@ function isSwapValid(team1, team2, player1, player2, allTeams) {
     return false;
   }
 
+  // Check female setter constraint - dynamic max based on even distribution
+  const player1IsFemSetter = player1.gender === 'female' && player1.is_setter;
+  const player2IsFemSetter = player2.gender === 'female' && player2.is_setter;
+
+  // Calculate total female setters across all teams and the max allowed per team
+  const playingTeams = allTeams.filter(t => !t.is_bye_team);
+  const teamCount = playingTeams.length;
+  const totalFemaleSetters = playingTeams.reduce((sum, t) =>
+    sum + t.players.filter(p => p.gender === 'female' && p.is_setter).length, 0);
+  const maxSettersPerTeam = Math.ceil(totalFemaleSetters / teamCount);
+
+  // Count female setters on each team after swap (excluding the swapped players, then adding the incoming ones)
+  const team1FemSettersAfter = team1.players.filter(p => p.gender === 'female' && p.is_setter && p.id !== player1.id).length +
+                               (player2IsFemSetter ? 1 : 0);
+  const team2FemSettersAfter = team2.players.filter(p => p.gender === 'female' && p.is_setter && p.id !== player2.id).length +
+                               (player1IsFemSetter ? 1 : 0);
+
+  // Reject swap if it would make either team exceed the max allowed
+  if (team1FemSettersAfter > maxSettersPerTeam || team2FemSettersAfter > maxSettersPerTeam) {
+    return false;
+  }
+
+  // Also reject if swap would make distribution less even (one team gains while having more than another)
+  const team1FemSettersBefore = team1.players.filter(p => p.gender === 'female' && p.is_setter).length;
+  const team2FemSettersBefore = team2.players.filter(p => p.gender === 'female' && p.is_setter).length;
+
+  // If team1 would gain a setter and already has more than team2, reject
+  if (team1FemSettersAfter > team1FemSettersBefore && team1FemSettersBefore > team2FemSettersBefore) {
+    return false;
+  }
+  // If team2 would gain a setter and already has more than team1, reject
+  if (team2FemSettersAfter > team2FemSettersBefore && team2FemSettersBefore > team1FemSettersBefore) {
+    return false;
+  }
+
   // Check B player constraint - max 1 per gender per team
   const team1BMaleCount = team1.players.filter(p => p.skill_level === 'B' && p.gender === 'male' && p.id !== player1.id).length +
                           (player2.skill_level === 'B' && player2.gender === 'male' ? 1 : 0);
@@ -2542,6 +2577,38 @@ function canTeamAcceptPlayer(team, player, allTeams = null) {
       );
       if (currentBPlayersOfSameGender.length >= 1) {
         return { canAccept: false, reason: `Would create multiple B-rated ${player.gender} players on team` };
+      }
+    }
+
+    // ENHANCED: Enforce even female setter distribution across teams
+    // Dynamic constraint: max setters per team = ceil(totalSetters / teamCount)
+    if (player.gender === 'female' && player.is_setter && allTeams) {
+      const playingTeams = allTeams.filter(t => !t.is_bye_team);
+      const teamCount = playingTeams.length;
+
+      // Count total female setters already assigned + this one being placed
+      const totalFemaleSettersAssigned = playingTeams.reduce((sum, t) =>
+        sum + t.players.filter(p => p.gender === 'female' && p.is_setter).length, 0);
+      const totalFemaleSetters = totalFemaleSettersAssigned + 1; // +1 for player being placed
+
+      // Calculate max allowed per team for even distribution
+      const maxSettersPerTeam = Math.ceil(totalFemaleSetters / teamCount);
+
+      const currentFemaleSetters = team.players.filter(p =>
+        p.gender === 'female' && p.is_setter
+      ).length;
+
+      // Only reject if this team already has the max allowed
+      if (currentFemaleSetters >= maxSettersPerTeam) {
+        // Check if other teams have room (fewer setters)
+        const teamsWithFewerSetters = playingTeams.filter(t => {
+          const setterCount = t.players.filter(p => p.gender === 'female' && p.is_setter).length;
+          return setterCount < currentFemaleSetters && t.players.length < t.targetSize;
+        });
+
+        if (teamsWithFewerSetters.length > 0) {
+          return { canAccept: false, reason: `Other teams need female setters first (even distribution: max ${maxSettersPerTeam} per team)` };
+        }
       }
     }
   }
@@ -2780,6 +2847,7 @@ function validateAllTeamsConstraints(teams) {
   const femaleADistribution = [];
   const maleBBDistribution = [];
   const femaleBBDistribution = [];
+  const femaleSetterDistribution = [];
   const bPlayerDistribution = [];
   const bMaleDistribution = [];
   const bFemaleDistribution = [];
@@ -2795,6 +2863,7 @@ function validateAllTeamsConstraints(teams) {
     const femaleACount = team.players.filter(p => p.gender === 'female' && p.skill_level === 'A').length;
     const maleBBCount = team.players.filter(p => p.gender === 'male' && p.skill_level === 'BB').length;
     const femaleBBCount = team.players.filter(p => p.gender === 'female' && p.skill_level === 'BB').length;
+    const femaleSetterCount = team.players.filter(p => p.gender === 'female' && p.is_setter).length;
     const bPlayerCount = team.players.filter(p => p.skill_level === 'B').length;
     const bMaleCount = team.players.filter(p => p.gender === 'male' && p.skill_level === 'B').length;
     const bFemaleCount = team.players.filter(p => p.gender === 'female' && p.skill_level === 'B').length;
@@ -2804,6 +2873,7 @@ function validateAllTeamsConstraints(teams) {
     femaleADistribution.push(femaleACount);
     maleBBDistribution.push(maleBBCount);
     femaleBBDistribution.push(femaleBBCount);
+    femaleSetterDistribution.push(femaleSetterCount);
     bPlayerDistribution.push(bPlayerCount);
     bMaleDistribution.push(bMaleCount);
     bFemaleDistribution.push(bFemaleCount);
@@ -2881,6 +2951,26 @@ function validateAllTeamsConstraints(teams) {
         console.log(`    ✅ BB females evenly distributed`);
       } else {
         console.log(`    ⚠️  BB female distribution could be more even`);
+      }
+    }
+
+    // Female setter distribution - CRITICAL constraint with dynamic max
+    const totalFemaleSetters = femaleSetterDistribution.reduce((a, b) => a + b, 0);
+    if (totalFemaleSetters > 0) {
+      const teamCount = femaleSetterDistribution.length;
+      const idealMaxPerTeam = Math.ceil(totalFemaleSetters / teamCount);
+      const actualMaxPerTeam = Math.max(...femaleSetterDistribution);
+      const minPerTeam = Math.min(...femaleSetterDistribution);
+
+      console.log(`  Female setters: ${totalFemaleSetters} total across ${teamCount} teams, distribution: min=${minPerTeam}, max=${actualMaxPerTeam} (ideal max: ${idealMaxPerTeam})`);
+
+      if (actualMaxPerTeam <= idealMaxPerTeam && (actualMaxPerTeam - minPerTeam) <= 1) {
+        console.log(`    ✅ Female setters evenly distributed`);
+      } else if (actualMaxPerTeam <= idealMaxPerTeam) {
+        console.log(`    ✓ Female setters within limits (max ${idealMaxPerTeam} per team)`);
+      } else {
+        const teamsOverLimit = femaleSetterDistribution.filter(s => s > idealMaxPerTeam).length;
+        console.log(`    ❌ VIOLATION: ${teamsOverLimit} team(s) exceed ideal max of ${idealMaxPerTeam} setters!`);
       }
     }
 
