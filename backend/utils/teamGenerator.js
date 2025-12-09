@@ -234,7 +234,7 @@ function generateAllRounds(players, settings) {
 
   const structure = calculateOptimalStructure(players.length, settings);
 
-  const byeSchedule = generateFlexibleByeSchedule(players, structure.flexibleRounds, settings.finalByePlayerName);
+  const byeSchedule = generateFlexibleByeSchedule(players, structure.flexibleRounds, settings.finalByePlayerName, structure.courtsUsed);
   
   const allRounds = [];
   
@@ -945,7 +945,7 @@ function tryPlayerCentricSolution(totalPlayers, totalPlayerMatches, settings, ca
  * Replace the existing function in teamGenerator.js with this version
  */
 
-function generateFlexibleByeSchedule(players, flexibleRounds, finalByePlayerName = null) {
+function generateFlexibleByeSchedule(players, flexibleRounds, finalByePlayerName = null, courtsUsed = 3) {
   console.log(`\n=== Robust Match-Guaranteed Bye Schedule (Gender-Balanced) ===`);
 
   if (players.length === 37 && flexibleRounds.length === 4 &&
@@ -1292,7 +1292,7 @@ function generateFlexibleByeSchedule(players, flexibleRounds, finalByePlayerName
     console.error(`Assignment errors:`);
     errors.forEach(error => console.error(`  ${error}`));
     
-    if (tryFixAssignments(playerRoundAssignments, flexibleRounds, matchesPerPlayer, players)) {
+    if (tryFixAssignments(playerRoundAssignments, flexibleRounds, matchesPerPlayer, players, courtsUsed)) {
       console.log(`✅ Assignment fixed through redistribution`);
     } else {
       throw new Error(`Cannot create valid bye schedule: ${errors.length} players have incorrect match counts`);
@@ -1406,9 +1406,9 @@ function generateFlexibleByeSchedule(players, flexibleRounds, finalByePlayerName
 // Helper functions (should already exist in teamGenerator.js)
 // Included here for completeness
 
-function tryFixAssignments(playerRoundAssignments, flexibleRounds, matchesPerPlayer, players) {
+function tryFixAssignments(playerRoundAssignments, flexibleRounds, matchesPerPlayer, players, courtsUsed = 3) {
   console.log(`\nAttempting to fix assignment imbalances...`);
-  
+
   const overAssigned = [];
   const underAssigned = [];
   
@@ -1470,7 +1470,9 @@ function tryFixAssignments(playerRoundAssignments, flexibleRounds, matchesPerPla
       }
 
       // Calculate teams for this round and check constraint
-      const estimatedTeams = Math.ceil(round.playersPlaying / 5.5);
+      // Use actual courts used, not estimation from player count
+      const maxTeamsInRound = courtsUsed * 2;
+      const estimatedTeams = Math.min(maxTeamsInRound, Math.ceil(round.playersPlaying / 5));
       const minMalesNeeded = estimatedTeams * 2;
 
       if (malesPlayingAfterSwap < minMalesNeeded) {
@@ -1551,9 +1553,9 @@ function validateByeScheduleCorrectness(players, byeSchedule, flexibleRounds, ex
   };
 }
 
-function tryFixAssignments(playerRoundAssignments, flexibleRounds, matchesPerPlayer, players) {
+function tryFixAssignments(playerRoundAssignments, flexibleRounds, matchesPerPlayer, players, courtsUsed = 3) {
   console.log(`\nAttempting to fix assignment imbalances...`);
-  
+
   const overAssigned = [];
   const underAssigned = [];
   
@@ -1615,7 +1617,9 @@ function tryFixAssignments(playerRoundAssignments, flexibleRounds, matchesPerPla
       }
 
       // Calculate teams for this round and check constraint
-      const estimatedTeams = Math.ceil(round.playersPlaying / 5.5);
+      // Use actual courts used, not estimation from player count
+      const maxTeamsInRound = courtsUsed * 2;
+      const estimatedTeams = Math.min(maxTeamsInRound, Math.ceil(round.playersPlaying / 5));
       const minMalesNeeded = estimatedTeams * 2;
 
       if (malesPlayingAfterSwap < minMalesNeeded) {
@@ -2230,28 +2234,48 @@ function validateByeQuality(players, schedule, playerTargetByes) {
   }
 }
 
-function generateRound(playingPlayers, byePlayers, structure, roundNumber) {
-  const maxPlayersPerTeam = 6;
+function generateRound(playingPlayers, byePlayers, structure, roundNumber, roundStructure = null) {
+  // Check if this is the special 37-player case with 7-player teams
+  const is37PlayerSpecialCase = roundStructure?.specialCase === '37player';
+  const maxPlayersPerTeam = is37PlayerSpecialCase ? 7 : 6;
   const maxTeams = structure.courtsUsed * 2;
-  
+
   let teamConfig = null;
-  
-  for (let teamCount = 2; teamCount <= maxTeams; teamCount += 2) {
-    const avgTeamSize = playingPlayers.length / teamCount;
-    
-    if (avgTeamSize >= 5 && avgTeamSize <= maxPlayersPerTeam) {
-      const baseSize = Math.floor(avgTeamSize);
-      const remainder = playingPlayers.length % teamCount;
-      
-      const teamSizes = [];
-      for (let i = 0; i < teamCount; i++) {
-        teamSizes.push(baseSize + (i < remainder ? 1 : 0));
-      }
-      
-      if (teamSizes.every(size => size >= 5 && size <= maxPlayersPerTeam)) {
-        teamConfig = { teamCount, teamSizes };
-        console.log(`Using ${teamCount} teams: ${teamSizes.join(', ')} players`);
-        break;
+
+  // If this is the 37-player special case, use the predefined configuration
+  if (is37PlayerSpecialCase && roundStructure?.teamConfiguration) {
+    const config = roundStructure.teamConfiguration;
+    const teamSizes = [];
+
+    // Create team sizes: 5 teams of 6 + 1 team of 7
+    for (let i = 0; i < config.regularTeams; i++) {
+      teamSizes.push(config.regularTeamSize);
+    }
+    for (let i = 0; i < config.oversizeTeams; i++) {
+      teamSizes.push(config.oversizeTeamSize);
+    }
+
+    teamConfig = { teamCount: teamSizes.length, teamSizes };
+    console.log(`🎯 Using 37-player special config: ${teamSizes.join(', ')} players`);
+  } else {
+    // Normal team configuration logic
+    for (let teamCount = 2; teamCount <= maxTeams; teamCount += 2) {
+      const avgTeamSize = playingPlayers.length / teamCount;
+
+      if (avgTeamSize >= 5 && avgTeamSize <= maxPlayersPerTeam) {
+        const baseSize = Math.floor(avgTeamSize);
+        const remainder = playingPlayers.length % teamCount;
+
+        const teamSizes = [];
+        for (let i = 0; i < teamCount; i++) {
+          teamSizes.push(baseSize + (i < remainder ? 1 : 0));
+        }
+
+        if (teamSizes.every(size => size >= 5 && size <= maxPlayersPerTeam)) {
+          teamConfig = { teamCount, teamSizes };
+          console.log(`Using ${teamCount} teams: ${teamSizes.join(', ')} players`);
+          break;
+        }
       }
     }
   }
