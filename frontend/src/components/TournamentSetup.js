@@ -33,6 +33,8 @@ function TournamentSetup({ isEditing = false }) {
   const [tournamentId, setTournamentId] = useState(isEditing ? id : null);
   const [showStartModal, setShowStartModal] = useState(false);
   const [finalByePlayerName, setFinalByePlayerName] = useState('');
+  const [editingPlayerId, setEditingPlayerId] = useState(null);
+  const [editedPlayer, setEditedPlayer] = useState({});
 
   const navigate = useNavigate();
 
@@ -260,6 +262,44 @@ function TournamentSetup({ isEditing = false }) {
     }
   };
 
+  const startEditingPlayer = (player) => {
+    setEditingPlayerId(player.id);
+    setEditedPlayer({
+      name: player.name,
+      gender: player.gender,
+      skillLevel: player.skill_level,
+      isSetter: player.is_setter
+    });
+  };
+
+  const cancelEditingPlayer = () => {
+    setEditingPlayerId(null);
+    setEditedPlayer({});
+  };
+
+  const savePlayerEdit = async (playerId) => {
+    try {
+      await axios.put(`/api/tournaments/${tournamentId}/players/${playerId}`, editedPlayer);
+
+      // Update local state
+      setPlayers(players.map(p =>
+        p.id === playerId
+          ? { ...p, name: editedPlayer.name, gender: editedPlayer.gender, skill_level: editedPlayer.skillLevel, is_setter: editedPlayer.isSetter }
+          : p
+      ));
+
+      setEditingPlayerId(null);
+      setEditedPlayer({});
+      setError('');
+    } catch (error) {
+      setError(error.response?.data?.message || 'Failed to update player');
+    }
+  };
+
+  const handleEditPlayerChange = (field, value) => {
+    setEditedPlayer({ ...editedPlayer, [field]: value });
+  };
+
   const exportPlayers = () => {
     if (players.length === 0) {
       setError('No players to export');
@@ -283,6 +323,88 @@ function TournamentSetup({ isEditing = false }) {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const importPlayers = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const text = e.target.result;
+        const lines = text.trim().split('\n');
+
+        // Validate header
+        const header = lines[0].toLowerCase().trim();
+        if (header !== 'name,gender,skill_level,is_setter') {
+          setError('Invalid CSV format. Expected headers: name,gender,skill_level,is_setter');
+          return;
+        }
+
+        // Parse players
+        const playersToImport = [];
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line) continue; // Skip empty lines
+
+          const [name, gender, skillLevel, isSetter] = line.split(',').map(s => s.trim());
+
+          // Validate data
+          if (!name || !gender || !skillLevel) {
+            setError(`Invalid data on line ${i + 1}: missing required fields`);
+            return;
+          }
+
+          if (!['male', 'female', 'm', 'f'].includes(gender.toLowerCase())) {
+            setError(`Invalid gender on line ${i + 1}: ${gender}. Must be 'male' or 'female'`);
+            return;
+          }
+
+          if (!['AA', 'A', 'BB', 'B'].includes(skillLevel.toUpperCase())) {
+            setError(`Invalid skill level on line ${i + 1}: ${skillLevel}. Must be AA, A, BB, or B`);
+            return;
+          }
+
+          if (!['true', 'false'].includes(isSetter?.toLowerCase())) {
+            setError(`Invalid is_setter value on line ${i + 1}: ${isSetter}. Must be 'true' or 'false'`);
+            return;
+          }
+
+          playersToImport.push({
+            name: name,
+            gender: gender.toLowerCase(),
+            skillLevel: skillLevel.toUpperCase(),
+            isSetter: isSetter.toLowerCase() === 'true'
+          });
+        }
+
+        if (playersToImport.length === 0) {
+          setError('No players found in CSV file');
+          return;
+        }
+
+        // Add all players
+        setLoading(true);
+        for (const player of playersToImport) {
+          await axios.post(`/api/tournaments/${tournamentId}/players`, player);
+        }
+
+        // Refresh player list
+        const response = await axios.get(`/api/tournaments/${tournamentId}`);
+        setPlayers(response.data.players || []);
+        setError('');
+        alert(`Successfully imported ${playersToImport.length} players`);
+      } catch (error) {
+        setError(error.response?.data?.message || 'Failed to import players');
+      } finally {
+        setLoading(false);
+        // Reset file input
+        event.target.value = '';
+      }
+    };
+
+    reader.readAsText(file);
   };
 
   const initiateStart = () => {
@@ -536,6 +658,50 @@ function TournamentSetup({ isEditing = false }) {
           </div>
         </div>
 
+        {/* Import Players from CSV Section */}
+        <div className="card" style={{ backgroundColor: '#f0fff0', border: '2px solid #27ae60' }}>
+          <h3>Import Players from CSV</h3>
+          <p style={{ fontSize: '0.9rem', color: '#666', marginBottom: '1rem' }}>
+            Upload a CSV file with player data. Format: name,gender,skill_level,is_setter
+          </p>
+
+          <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <input
+              type="file"
+              accept=".csv"
+              onChange={importPlayers}
+              style={{ display: 'none' }}
+              id="csvFileInput"
+            />
+            <label htmlFor="csvFileInput">
+              <button
+                type="button"
+                className="btn btn-success"
+                onClick={() => document.getElementById('csvFileInput').click()}
+                disabled={loading || !tournamentId}
+                style={{ height: 'fit-content' }}
+              >
+                Choose CSV File
+              </button>
+            </label>
+
+            {players.length > 0 && (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={exportPlayers}
+                style={{ height: 'fit-content' }}
+              >
+                Export Current Players
+              </button>
+            )}
+          </div>
+
+          <div style={{ fontSize: '0.8rem', color: '#666', marginTop: '0.5rem' }}>
+            Example: Jeff Rosemeyer,male,AA,false
+          </div>
+        </div>
+
         {/* New Generate Players Section */}
         <div className="card" style={{ backgroundColor: '#f0f8ff', border: '2px solid #3498db' }}>
           <h3>Generate Random Players</h3>
@@ -616,19 +782,95 @@ function TournamentSetup({ isEditing = false }) {
               <tbody>
                 {players.map((player) => (
                   <tr key={player.id}>
-                    <td>{player.name}</td>
-                    <td>{player.gender}</td>
-                    <td>{player.skill_level}</td>
-                    <td>{player.is_setter ? 'Yes' : 'No'}</td>
-                    <td>
-                      <button
-                        className="btn btn-danger"
-                        style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
-                        onClick={() => removePlayer(player.id)}
-                      >
-                        Remove
-                      </button>
-                    </td>
+                    {editingPlayerId === player.id ? (
+                      // Edit mode
+                      <>
+                        <td>
+                          <input
+                            type="text"
+                            value={editedPlayer.name}
+                            onChange={(e) => handleEditPlayerChange('name', e.target.value)}
+                            style={{ width: '100%', padding: '0.25rem' }}
+                          />
+                        </td>
+                        <td>
+                          <select
+                            value={editedPlayer.gender}
+                            onChange={(e) => handleEditPlayerChange('gender', e.target.value)}
+                            style={{ width: '100%', padding: '0.25rem' }}
+                          >
+                            <option value="male">Male</option>
+                            <option value="female">Female</option>
+                          </select>
+                        </td>
+                        <td>
+                          <select
+                            value={editedPlayer.skillLevel}
+                            onChange={(e) => handleEditPlayerChange('skillLevel', e.target.value)}
+                            style={{ width: '100%', padding: '0.25rem' }}
+                          >
+                            <option value="AA">AA</option>
+                            <option value="A">A</option>
+                            <option value="BB">BB</option>
+                            <option value="B">B</option>
+                          </select>
+                        </td>
+                        <td>
+                          <select
+                            value={editedPlayer.isSetter}
+                            onChange={(e) => handleEditPlayerChange('isSetter', e.target.value === 'true')}
+                            style={{ width: '100%', padding: '0.25rem' }}
+                          >
+                            <option value="true">Yes</option>
+                            <option value="false">No</option>
+                          </select>
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', gap: '0.25rem' }}>
+                            <button
+                              className="btn btn-success"
+                              style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
+                              onClick={() => savePlayerEdit(player.id)}
+                            >
+                              Save
+                            </button>
+                            <button
+                              className="btn btn-secondary"
+                              style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
+                              onClick={cancelEditingPlayer}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </td>
+                      </>
+                    ) : (
+                      // Display mode
+                      <>
+                        <td>{player.name}</td>
+                        <td>{player.gender}</td>
+                        <td>{player.skill_level}</td>
+                        <td>{player.is_setter ? 'Yes' : 'No'}</td>
+                        <td>
+                          <div style={{ display: 'flex', gap: '0.25rem' }}>
+                            <button
+                              className="btn btn-primary"
+                              style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
+                              onClick={() => startEditingPlayer(player)}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              className="btn btn-danger"
+                              style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
+                              onClick={() => removePlayer(player.id)}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </td>
+                      </>
+                    )}
                   </tr>
                 ))}
               </tbody>

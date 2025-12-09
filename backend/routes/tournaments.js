@@ -324,6 +324,56 @@ router.post('/:id/players', authenticateToken, async (req, res) => {
   }
 });
 
+// Update player in tournament
+router.put('/:id/players/:playerId', authenticateToken, async (req, res) => {
+  try {
+    const { id, playerId } = req.params;
+    const { name, gender, skillLevel, isSetter = false } = req.body;
+
+    if (!name || !gender || !skillLevel) {
+      return res.status(400).json({ message: 'Name, gender, and skill level are required' });
+    }
+
+    if (!['male', 'female'].includes(gender)) {
+      return res.status(400).json({ message: 'Gender must be male or female' });
+    }
+
+    if (!['AA', 'A', 'BB', 'B'].includes(skillLevel)) {
+      return res.status(400).json({ message: 'Skill level must be AA, A, BB, or B' });
+    }
+
+    // Check tournament exists and is in setup
+    const tournamentCheck = await pool.query(
+      'SELECT status FROM tournaments WHERE id = $1', [id]
+    );
+
+    if (tournamentCheck.rows.length === 0) {
+      return res.status(404).json({ message: 'Tournament not found' });
+    }
+
+    if (tournamentCheck.rows[0].status !== 'setup') {
+      return res.status(400).json({ message: 'Cannot edit players in started tournament' });
+    }
+
+    // Update the player
+    const result = await pool.query(`
+      UPDATE players
+      SET name = $1, gender = $2, skill_level = $3, is_setter = $4
+      WHERE id = $5 AND tournament_id = $6
+      RETURNING *
+    `, [name, gender, skillLevel, isSetter, playerId, id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Player not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error updating player:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // Remove player from tournament
 router.delete('/:id/players/:playerId', authenticateToken, async (req, res) => {
   try {
