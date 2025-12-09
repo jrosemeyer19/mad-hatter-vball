@@ -323,6 +323,43 @@ body {
   text-align: center;
 }
 
+/* Grouped score inputs with visual separation */
+.score-inputs-grouped {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.game-group {
+  border: 2px solid #3498db;
+  border-radius: 8px;
+  padding: 0.75rem;
+  background-color: #f8f9fa;
+}
+
+.game-label {
+  font-weight: bold;
+  font-size: 0.9rem;
+  color: #3498db;
+  margin-bottom: 0.5rem;
+  text-align: center;
+}
+
+.game-scores {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.game-scores input {
+  padding: 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  text-align: center;
+  background-color: white;
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
   .header {
@@ -350,6 +387,10 @@ body {
 
   .score-inputs {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .score-inputs-grouped {
+    grid-template-columns: 1fr;
   }
 }
 

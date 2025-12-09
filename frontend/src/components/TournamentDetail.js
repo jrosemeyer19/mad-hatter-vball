@@ -136,7 +136,7 @@ function TournamentDetail({ user }) {
       scores.team2Game1 !== undefined && scores.team2Game1 !== null && scores.team2Game1 >= 0;
     
     if (!hasGame1Scores) {
-      setError('Please enter Game 1 scores (Game 2 is optional)');
+      setError('Please enter Game 1 scores');
       return;
     }
     
@@ -1167,48 +1167,58 @@ function TournamentDetail({ user }) {
                                   return (
                                     <div className="mt-1">
                                       <strong>{match.is_completed ? 'Edit Scores:' : hasGame1 ? 'Edit All Scores:' : 'Enter Scores:'}</strong>
-                                      <div className="score-inputs">
-                                        <div>
-                                          <label style={{ fontSize: '0.8rem' }}>Team 1 Game 1</label>
-                                          <input
-                                            type="number"
-                                            min="0"
-                                            max="50"
-                                            value={matchScores.team1Game1 !== undefined ? matchScores.team1Game1 : ''}
-                                            onChange={(e) => handleScoreChange(match.id, 'team1Game1', e.target.value)}
-                                          />
+                                      <div className="score-inputs-grouped">
+                                        <div className="game-group">
+                                          <div className="game-label">Game 1</div>
+                                          <div className="game-scores">
+                                            <div>
+                                              <label style={{ fontSize: '0.8rem' }}>Team 1</label>
+                                              <input
+                                                type="number"
+                                                min="0"
+                                                max="50"
+                                                value={matchScores.team1Game1 !== undefined ? matchScores.team1Game1 : ''}
+                                                onChange={(e) => handleScoreChange(match.id, 'team1Game1', e.target.value)}
+                                              />
+                                            </div>
+                                            <div>
+                                              <label style={{ fontSize: '0.8rem' }}>Team 2</label>
+                                              <input
+                                                type="number"
+                                                min="0"
+                                                max="50"
+                                                value={matchScores.team2Game1 !== undefined ? matchScores.team2Game1 : ''}
+                                                onChange={(e) => handleScoreChange(match.id, 'team2Game1', e.target.value)}
+                                              />
+                                            </div>
+                                          </div>
                                         </div>
-                                        <div>
-                                          <label style={{ fontSize: '0.8rem' }}>Team 2 Game 1</label>
-                                          <input
-                                            type="number"
-                                            min="0"
-                                            max="50"
-                                            value={matchScores.team2Game1 !== undefined ? matchScores.team2Game1 : ''}
-                                            onChange={(e) => handleScoreChange(match.id, 'team2Game1', e.target.value)}
-                                          />
-                                        </div>
-                                        <div>
-                                          <label style={{ fontSize: '0.8rem' }}>Team 1 Game 2</label>
-                                          <input
-                                            type="number"
-                                            min="0"
-                                            max="50"
-                                            value={matchScores.team1Game2 !== undefined ? matchScores.team1Game2 : ''}
-                                            onChange={(e) => handleScoreChange(match.id, 'team1Game2', e.target.value)}
-                                            placeholder={!isLoggedIn && !hasGame1 ? "Optional" : ""}
-                                          />
-                                        </div>
-                                        <div>
-                                          <label style={{ fontSize: '0.8rem' }}>Team 2 Game 2</label>
-                                          <input
-                                            type="number"
-                                            min="0"
-                                            max="50"
-                                            value={matchScores.team2Game2 !== undefined ? matchScores.team2Game2 : ''}
-                                            onChange={(e) => handleScoreChange(match.id, 'team2Game2', e.target.value)}
-                                            placeholder={!isLoggedIn && !hasGame1 ? "Optional" : ""}
-                                          />
+                                        <div className="game-group">
+                                          <div className="game-label">Game 2</div>
+                                          <div className="game-scores">
+                                            <div>
+                                              <label style={{ fontSize: '0.8rem' }}>Team 1</label>
+                                              <input
+                                                type="number"
+                                                min="0"
+                                                max="50"
+                                                value={matchScores.team1Game2 !== undefined ? matchScores.team1Game2 : ''}
+                                                onChange={(e) => handleScoreChange(match.id, 'team1Game2', e.target.value)}
+                                                placeholder={!isLoggedIn && !hasGame1 ? "Optional" : ""}
+                                              />
+                                            </div>
+                                            <div>
+                                              <label style={{ fontSize: '0.8rem' }}>Team 2</label>
+                                              <input
+                                                type="number"
+                                                min="0"
+                                                max="50"
+                                                value={matchScores.team2Game2 !== undefined ? matchScores.team2Game2 : ''}
+                                                onChange={(e) => handleScoreChange(match.id, 'team2Game2', e.target.value)}
+                                                placeholder={!isLoggedIn && !hasGame1 ? "Optional" : ""}
+                                              />
+                                            </div>
+                                          </div>
                                         </div>
                                       </div>
                                       <div className="flex gap-1 mt-1">
@@ -1233,7 +1243,7 @@ function TournamentDetail({ user }) {
                                       </div>
                                       {!match.is_completed && !hasGame1 && !isLoggedIn && (
                                         <div style={{ fontSize: '0.8rem', color: '#7f8c8d', marginTop: '0.5rem' }}>
-                                          Anyone can enter scores. Game 2 is optional.
+                                          Anyone can enter scores.
                                         </div>
                                       )}
                                       {hasGame1 && !hasGame2 && isLoggedIn && (
@@ -1249,48 +1259,58 @@ function TournamentDetail({ user }) {
                                 return (
                                   <div className="mt-1">
                                     <strong>Enter Scores:</strong>
-                                    <div className="score-inputs">
-                                      <div>
-                                        <label style={{ fontSize: '0.8rem' }}>Team 1 Game 1</label>
-                                        <input
-                                          type="number"
-                                          min="0"
-                                          max="50"
-                                          value={matchScores.team1Game1 !== undefined ? matchScores.team1Game1 : ''}
-                                          onChange={(e) => handleScoreChange(match.id, 'team1Game1', e.target.value)}
-                                        />
+                                    <div className="score-inputs-grouped">
+                                      <div className="game-group">
+                                        <div className="game-label">Game 1</div>
+                                        <div className="game-scores">
+                                          <div>
+                                            <label style={{ fontSize: '0.8rem' }}>Team 1</label>
+                                            <input
+                                              type="number"
+                                              min="0"
+                                              max="50"
+                                              value={matchScores.team1Game1 !== undefined ? matchScores.team1Game1 : ''}
+                                              onChange={(e) => handleScoreChange(match.id, 'team1Game1', e.target.value)}
+                                            />
+                                          </div>
+                                          <div>
+                                            <label style={{ fontSize: '0.8rem' }}>Team 2</label>
+                                            <input
+                                              type="number"
+                                              min="0"
+                                              max="50"
+                                              value={matchScores.team2Game1 !== undefined ? matchScores.team2Game1 : ''}
+                                              onChange={(e) => handleScoreChange(match.id, 'team2Game1', e.target.value)}
+                                            />
+                                          </div>
+                                        </div>
                                       </div>
-                                      <div>
-                                        <label style={{ fontSize: '0.8rem' }}>Team 2 Game 1</label>
-                                        <input
-                                          type="number"
-                                          min="0"
-                                          max="50"
-                                          value={matchScores.team2Game1 !== undefined ? matchScores.team2Game1 : ''}
-                                          onChange={(e) => handleScoreChange(match.id, 'team2Game1', e.target.value)}
-                                        />
-                                      </div>
-                                      <div>
-                                        <label style={{ fontSize: '0.8rem' }}>Team 1 Game 2</label>
-                                        <input
-                                          type="number"
-                                          min="0"
-                                          max="50"
-                                          value={matchScores.team1Game2 !== undefined ? matchScores.team1Game2 : ''}
-                                          onChange={(e) => handleScoreChange(match.id, 'team1Game2', e.target.value)}
-                                          placeholder="Optional"
-                                        />
-                                      </div>
-                                      <div>
-                                        <label style={{ fontSize: '0.8rem' }}>Team 2 Game 2</label>
-                                        <input
-                                          type="number"
-                                          min="0"
-                                          max="50"
-                                          value={matchScores.team2Game2 !== undefined ? matchScores.team2Game2 : ''}
-                                          onChange={(e) => handleScoreChange(match.id, 'team2Game2', e.target.value)}
-                                          placeholder="Optional"
-                                        />
+                                      <div className="game-group">
+                                        <div className="game-label">Game 2</div>
+                                        <div className="game-scores">
+                                          <div>
+                                            <label style={{ fontSize: '0.8rem' }}>Team 1</label>
+                                            <input
+                                              type="number"
+                                              min="0"
+                                              max="50"
+                                              value={matchScores.team1Game2 !== undefined ? matchScores.team1Game2 : ''}
+                                              onChange={(e) => handleScoreChange(match.id, 'team1Game2', e.target.value)}
+                                              placeholder="Optional"
+                                            />
+                                          </div>
+                                          <div>
+                                            <label style={{ fontSize: '0.8rem' }}>Team 2</label>
+                                            <input
+                                              type="number"
+                                              min="0"
+                                              max="50"
+                                              value={matchScores.team2Game2 !== undefined ? matchScores.team2Game2 : ''}
+                                              onChange={(e) => handleScoreChange(match.id, 'team2Game2', e.target.value)}
+                                              placeholder="Optional"
+                                            />
+                                          </div>
+                                        </div>
                                       </div>
                                     </div>
                                     <div className="flex gap-1 mt-1">
@@ -1306,7 +1326,7 @@ function TournamentDetail({ user }) {
                                       </button>
                                     </div>
                                     <div style={{ fontSize: '0.8rem', color: '#7f8c8d', marginTop: '0.5rem' }}>
-                                      Anyone can enter scores - no login required. Game 2 is optional.
+                                      Anyone can enter scores - no login required.
                                     </div>
                                   </div>
                                 );
