@@ -1204,7 +1204,6 @@ function TournamentDetail({ user }) {
                                                 max="50"
                                                 value={matchScores.team1Game2 !== undefined ? matchScores.team1Game2 : ''}
                                                 onChange={(e) => handleScoreChange(match.id, 'team1Game2', e.target.value)}
-                                                placeholder={!isLoggedIn && !hasGame1 ? "Optional" : ""}
                                               />
                                             </div>
                                             <div>
@@ -1215,7 +1214,6 @@ function TournamentDetail({ user }) {
                                                 max="50"
                                                 value={matchScores.team2Game2 !== undefined ? matchScores.team2Game2 : ''}
                                                 onChange={(e) => handleScoreChange(match.id, 'team2Game2', e.target.value)}
-                                                placeholder={!isLoggedIn && !hasGame1 ? "Optional" : ""}
                                               />
                                             </div>
                                           </div>
@@ -1296,7 +1294,6 @@ function TournamentDetail({ user }) {
                                               max="50"
                                               value={matchScores.team1Game2 !== undefined ? matchScores.team1Game2 : ''}
                                               onChange={(e) => handleScoreChange(match.id, 'team1Game2', e.target.value)}
-                                              placeholder="Optional"
                                             />
                                           </div>
                                           <div>
@@ -1307,7 +1304,6 @@ function TournamentDetail({ user }) {
                                               max="50"
                                               value={matchScores.team2Game2 !== undefined ? matchScores.team2Game2 : ''}
                                               onChange={(e) => handleScoreChange(match.id, 'team2Game2', e.target.value)}
-                                              placeholder="Optional"
                                             />
                                           </div>
                                         </div>
