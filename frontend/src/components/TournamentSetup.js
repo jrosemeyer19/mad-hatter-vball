@@ -260,6 +260,31 @@ function TournamentSetup({ isEditing = false }) {
     }
   };
 
+  const exportPlayers = () => {
+    if (players.length === 0) {
+      setError('No players to export');
+      return;
+    }
+
+    // Create CSV content
+    const headers = 'name,gender,skill_level,is_setter\n';
+    const rows = players.map(player =>
+      `${player.name},${player.gender},${player.skill_level},${player.is_setter}`
+    ).join('\n');
+    const csvContent = headers + rows;
+
+    // Create blob and download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `${tournamentData.name || 'tournament'}_players.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const initiateStart = () => {
     if (players.length < tournamentData.minPlayersPerTeam * 2) {
       setError(`Need at least ${tournamentData.minPlayersPerTeam * 2} players to start tournament`);
@@ -561,8 +586,19 @@ function TournamentSetup({ isEditing = false }) {
       </div>
 
       <div className="card">
-        <h3>Current Players ({players.length})</h3>
-        
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+          <h3 style={{ margin: 0 }}>Current Players ({players.length})</h3>
+          {players.length > 0 && (
+            <button
+              className="btn btn-secondary"
+              onClick={exportPlayers}
+              style={{ padding: '0.5rem 1rem' }}
+            >
+              Export Players
+            </button>
+          )}
+        </div>
+
         {players.length === 0 ? (
           <p>No players added yet.</p>
         ) : (

@@ -210,7 +210,7 @@ function TournamentDetail({ user }) {
       return;
     }
 
-    const confirmMessage = tournament.status === 'in_progress' 
+    const confirmMessage = tournament.status === 'in_progress'
       ? 'Are you sure you want to delete this in-progress tournament? All match data will be lost. This cannot be undone.'
       : 'Are you sure you want to delete this tournament? This cannot be undone.';
 
@@ -224,6 +224,31 @@ function TournamentDetail({ user }) {
     } catch (error) {
       setError(error.response?.data?.message || 'Failed to delete tournament');
     }
+  };
+
+  const exportPlayers = () => {
+    if (players.length === 0) {
+      setError('No players to export');
+      return;
+    }
+
+    // Create CSV content
+    const headers = 'name,gender,skill_level,is_setter\n';
+    const rows = players.map(player =>
+      `${player.name},${player.gender},${player.skill_level},${player.is_setter}`
+    ).join('\n');
+    const csvContent = headers + rows;
+
+    // Create blob and download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `${tournament.name || 'tournament'}_players.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const initiateRegenerate = () => {
@@ -627,8 +652,17 @@ function TournamentDetail({ user }) {
       {/* Players List with Tabs */}
       {players.length > 0 && (
         <div className="card">
-          <h2>Leaderboard ({players.length} Players)</h2>
-          
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <h2 style={{ margin: 0 }}>Leaderboard ({players.length} Players)</h2>
+            <button
+              className="btn btn-secondary"
+              onClick={exportPlayers}
+              style={{ padding: '0.5rem 1rem' }}
+            >
+              Export Players
+            </button>
+          </div>
+
           {/* Tab Navigation */}
           <div style={{ 
             display: 'flex', 
