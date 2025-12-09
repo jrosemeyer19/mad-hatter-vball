@@ -654,13 +654,15 @@ function TournamentDetail({ user }) {
         <div className="card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
             <h2 style={{ margin: 0 }}>Leaderboard ({players.length} Players)</h2>
-            <button
-              className="btn btn-secondary"
-              onClick={exportPlayers}
-              style={{ padding: '0.5rem 1rem' }}
-            >
-              Export Players
-            </button>
+            {user && (
+              <button
+                className="btn btn-secondary"
+                onClick={exportPlayers}
+                style={{ padding: '0.5rem 1rem' }}
+              >
+                Export Players
+              </button>
+            )}
           </div>
 
           {/* Tab Navigation */}
