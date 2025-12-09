@@ -35,6 +35,8 @@ function TournamentSetup({ isEditing = false }) {
   const [finalByePlayerName, setFinalByePlayerName] = useState('');
   const [editingPlayerId, setEditingPlayerId] = useState(null);
   const [editedPlayer, setEditedPlayer] = useState({});
+  const [sortBy, setSortBy] = useState('name'); // 'name', 'gender', 'skill', 'setter'
+  const [sortDirection, setSortDirection] = useState('asc'); // 'asc', 'desc'
 
   const navigate = useNavigate();
 
@@ -254,6 +256,13 @@ function TournamentSetup({ isEditing = false }) {
   };
 
   const removePlayer = async (playerId) => {
+    const player = players.find(p => p.id === playerId);
+    const confirmMessage = `Are you sure you want to remove ${player?.name || 'this player'}?`;
+
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+
     try {
       await axios.delete(`/api/tournaments/${tournamentId}/players/${playerId}`);
       setPlayers(players.filter(p => p.id !== playerId));
@@ -298,6 +307,51 @@ function TournamentSetup({ isEditing = false }) {
 
   const handleEditPlayerChange = (field, value) => {
     setEditedPlayer({ ...editedPlayer, [field]: value });
+  };
+
+  const handleSort = (column) => {
+    if (sortBy === column) {
+      // Toggle direction if clicking the same column
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      // Set new column and default to ascending
+      setSortBy(column);
+      setSortDirection('asc');
+    }
+  };
+
+  const getSortedPlayers = () => {
+    const sorted = [...players].sort((a, b) => {
+      let compareA, compareB;
+
+      switch (sortBy) {
+        case 'name':
+          compareA = a.name.toLowerCase();
+          compareB = b.name.toLowerCase();
+          break;
+        case 'gender':
+          compareA = a.gender.toLowerCase();
+          compareB = b.gender.toLowerCase();
+          break;
+        case 'skill':
+          const skillOrder = { 'AA': 4, 'A': 3, 'BB': 2, 'B': 1 };
+          compareA = skillOrder[a.skill_level] || 0;
+          compareB = skillOrder[b.skill_level] || 0;
+          break;
+        case 'setter':
+          compareA = a.is_setter ? 1 : 0;
+          compareB = b.is_setter ? 1 : 0;
+          break;
+        default:
+          return 0;
+      }
+
+      if (compareA < compareB) return sortDirection === 'asc' ? -1 : 1;
+      if (compareA > compareB) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    return sorted;
   };
 
   const exportPlayers = () => {
@@ -772,15 +826,35 @@ function TournamentSetup({ isEditing = false }) {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Name</th>
-                  <th>Gender</th>
-                  <th>Skill</th>
-                  <th>Setter</th>
+                  <th
+                    onClick={() => handleSort('name')}
+                    style={{ cursor: 'pointer', userSelect: 'none' }}
+                  >
+                    Name {sortBy === 'name' && (sortDirection === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th
+                    onClick={() => handleSort('gender')}
+                    style={{ cursor: 'pointer', userSelect: 'none' }}
+                  >
+                    Gender {sortBy === 'gender' && (sortDirection === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th
+                    onClick={() => handleSort('skill')}
+                    style={{ cursor: 'pointer', userSelect: 'none' }}
+                  >
+                    Skill {sortBy === 'skill' && (sortDirection === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th
+                    onClick={() => handleSort('setter')}
+                    style={{ cursor: 'pointer', userSelect: 'none' }}
+                  >
+                    Setter {sortBy === 'setter' && (sortDirection === 'asc' ? '↑' : '↓')}
+                  </th>
                   <th>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {players.map((player) => (
+                {getSortedPlayers().map((player) => (
                   <tr key={player.id}>
                     {editingPlayerId === player.id ? (
                       // Edit mode

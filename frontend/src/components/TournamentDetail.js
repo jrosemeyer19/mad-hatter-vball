@@ -19,6 +19,7 @@ function TournamentDetail({ user }) {
   const [leaderboardTab, setLeaderboardTab] = useState('all'); // 'all', 'male', 'female'
   const [showRegenerateModal, setShowRegenerateModal] = useState(false);
   const [finalByePlayerName, setFinalByePlayerName] = useState('');
+  const [playerSearch, setPlayerSearch] = useState('');
 
   useEffect(() => {
     fetchTournamentData();
@@ -251,6 +252,15 @@ function TournamentDetail({ user }) {
     document.body.removeChild(link);
   };
 
+  const copyTournamentLink = () => {
+    const url = window.location.href;
+    navigator.clipboard.writeText(url).then(() => {
+      alert('Tournament link copied to clipboard!');
+    }).catch(() => {
+      setError('Failed to copy link');
+    });
+  };
+
   const initiateRegenerate = () => {
     if (!user) {
       setError('You must be logged in to regenerate teams');
@@ -337,10 +347,20 @@ function TournamentDetail({ user }) {
       <div className="card">
         <div className="flex-between">
           <div>
-            <h1>{tournament.name}</h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.5rem' }}>
+              <h1 style={{ margin: 0 }}>{tournament.name}</h1>
+              <button
+                className="btn btn-secondary"
+                onClick={copyTournamentLink}
+                style={{ padding: '0.5rem 1rem', fontSize: '0.9rem' }}
+                title="Copy tournament link to share"
+              >
+                📋 Share
+              </button>
+            </div>
             <p><strong>Date:</strong> {formatDate(tournament.date)}</p>
             <p><strong>Location:</strong> {tournament.location}</p>
-            <p><strong>Status:</strong> 
+            <p><strong>Status:</strong>
               <span className={`tournament-status ${tournament.status}`} style={{ marginLeft: '0.5rem' }}>
                 {tournament.status.replace('_', ' ').toUpperCase()}
               </span>
@@ -665,10 +685,27 @@ function TournamentDetail({ user }) {
             )}
           </div>
 
+          {/* Search Box */}
+          <div style={{ marginBottom: '1rem' }}>
+            <input
+              type="text"
+              placeholder="Search players by name..."
+              value={playerSearch}
+              onChange={(e) => setPlayerSearch(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '0.75rem',
+                border: '1px solid #ddd',
+                borderRadius: '4px',
+                fontSize: '1rem'
+              }}
+            />
+          </div>
+
           {/* Tab Navigation */}
-          <div style={{ 
-            display: 'flex', 
-            gap: '0.5rem', 
+          <div style={{
+            display: 'flex',
+            gap: '0.5rem',
             marginBottom: '1rem',
             borderBottom: '2px solid #e0e0e0',
             paddingBottom: '0.5rem'
@@ -736,11 +773,17 @@ function TournamentDetail({ user }) {
               <tbody>
                 {players
                   .filter(player => {
-                    if (leaderboardTab === 'all') return true;
+                    // Filter by tab
                     const gender = player.gender.toLowerCase();
-                    if (leaderboardTab === 'male') return gender === 'male' || gender === 'm';
-                    if (leaderboardTab === 'female') return gender === 'female' || gender === 'f';
-                    return true;
+                    let tabMatch = true;
+                    if (leaderboardTab === 'male') tabMatch = gender === 'male' || gender === 'm';
+                    if (leaderboardTab === 'female') tabMatch = gender === 'female' || gender === 'f';
+
+                    // Filter by search
+                    const searchMatch = playerSearch === '' ||
+                      player.name.toLowerCase().includes(playerSearch.toLowerCase());
+
+                    return tabMatch && searchMatch;
                   })
                   .sort((a, b) => {
                     // Sort by total points first, then by point differential as tiebreaker
@@ -937,10 +980,36 @@ function TournamentDetail({ user }) {
                           const team2Players = getTeamPlayers(match.team2_id, round.round_number);
                           const matchScores = scoreInputs[match.id] || {};
 
+                          // Determine match status
+                          const hasGame1 = match.team1_game1_score !== null && match.team2_game1_score !== null;
+                          const hasGame2 = match.team1_game2_score !== null && match.team2_game2_score !== null;
+                          let matchStatus = 'Pending';
+                          let statusColor = '#95a5a6'; // gray
+
+                          if (match.is_completed) {
+                            matchStatus = 'Completed';
+                            statusColor = '#27ae60'; // green
+                          } else if (hasGame1) {
+                            matchStatus = 'In Progress';
+                            statusColor = '#f39c12'; // orange
+                          }
+
                           return (
                             <div key={match.id} className="match-card">
-                              <h4>Court {match.court}</h4>
-                              
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                                <h4 style={{ margin: 0 }}>Court {match.court}</h4>
+                                <span style={{
+                                  fontSize: '0.75rem',
+                                  fontWeight: 'bold',
+                                  padding: '0.25rem 0.5rem',
+                                  borderRadius: '12px',
+                                  backgroundColor: statusColor,
+                                  color: 'white'
+                                }}>
+                                  {matchStatus}
+                                </span>
+                              </div>
+
                               {/* FIXED: Proper 3-column grid with correct player arrays */}
                               <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: '1rem', alignItems: 'center' }}>
                                 <div>
