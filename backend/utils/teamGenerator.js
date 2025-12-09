@@ -3867,25 +3867,32 @@ function createSpecial37PlayerTeams(players, roundNumber) {
   });
 
   // ENHANCED: Use balanced team creation for 37-player special case
-  // Create team config for 5 teams of 6 players
+  // Create team config for 6 teams - 5 teams of 6 + dummy 6th team
+  // The dummy 6th team will be replaced with the actual 7-player team
+  // NOTE: We need 6 teams (even number) for proper pairing, even though we only use 30 players
+  const dummyPlayers = playersFor7Team.slice(0, 6); // Temporarily use these for the 6th team
+  const allPlayersForBalancing = [...remainingPlayers, ...dummyPlayers];
+
   const teamConfig = {
-    teamCount: 5,
-    teamSizes: [6, 6, 6, 6, 6]
+    teamCount: 6,
+    teamSizes: [6, 6, 6, 6, 6, 6]
   };
 
-  // Use the balanced team creation for the 30 remaining players
-  const balancedTeams = createBalancedTeams(remainingPlayers, teamConfig, roundNumber);
+  // Use the balanced team creation for all 36 players (30 remaining + 6 dummy)
+  const balancedTeams = createBalancedTeams(allPlayersForBalancing, teamConfig, roundNumber);
+
+  // Remove the 6th team (it was just a placeholder)
+  const teamsToKeep = balancedTeams.slice(0, 5);
 
   // Rename team IDs to match expected format
-  balancedTeams.forEach((team, index) => {
+  teamsToKeep.forEach((team, index) => {
     team.id = `round_${roundNumber}_team_${index + 1}`;
     team.team_number = index + 1;
     team.court = Math.floor(index / 2) + 1;
     team.specialTeamSize = 6;
   });
 
-  // Create the 7-player team with some balancing consideration
-  // Try to ensure at least 2 males and max 1 B player
+  // Create the 7-player team with stats initialized
   const oversizeTeam = {
     id: `round_${roundNumber}_team_6`,
     team_number: 6,
@@ -3893,8 +3900,23 @@ function createSpecial37PlayerTeams(players, roundNumber) {
     is_bye_team: false,
     players: playersFor7Team,
     specialTeamSize: 7,
-    isOversizeTeam: true
+    isOversizeTeam: true,
+    stats: {
+      male: 0,
+      female: 0,
+      femaleSetters: 0,
+      maleAA: 0, femaleAA: 0,
+      maleA: 0, femaleA: 0,
+      maleBB: 0, femaleBB: 0,
+      maleB: 0, femaleB: 0,
+      skillRating: 0
+    }
   };
+
+  // Calculate stats for the 7-player team
+  playersFor7Team.forEach(player => {
+    updateTeamStats(oversizeTeam.stats, player);
+  });
 
   // Check and log constraints for 7-player team
   const malesIn7Team = playersFor7Team.filter(p => p.gender === 'male').length;
@@ -3907,7 +3929,7 @@ function createSpecial37PlayerTeams(players, roundNumber) {
     console.warn(`  ⚠️  7-player team has ${bPlayersIn7Team} B-rated players`);
   }
 
-  const teams = [...balancedTeams, oversizeTeam];
+  const teams = [...teamsToKeep, oversizeTeam];
 
   console.log(`\nTeam compositions:`);
   teams.forEach(team => {
