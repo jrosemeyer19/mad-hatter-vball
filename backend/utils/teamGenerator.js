@@ -254,8 +254,11 @@ function generateAllRounds(players, settings) {
     if (playingPlayers.length !== roundConfig.playersPlaying) {
       console.error(`❌ Round ${roundNum} player count mismatch!`);
     }
-    
-    const round = generateFlexibleRound(playingPlayers, byePlayers, structure.courtsUsed, settings.minPlayersPerTeam, roundNum);
+
+    // Check if this round uses 7-player teams
+    const maxTeamSize = roundConfig.teamConfiguration?.maxTeamSize || 6;
+
+    const round = generateFlexibleRound(playingPlayers, byePlayers, structure.courtsUsed, settings.minPlayersPerTeam, roundNum, maxTeamSize);
     allRounds.push(round);
     
     round.teams.forEach(team => {
@@ -401,12 +404,14 @@ function logBPlayerSupportStats(players) {
   }
 }
 
-function generateFlexibleRound(playingPlayers, byePlayers, courtsUsed, minPlayersPerTeam, roundNumber) {
-  const maxPlayersPerTeam = 6;
+function generateFlexibleRound(playingPlayers, byePlayers, courtsUsed, minPlayersPerTeam, roundNumber, maxPlayersPerTeam = 6) {
   const maxTeams = courtsUsed * 2;
-  
+
   console.log(`\n=== Creating Flexible Round ${roundNumber} ===`);
   console.log(`Playing players: ${playingPlayers.length}, Courts available: ${courtsUsed}`);
+  if (maxPlayersPerTeam === 7) {
+    console.log(`🎯 Using 7-player max team size for this round`);
+  }
 
   if (playingPlayers.length === 37 && courtsUsed === 3) {
     console.log(`🎯 Special 37-player round: creating 5 teams of 6 + 1 team of 7`);
@@ -580,6 +585,84 @@ function validateInputs(players, settings) {
   }
 }
 
+// Try to find a tournament solution using 7-player teams to reduce the number of rounds
+// This is called when the standard 6-player solution requires more than matchesPerPlayer + 1 rounds
+function trySevenPlayerTeamSolution(totalPlayers, totalPlayerMatches, settings, courtsToUse, targetMaxRounds, minTeamSize) {
+  const maxPlayersPerTeam = 7; // Allow 7-player teams
+  const maxTeamsPerRound = courtsToUse * 2;
+  const minPlayersPerRound = maxTeamsPerRound * minTeamSize;
+  const maxPlayersPerRound = maxTeamsPerRound * maxPlayersPerTeam;
+
+  console.log(`   Attempting ${targetMaxRounds} rounds with 7-player max teams...`);
+  console.log(`   Round constraints: ${minPlayersPerRound}-${maxPlayersPerRound} players per round`);
+
+  // Helper function to check if players can form valid teams with 7-player max
+  const canFormValidTeams7Player = (players, maxTeams, minPerTeam, maxPerTeam) => {
+    for (let teamCount = 2; teamCount <= maxTeams; teamCount += 2) {
+      const avgTeamSize = players / teamCount;
+
+      if (avgTeamSize >= minPerTeam && avgTeamSize <= maxPerTeam) {
+        const baseSize = Math.floor(avgTeamSize);
+        const remainder = players % teamCount;
+        const smallTeamSize = baseSize;
+        const largeTeamSize = remainder > 0 ? baseSize + 1 : baseSize;
+
+        if (smallTeamSize >= minPerTeam && largeTeamSize <= maxPerTeam) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  // Try the target number of rounds
+  const basePlayersPerRound = Math.floor(totalPlayerMatches / targetMaxRounds);
+  const extraMatches = totalPlayerMatches % targetMaxRounds;
+
+  const rounds = [];
+  let isValid = true;
+
+  for (let i = 0; i < targetMaxRounds; i++) {
+    const playersThisRound = basePlayersPerRound + (i < extraMatches ? 1 : 0);
+
+    if (playersThisRound < minPlayersPerRound || playersThisRound > maxPlayersPerRound) {
+      console.log(`   Round ${i + 1}: ${playersThisRound} players - INVALID (out of range ${minPlayersPerRound}-${maxPlayersPerRound})`);
+      isValid = false;
+      break;
+    }
+
+    if (!canFormValidTeams7Player(playersThisRound, maxTeamsPerRound, minTeamSize, maxPlayersPerTeam)) {
+      console.log(`   Round ${i + 1}: ${playersThisRound} players - INVALID (cannot form valid teams)`);
+      isValid = false;
+      break;
+    }
+
+    rounds.push({
+      roundNumber: i + 1,
+      playersPlaying: playersThisRound,
+      playersBye: totalPlayers - playersThisRound,
+      uses7PlayerTeams: true,
+      teamConfiguration: {
+        maxTeamSize: 7
+      }
+    });
+
+    console.log(`   Round ${i + 1}: ${playersThisRound} playing, ${totalPlayers - playersThisRound} bye - VALID`);
+  }
+
+  if (!isValid) {
+    return null;
+  }
+
+  const totalGenerated = rounds.reduce((sum, round) => sum + round.playersPlaying, 0);
+  if (totalGenerated !== totalPlayerMatches) {
+    console.log(`   Math error: generated ${totalGenerated}, needed ${totalPlayerMatches}`);
+    return null;
+  }
+
+  return { rounds };
+}
+
 function calculateOptimalStructure(totalPlayers, settings) {
   console.log(`\n--- Match-Balanced Structure Calculation ---`);
   console.log(`Total players: ${totalPlayers}`);
@@ -587,16 +670,22 @@ function calculateOptimalStructure(totalPlayers, settings) {
   console.log(`Matches per player: ${settings.matchesPerPlayer}`);
   console.log(`Min per team: ${settings.minPlayersPerTeam}`);
 
-  if (totalPlayers === 37 && 
-      settings.courtsAvailable === 3 && 
-      settings.matchesPerPlayer === 4 && 
+  // RESTRICTION: 37-player special case with 7-player teams
+  // This ONLY applies to the exact scenario: 37 players, 3 courts, 4 matches per player, 5 min per team
+  // This special case should NEVER trigger for any other player count or configuration
+  // Maximum player count for any 7-player team feature: 45 players
+  if (totalPlayers === 37 &&
+      totalPlayers <= 45 &&
+      settings.courtsAvailable === 3 &&
+      settings.matchesPerPlayer === 4 &&
       settings.minPlayersPerTeam === 5) {
-    
+
     console.log(`\n🎯 SPECIAL CASE: 37-player tournament with 7-player team override`);
     console.log(`Using constraint override: one team of 7 players per round`);
-    
+    console.log(`Restriction: This only applies to exactly 37 players with 3 courts, 4 matches/player, 5 min/team`);
+
     resetSpecial37PlayerTracking();
-    
+
     const rounds = [];
     for (let i = 1; i <= 4; i++) {
       rounds.push({
@@ -612,11 +701,11 @@ function calculateOptimalStructure(totalPlayers, settings) {
         }
       });
     }
-    
+
     console.log(`✅ Special 37-player solution: 4 rounds, all players play every round`);
     console.log(`Each round: 5 teams of 6 + 1 team of 7 = 37 players total`);
     console.log(`Total player-matches: ${4 * 37} = 148 (exactly ${totalPlayers} × ${settings.matchesPerPlayer})`);
-    
+
     return {
       courtsUsed: 3,
       flexibleRounds: rounds,
@@ -624,7 +713,7 @@ function calculateOptimalStructure(totalPlayers, settings) {
       description: '37-player special case with one 7-player team per round'
     };
   }
-  
+
   const totalPlayerMatches = totalPlayers * settings.matchesPerPlayer;
   console.log(`Total player-matches needed: ${totalPlayerMatches}`);
   
@@ -739,7 +828,7 @@ function calculateOptimalStructure(totalPlayers, settings) {
           
           console.log(`\n✅ SOLUTION FOUND: ${numRounds} rounds, ${courtsToUse} courts`);
           console.log(`Total byes: ${totalByes}, Avg byes/player: ${avgByesPerPlayer.toFixed(2)}`);
-          
+
           if (usedConstraintOverride || usedCourtReduction) {
             console.log(`⚠️  CONSTRAINT OVERRIDES USED:`);
             if (usedCourtReduction) {
@@ -749,7 +838,47 @@ function calculateOptimalStructure(totalPlayers, settings) {
               console.log(`   - Min team size relaxed: ${constraintSet.minTeamSize} instead of ${settings.minPlayersPerTeam}`);
             }
           }
-          
+
+          // INTELLIGENT 7-PLAYER TEAM SUGGESTION SYSTEM
+          // Check if using 7-player teams could prevent extra rounds
+          // Target: matchesPerPlayer + 1 rounds maximum
+          const targetMaxRounds = settings.matchesPerPlayer + 1;
+          if (numRounds > targetMaxRounds && totalPlayers <= 45) {
+            console.log(`\n🔍 Checking if 7-player teams could reduce rounds from ${numRounds} to ${targetMaxRounds}...`);
+
+            // Try to find a solution with 7-player teams that achieves targetMaxRounds
+            const with7PlayerTeamsSolution = trySevenPlayerTeamSolution(
+              totalPlayers,
+              totalPlayerMatches,
+              settings,
+              courtsToUse,
+              targetMaxRounds,
+              constraintSet.minTeamSize
+            );
+
+            if (with7PlayerTeamsSolution) {
+              console.log(`✅ 7-PLAYER TEAM SOLUTION FOUND: ${with7PlayerTeamsSolution.rounds.length} rounds (reduced from ${numRounds})`);
+              console.log(`   Using 7-player teams can achieve the target of ${targetMaxRounds} rounds or less`);
+              console.log(`   Rounds configuration: ${with7PlayerTeamsSolution.rounds.map(r => r.playersPlaying).join(', ')} players`);
+
+              // Return the 7-player team solution instead
+              return {
+                courtsUsed: courtsToUse,
+                flexibleRounds: with7PlayerTeamsSolution.rounds,
+                specialCase: true,
+                description: `Intelligent 7-player team solution to reduce rounds to ${with7PlayerTeamsSolution.rounds.length}`,
+                constraintOverrides: {
+                  minTeamSizeUsed: constraintSet.minTeamSize,
+                  courtsReduced: usedCourtReduction,
+                  teamSizeRelaxed: usedConstraintOverride,
+                  uses7PlayerTeams: true
+                }
+              };
+            } else {
+              console.log(`   ℹ️  7-player teams cannot reduce rounds to ${targetMaxRounds} for this configuration`);
+            }
+          }
+
           return {
             courtsUsed: courtsToUse,
             flexibleRounds: rounds,
