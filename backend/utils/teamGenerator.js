@@ -1322,20 +1322,32 @@ function generateFlexibleByeSchedule(players, flexibleRounds, finalByePlayerName
     console.log(`  Target other bye composition: ${targetMalesOnBye}M : ${targetFemalesOnBye}F (maintaining ${(otherMalePercent * 100).toFixed(1)}% male ratio)`);
     
     // Separate other players by gender and sort by priority for BYE selection
-    // Priority for byes: players who have played more (can afford a bye)
+    // Priority for byes: players who CAN AFFORD a bye (have played more, need fewer matches)
     const sortByPriority = (a, b) => {
       const aAssignment = playerRoundAssignments[a.id];
       const bAssignment = playerRoundAssignments[b.id];
 
       const aMatchesNeeded = matchesPerPlayer - aAssignment.matchesAssigned;
       const bMatchesNeeded = matchesPerPlayer - bAssignment.matchesAssigned;
+      const roundsRemaining = totalRounds - roundIndex;
 
-      // FIXED: Players who need FEWER matches (have played more) should get bye priority
-      // Lower matchesNeeded = can afford bye = should come first
+      // PRIMARY: Can afford bye check - player MUST be able to skip this round
+      // If a player needs X matches and there are Y rounds left, they can afford bye if X < Y
+      const aCanAffordBye = aMatchesNeeded < roundsRemaining;
+      const bCanAffordBye = bMatchesNeeded < roundsRemaining;
+
+      if (aCanAffordBye !== bCanAffordBye) {
+        // Prioritize players who CAN afford bye over those who CANNOT
+        return aCanAffordBye ? -1 : 1;
+      }
+
+      // Both can afford or both cannot - use secondary criteria
+      // Among those who can afford: prefer players with fewer matches needed (have played more)
       if (aMatchesNeeded !== bMatchesNeeded) {
         return aMatchesNeeded - bMatchesNeeded;
       }
 
+      // Avoid consecutive play - prefer giving byes to players who just played
       const aLastRound = aAssignment.roundsPlaying.length > 0 ?
         Math.max(...aAssignment.roundsPlaying) : -2;
       const bLastRound = bAssignment.roundsPlaying.length > 0 ?
@@ -1344,13 +1356,11 @@ function generateFlexibleByeSchedule(players, flexibleRounds, finalByePlayerName
       const aIsConsecutive = (roundIndex - aLastRound) === 1;
       const bIsConsecutive = (roundIndex - bLastRound) === 1;
 
-      // Players who just played should get bye priority (avoid consecutive play)
       if (aIsConsecutive !== bIsConsecutive) {
         return aIsConsecutive ? -1 : 1;
       }
 
-      // FIXED: Among equal neediness, prefer giving byes to those who have played more
-      // Higher matchesAssigned = played more = should get bye = should come first
+      // Final tiebreaker: prefer players who have played more total matches
       if (aAssignment.matchesAssigned !== bAssignment.matchesAssigned) {
         return bAssignment.matchesAssigned - aAssignment.matchesAssigned;
       }
