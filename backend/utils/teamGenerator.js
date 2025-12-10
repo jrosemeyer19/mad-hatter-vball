@@ -1231,6 +1231,12 @@ function generateFlexibleByeSchedule(players, flexibleRounds, finalByePlayerName
 
     console.log(`\n--- Assigning Round ${roundIndex + 1}: ${playersNeeded} players needed, ${byesNeeded} on bye ---`);
 
+    // CRITICAL: Estimate team count for this round to ensure proper setter distribution
+    // Courts are passed via courtsUsed parameter (default 3)
+    const estimatedTeamsThisRound = courtsUsed * 2;
+
+    console.log(`  Estimated teams this round: ${estimatedTeamsThisRound} (${courtsUsed} courts)`);
+
     // Check if we should force a specific player to bye in the final round
     let forcedByePlayer = null;
     if (isFinalRound && finalByePlayer && byesNeeded > 0) {
@@ -1262,14 +1268,36 @@ function generateFlexibleByeSchedule(players, flexibleRounds, finalByePlayerName
       return matchesNeeded < roundsLeft;
     });
 
+    // ENHANCED: Calculate minimum setter byes needed to fit setters into teams
+    // Goal: 1 setter per team (ideal), but if we have more setters than teams, some must get byes
+    const settersAvailable = totalFemaleSetters - (forcedByePlayer && forcedByePlayer.gender === 'female' && forcedByePlayer.is_setter ? 1 : 0);
+    const minSetterByesForTeamFit = Math.max(0, settersAvailable - estimatedTeamsThisRound);
+
+    if (minSetterByesForTeamFit > 0) {
+      console.log(`  ⚠️  ${settersAvailable} setters available but only ${estimatedTeamsThisRound} teams - need at least ${minSetterByesForTeamFit} setter bye(s)`);
+    }
+
     // Adjust female setter bye slots if forced player is a female setter
+    // FIXED: Ensure we give enough setter byes to fit remaining setters into teams (1 per team ideal)
+    const maxByesAvailableForSetters = byesNeeded - (forcedByePlayer && forcedByePlayer.gender === 'female' && forcedByePlayer.is_setter ? 1 : 0);
+
+    // Calculate desired setter byes: prioritize team fit over optimal distribution
+    const desiredSetterByes = Math.max(minSetterByesForTeamFit, optimalFemaleSetterByes);
+
+    // Clamp to constraints: can't exceed available setters or total byes
     let femaleSetterByeSlotsThisRound = Math.min(
-      optimalFemaleSetterByes,
+      desiredSetterByes,
       femaleSettersCanGoOnByeList.length,
-      byesNeeded - (forcedByePlayer && forcedByePlayer.gender === 'female' && forcedByePlayer.is_setter ? 1 : 0)
+      maxByesAvailableForSetters
     );
 
-    console.log(`  Will put ${femaleSetterByeSlotsThisRound} female setter(s) on bye (${femaleSettersCanGoOnByeList.length} available)`);
+    // Warn if we can't achieve ideal 1-setter-per-team distribution
+    if (femaleSetterByeSlotsThisRound < minSetterByesForTeamFit) {
+      console.log(`  ⚠️  WARNING: Cannot give enough setter byes (need ${minSetterByesForTeamFit}, can only give ${femaleSetterByeSlotsThisRound})`);
+      console.log(`  ⚠️  Some teams will have multiple setters or no setters this round`);
+    }
+
+    console.log(`  Will put ${femaleSetterByeSlotsThisRound} female setter(s) on bye (${femaleSettersCanGoOnByeList.length} available, ${minSetterByesForTeamFit} required for team fit, ${desiredSetterByes} desired)`);
 
     const femaleSettersGoingOnBye = femaleSettersCanGoOnByeList
       .sort((a, b) => {
