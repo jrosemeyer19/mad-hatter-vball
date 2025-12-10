@@ -795,25 +795,32 @@ function calculateOptimalStructure(totalPlayers, settings) {
         
         for (let i = 0; i < numRounds; i++) {
           const playersThisRound = basePlayersPerRound + (i < extraMatches ? 1 : 0);
-          
+
+          // CRITICAL: Cannot have more players in a round than total players in tournament
+          if (playersThisRound > totalPlayers) {
+            console.log(`        Round ${i + 1}: ${playersThisRound} players - INVALID (exceeds total players ${totalPlayers})`);
+            isValid = false;
+            break;
+          }
+
           if (playersThisRound < minPlayersPerRound || playersThisRound > maxPlayersPerRound) {
             console.log(`        Round ${i + 1}: ${playersThisRound} players - INVALID (range)`);
             isValid = false;
             break;
           }
-          
+
           if (!canFormValidTeams(playersThisRound, maxTeamsPerRound, constraintSet.minTeamSize, maxPlayersPerTeam)) {
             console.log(`        Round ${i + 1}: ${playersThisRound} players - INVALID (teams)`);
             isValid = false;
             break;
           }
-          
+
           rounds.push({
             roundNumber: i + 1,
             playersPlaying: playersThisRound,
             playersBye: totalPlayers - playersThisRound
           });
-          
+
           console.log(`        Round ${i + 1}: ${playersThisRound} playing, ${totalPlayers - playersThisRound} bye - VALID`);
         }
         
@@ -849,50 +856,42 @@ function calculateOptimalStructure(totalPlayers, settings) {
           const hasExcessiveRounds = numRounds > targetMaxRounds;
           const isStandardConstraints = !usedConstraintOverride;
 
-          // Determine if this solution should be considered
-          let shouldConsider = false;
-          let skipMessage = null;
+          // ALWAYS store valid solutions (even if excessive) so we have a fallback
+          const currentSolution = {
+            courtsUsed: courtsToUse,
+            flexibleRounds: rounds,
+            constraintOverrides: {
+              minTeamSizeUsed: constraintSet.minTeamSize,
+              courtsReduced: usedCourtReduction,
+              teamSizeRelaxed: usedConstraintOverride
+            },
+            numRounds,
+            isExcessive: hasExcessiveRounds,
+            usesStandardConstraints: isStandardConstraints
+          };
 
-          if (!hasExcessiveRounds) {
-            // Solution has acceptable rounds (matchesPerPlayer + 1 or less) - always consider
-            shouldConsider = true;
-            console.log(`✓ Acceptable round count: ${numRounds} ≤ ${targetMaxRounds} target`);
-          } else if (isStandardConstraints) {
-            // Has excessive rounds with standard constraints - skip and try relaxed
-            skipMessage = `⚠️  ${numRounds} rounds exceeds target of ${targetMaxRounds} with standard constraints`;
-            console.log(skipMessage);
-            console.log(`   Continuing search to see if relaxed constraints (4 min/team) can reduce rounds...`);
-            shouldConsider = false;
-          } else {
-            // Has excessive rounds but using relaxed constraints - this is the best we can do
-            shouldConsider = true;
-            console.log(`✓ Accepting relaxed constraint solution: ${numRounds} rounds (exceeds ${targetMaxRounds} target, but best available)`);
-          }
-
-          if (!shouldConsider) {
-            continue; // Skip to next round count iteration
-          }
-
-          // Store this solution if it's better than what we have
+          // Update best solution if this is better
           if (numRounds < bestSolutionRounds) {
-            bestSolution = {
-              courtsUsed: courtsToUse,
-              flexibleRounds: rounds,
-              constraintOverrides: {
-                minTeamSizeUsed: constraintSet.minTeamSize,
-                courtsReduced: usedCourtReduction,
-                teamSizeRelaxed: usedConstraintOverride
-              },
-              numRounds
-            };
+            bestSolution = currentSolution;
             bestSolutionRounds = numRounds;
-            console.log(`💾 Stored as current best solution`);
+            console.log(`💾 Stored as current best solution: ${numRounds} rounds`);
           }
 
-          // If this solution is good enough (within target), we can stop searching
+          // Decide if we should stop searching or continue
           if (!hasExcessiveRounds) {
-            console.log(`✓ Solution meets target - ending search`);
+            // Solution has acceptable rounds - ideal, stop searching
+            console.log(`✓ Acceptable round count: ${numRounds} ≤ ${targetMaxRounds} target - ending search`);
             break constraintLoop;
+          } else if (isStandardConstraints) {
+            // Has excessive rounds with standard constraints - continue to try relaxed
+            console.log(`⚠️  ${numRounds} rounds exceeds target of ${targetMaxRounds} with standard constraints`);
+            console.log(`   Solution stored as fallback, continuing search for relaxed constraints (4 min/team)...`);
+            // Continue to next constraint option
+            continue;
+          } else {
+            // Has excessive rounds with relaxed constraints - this is the best we can do
+            console.log(`✓ Relaxed constraint solution: ${numRounds} rounds (exceeds ${targetMaxRounds} target, but best available)`);
+            // Continue checking 7-player teams, but we have a fallback
           }
 
           // INTELLIGENT 7-PLAYER TEAM SUGGESTION SYSTEM
