@@ -3866,61 +3866,94 @@ function createSpecial37PlayerTeams(players, roundNumber) {
     playerCounts[player.id]++;
   });
 
-  // ENHANCED: Use balanced team creation for 37-player special case
-  // We have 30 remaining players (37 - 7 for the oversized team)
-  // We need to create 5 teams of 6 players
-  // BUT createBalancedTeams expects even number of teams for pairing
-  // Solution: Create a single dummy player to make it 31 players, creating 6 teams with sizes [6,6,6,6,6,1]
-  // Then discard the 1-player team
+  // ENHANCED: For 37-player special case, create exactly 5 teams of 6 without dummy players
+  // Create 6 balanced teams directly (30 players = 5×6, but we need even number for pairing)
+  // We'll create them in 3 pairs for the 3 courts
+  const teams = [];
+  for (let i = 0; i < 6; i++) {
+    teams.push({
+      id: `round_${roundNumber}_team_${i + 1}`,
+      team_number: i + 1,
+      court: Math.floor(i / 2) + 1,
+      is_bye_team: false,
+      players: [],
+      targetSize: 6,
+      specialTeamSize: 6,
+      stats: {
+        male: 0,
+        female: 0,
+        femaleSetters: 0,
+        maleAA: 0, femaleAA: 0,
+        maleA: 0, femaleA: 0,
+        maleBB: 0, femaleBB: 0,
+        maleB: 0, femaleB: 0,
+        skillRating: 0
+      }
+    });
+  }
 
-  const dummyPlayer = {
-    id: `dummy_${roundNumber}`,
-    name: 'Dummy Player',
-    gender: 'male',
-    skill_level: 'A',
-    is_setter: false
+  // Distribute players using the standard categorization and distribution logic
+  const shuffledPlayers = shuffleArray([...remainingPlayers]);
+  const categories = {
+    femaleSetters: shuffledPlayers.filter(p => p.gender === 'female' && p.is_setter),
+    maleAA: shuffledPlayers.filter(p => p.gender === 'male' && p.skill_level === 'AA'),
+    femaleAA: shuffledPlayers.filter(p => p.gender === 'female' && p.skill_level === 'AA' && !p.is_setter),
+    maleA: shuffledPlayers.filter(p => p.gender === 'male' && p.skill_level === 'A'),
+    femaleA: shuffledPlayers.filter(p => p.gender === 'female' && p.skill_level === 'A' && !p.is_setter),
+    maleBB: shuffledPlayers.filter(p => p.gender === 'male' && p.skill_level === 'BB'),
+    femaleBB: shuffledPlayers.filter(p => p.gender === 'female' && p.skill_level === 'BB' && !p.is_setter),
+    maleB: shuffledPlayers.filter(p => p.gender === 'male' && p.skill_level === 'B'),
+    femaleB: shuffledPlayers.filter(p => p.gender === 'female' && p.skill_level === 'B' && !p.is_setter),
+    maleOther: shuffledPlayers.filter(p =>
+      p.gender === 'male' && !p.is_setter &&
+      !['AA', 'A', 'BB', 'B'].includes(p.skill_level)
+    )
   };
 
-  const playersForBalancing = [...remainingPlayers, dummyPlayer]; // 31 players
+  // Create team pairs for balanced matching
+  const teamPairs = [
+    { team1: teams[0], team2: teams[1], court: 1 },
+    { team1: teams[2], team2: teams[3], court: 2 },
+    { team1: teams[4], team2: teams[5], court: 3 }
+  ];
 
-  const teamConfig = {
-    teamCount: 6,
-    teamSizes: [6, 6, 6, 6, 6, 1] // 5 teams of 6 + 1 dummy team of 1
-  };
+  // Distribute players in priority order
+  const distributionOrder = [
+    'femaleSetters', 'maleAA', 'femaleAA', 'maleA', 'femaleA',
+    'maleBB', 'femaleBB', 'maleOther', 'maleB', 'femaleB'
+  ];
 
-  // Use the balanced team creation for the 31 players (30 real + 1 dummy)
-  const balancedTeams = createBalancedTeams(playersForBalancing, teamConfig, roundNumber);
+  distributionOrder.forEach(category => {
+    const playersInCategory = categories[category];
+    playersInCategory.forEach(player => {
+      // Use constraint-aware team selection for only the first 5 teams
+      const teamsFor37 = teams.slice(0, 5);
+      const pairsFor37 = teamPairs.slice(0, 2); // Only first 2 pairs (courts 1 & 2)
+      const bestTeam = findBestTeamForPlayerWithConstraints(teamsFor37, pairsFor37, player, category);
 
-  // Take only teams with targetSize 6 (the first 5 teams)
-  // The 6th team has targetSize 1 and contains the dummy player
-  const teamsToKeep = balancedTeams.filter(team => team.targetSize === 6);
-
-  // Remove the dummy player from all teams (in case it was redistributed during balancing)
-  teamsToKeep.forEach(team => {
-    const hadDummy = team.players.some(p => p.id === dummyPlayer.id);
-    team.players = team.players.filter(p => p.id !== dummyPlayer.id);
-    // Recalculate stats if we removed the dummy
-    if (hadDummy) {
-      recalculateTeamStats(team);
-    }
+      if (bestTeam && bestTeam.players.length < 6) {
+        bestTeam.players.push(player);
+        updateTeamStats(bestTeam.stats, player);
+      } else {
+        // Fallback: add to first available team
+        const availableTeams = teamsFor37.filter(t => t.players.length < 6);
+        if (availableTeams.length > 0) {
+          availableTeams[0].players.push(player);
+          updateTeamStats(availableTeams[0].stats, player);
+        }
+      }
+    });
   });
 
-  // Validate we have exactly 5 teams with 30 total players
+  // Keep only the first 5 teams (discard the empty 6th team)
+  const teamsToKeep = teams.slice(0, 5);
+
+  // Validate we have exactly 30 players
   const totalPlayersInBalancedTeams = teamsToKeep.reduce((sum, team) => sum + team.players.length, 0);
-  if (teamsToKeep.length !== 5) {
-    console.error(`❌ Expected 5 balanced teams, got ${teamsToKeep.length}`);
-  }
   if (totalPlayersInBalancedTeams !== 30) {
     console.error(`❌ Expected 30 players in balanced teams, got ${totalPlayersInBalancedTeams}`);
+    console.error(`Team sizes: ${teamsToKeep.map(t => t.players.length).join(', ')}`);
   }
-
-  // Rename team IDs to match expected format
-  teamsToKeep.forEach((team, index) => {
-    team.id = `round_${roundNumber}_team_${index + 1}`;
-    team.team_number = index + 1;
-    team.court = Math.floor(index / 2) + 1;
-    team.specialTeamSize = 6;
-  });
 
   // Create the 7-player team with stats initialized
   const oversizeTeam = {
