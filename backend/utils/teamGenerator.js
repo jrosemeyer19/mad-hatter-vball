@@ -258,7 +258,10 @@ function generateAllRounds(players, settings) {
     // Check if this round uses 7-player teams
     const maxTeamSize = roundConfig.teamConfiguration?.maxTeamSize || 6;
 
-    const round = generateFlexibleRound(playingPlayers, byePlayers, structure.courtsUsed, settings.minPlayersPerTeam, roundNum, maxTeamSize);
+    // Use the actual min team size from the structure (may be relaxed from settings)
+    const minTeamSize = structure.constraintOverrides?.minTeamSizeUsed || settings.minPlayersPerTeam;
+
+    const round = generateFlexibleRound(playingPlayers, byePlayers, structure.courtsUsed, minTeamSize, roundNum, maxTeamSize);
     allRounds.push(round);
     
     round.teams.forEach(team => {
