@@ -3992,10 +3992,10 @@ function createSpecial37PlayerTeams(players, roundNumber) {
     console.warn(`  ⚠️  7-player team has ${bPlayersIn7Team} B-rated players`);
   }
 
-  const teams = [...teamsToKeep, oversizeTeam];
+  const allTeams = [...teamsToKeep, oversizeTeam];
 
   console.log(`\nTeam compositions:`);
-  teams.forEach(team => {
+  allTeams.forEach(team => {
     const marker = team.isOversizeTeam ? ' (7-PLAYER TEAM)' : '';
     const males = team.players.filter(p => p.gender === 'male').length;
     const females = team.players.length - males;
@@ -4014,9 +4014,9 @@ function createSpecial37PlayerTeams(players, roundNumber) {
   }
 
   // Validate all teams including the 7-player team
-  validateAllTeamsConstraints(teams);
+  validateAllTeamsConstraints(allTeams);
 
-  return teams;
+  return allTeams;
 }
 
 function createSpecial37PlayerMatches(teams) {
