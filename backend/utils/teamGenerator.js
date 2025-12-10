@@ -1242,14 +1242,17 @@ function generateFlexibleByeSchedule(players, flexibleRounds, finalByePlayerName
     if (isFinalRound && finalByePlayer && byesNeeded > 0) {
       const assignment = playerRoundAssignments[finalByePlayer.id];
       const matchesNeeded = matchesPerPlayer - assignment.matchesAssigned;
-      const roundsLeft = totalRounds - roundIndex;
+      const roundsAfterThis = totalRounds - roundIndex - 1; // Rounds remaining AFTER this one
 
-      // Only force bye if the player can afford to miss this round
-      if (matchesNeeded < roundsLeft) {
-        forcedByePlayer = finalByePlayer;
+      // Manual override: Force the bye as requested by user
+      forcedByePlayer = finalByePlayer;
+
+      if (matchesNeeded > roundsAfterThis) {
         console.log(`\n  🎯 Forcing ${finalByePlayer.name} to bye in final round`);
+        console.log(`  ⚠️  WARNING: ${finalByePlayer.name} still needs ${matchesNeeded} match(es) but only ${roundsAfterThis} round(s) remain after this`);
+        console.log(`  ⚠️  This player will not meet their match requirement (manual override)`);
       } else {
-        console.log(`\n  ⚠️ Cannot give ${finalByePlayer.name} a bye in final round - they need to play`);
+        console.log(`\n  🎯 Forcing ${finalByePlayer.name} to bye in final round (player has met match requirements)`);
       }
     }
 
