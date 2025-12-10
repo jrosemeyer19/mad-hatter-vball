@@ -3867,22 +3867,34 @@ function createSpecial37PlayerTeams(players, roundNumber) {
   });
 
   // ENHANCED: Use balanced team creation for 37-player special case
-  // Create team config for 6 teams - 5 teams of 6 + dummy 6th team
-  // The dummy 6th team will be replaced with the actual 7-player team
-  // NOTE: We need 6 teams (even number) for proper pairing, even though we only use 30 players
-  const dummyPlayers = playersFor7Team.slice(0, 6); // Temporarily use these for the 6th team
-  const allPlayersForBalancing = [...remainingPlayers, ...dummyPlayers];
+  // We have 30 remaining players (37 - 7 for the oversized team)
+  // We need to create 5 teams of 6 players
+  // BUT createBalancedTeams expects even number of teams for pairing
+  // Solution: Create a single dummy player to make it 31 players, creating 6 teams with sizes [6,6,6,6,6,1]
+  // Then discard the 1-player team
+
+  const dummyPlayer = {
+    id: `dummy_${roundNumber}`,
+    name: 'Dummy Player',
+    gender: 'male',
+    skill_level: 'A',
+    is_setter: false
+  };
+
+  const playersForBalancing = [...remainingPlayers, dummyPlayer]; // 31 players
 
   const teamConfig = {
     teamCount: 6,
-    teamSizes: [6, 6, 6, 6, 6, 6]
+    teamSizes: [6, 6, 6, 6, 6, 1] // 5 teams of 6 + 1 dummy team of 1
   };
 
-  // Use the balanced team creation for all 36 players (30 remaining + 6 dummy)
-  const balancedTeams = createBalancedTeams(allPlayersForBalancing, teamConfig, roundNumber);
+  // Use the balanced team creation for the 31 players (30 real + 1 dummy)
+  const balancedTeams = createBalancedTeams(playersForBalancing, teamConfig, roundNumber);
 
-  // Remove the 6th team (it was just a placeholder)
-  const teamsToKeep = balancedTeams.slice(0, 5);
+  // Remove the dummy 6th team (it only has the dummy player)
+  const teamsToKeep = balancedTeams.filter(team =>
+    !team.players.some(p => p.id === dummyPlayer.id)
+  ).slice(0, 5);
 
   // Rename team IDs to match expected format
   teamsToKeep.forEach((team, index) => {
