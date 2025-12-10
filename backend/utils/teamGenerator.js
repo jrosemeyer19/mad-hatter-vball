@@ -718,17 +718,17 @@ function calculateOptimalStructure(totalPlayers, settings) {
   console.log(`Total player-matches needed: ${totalPlayerMatches}`);
   
   const maxPlayersPerTeam = 6;
-  
+
   const canFormValidTeams = (totalPlayers, maxTeams, minPerTeam, maxPerTeam) => {
     for (let teamCount = 2; teamCount <= maxTeams; teamCount += 2) {
       const avgTeamSize = totalPlayers / teamCount;
-      
+
       if (avgTeamSize >= minPerTeam && avgTeamSize <= maxPerTeam) {
         const baseSize = Math.floor(avgTeamSize);
         const remainder = totalPlayers % teamCount;
         const smallTeamSize = baseSize;
         const largeTeamSize = remainder > 0 ? baseSize + 1 : baseSize;
-        
+
         if (smallTeamSize >= minPerTeam && largeTeamSize <= maxPerTeam) {
           return true;
         }
@@ -748,7 +748,12 @@ function calculateOptimalStructure(totalPlayers, settings) {
     }
   ];
 
-  for (const constraintSet of constraintOptions) {
+  // Track best solution found
+  let bestSolution = null;
+  let bestSolutionRounds = Infinity;
+  const targetMaxRounds = settings.matchesPerPlayer + 1;
+
+  constraintLoop: for (const constraintSet of constraintOptions) {
     console.log(`\nTrying with ${constraintSet.description}...`);
     
     for (let courtsToUse = settings.courtsAvailable; courtsToUse >= 1; courtsToUse--) {
@@ -839,11 +844,60 @@ function calculateOptimalStructure(totalPlayers, settings) {
             }
           }
 
+          // QUALITY CHECK: Prefer standard team size (5 min) even if it means one extra round
+          // Only use relaxed constraints (4 min) if standard requires matchesPerPlayer + 2 or more rounds
+          const hasExcessiveRounds = numRounds > targetMaxRounds;
+          const isStandardConstraints = !usedConstraintOverride;
+
+          // Determine if this solution should be considered
+          let shouldConsider = false;
+          let skipMessage = null;
+
+          if (!hasExcessiveRounds) {
+            // Solution has acceptable rounds (matchesPerPlayer + 1 or less) - always consider
+            shouldConsider = true;
+            console.log(`✓ Acceptable round count: ${numRounds} ≤ ${targetMaxRounds} target`);
+          } else if (isStandardConstraints) {
+            // Has excessive rounds with standard constraints - skip and try relaxed
+            skipMessage = `⚠️  ${numRounds} rounds exceeds target of ${targetMaxRounds} with standard constraints`;
+            console.log(skipMessage);
+            console.log(`   Continuing search to see if relaxed constraints (4 min/team) can reduce rounds...`);
+            shouldConsider = false;
+          } else {
+            // Has excessive rounds but using relaxed constraints - this is the best we can do
+            shouldConsider = true;
+            console.log(`✓ Accepting relaxed constraint solution: ${numRounds} rounds (exceeds ${targetMaxRounds} target, but best available)`);
+          }
+
+          if (!shouldConsider) {
+            continue; // Skip to next round count iteration
+          }
+
+          // Store this solution if it's better than what we have
+          if (numRounds < bestSolutionRounds) {
+            bestSolution = {
+              courtsUsed: courtsToUse,
+              flexibleRounds: rounds,
+              constraintOverrides: {
+                minTeamSizeUsed: constraintSet.minTeamSize,
+                courtsReduced: usedCourtReduction,
+                teamSizeRelaxed: usedConstraintOverride
+              },
+              numRounds
+            };
+            bestSolutionRounds = numRounds;
+            console.log(`💾 Stored as current best solution`);
+          }
+
+          // If this solution is good enough (within target), we can stop searching
+          if (!hasExcessiveRounds) {
+            console.log(`✓ Solution meets target - ending search`);
+            break constraintLoop;
+          }
+
           // INTELLIGENT 7-PLAYER TEAM SUGGESTION SYSTEM
           // Check if using 7-player teams could prevent extra rounds
-          // Target: matchesPerPlayer + 1 rounds maximum
-          const targetMaxRounds = settings.matchesPerPlayer + 1;
-          if (numRounds > targetMaxRounds && totalPlayers <= 45) {
+          if (hasExcessiveRounds && totalPlayers <= 45) {
             console.log(`\n🔍 Checking if 7-player teams could reduce rounds from ${numRounds} to ${targetMaxRounds}...`);
 
             // Try to find a solution with 7-player teams that achieves targetMaxRounds
@@ -857,50 +911,60 @@ function calculateOptimalStructure(totalPlayers, settings) {
             );
 
             if (with7PlayerTeamsSolution) {
-              console.log(`✅ 7-PLAYER TEAM SOLUTION FOUND: ${with7PlayerTeamsSolution.rounds.length} rounds (reduced from ${numRounds})`);
+              const sevenPlayerRounds = with7PlayerTeamsSolution.rounds.length;
+              console.log(`✅ 7-PLAYER TEAM SOLUTION FOUND: ${sevenPlayerRounds} rounds (reduced from ${numRounds})`);
               console.log(`   Using 7-player teams can achieve the target of ${targetMaxRounds} rounds or less`);
               console.log(`   Rounds configuration: ${with7PlayerTeamsSolution.rounds.map(r => r.playersPlaying).join(', ')} players`);
 
-              // Return the 7-player team solution instead
-              return {
-                courtsUsed: courtsToUse,
-                flexibleRounds: with7PlayerTeamsSolution.rounds,
-                specialCase: true,
-                description: `Intelligent 7-player team solution to reduce rounds to ${with7PlayerTeamsSolution.rounds.length}`,
-                constraintOverrides: {
-                  minTeamSizeUsed: constraintSet.minTeamSize,
-                  courtsReduced: usedCourtReduction,
-                  teamSizeRelaxed: usedConstraintOverride,
-                  uses7PlayerTeams: true
+              // Store 7-player team solution if better
+              if (sevenPlayerRounds < bestSolutionRounds) {
+                bestSolution = {
+                  courtsUsed: courtsToUse,
+                  flexibleRounds: with7PlayerTeamsSolution.rounds,
+                  specialCase: true,
+                  description: `Intelligent 7-player team solution to reduce rounds to ${sevenPlayerRounds}`,
+                  constraintOverrides: {
+                    minTeamSizeUsed: constraintSet.minTeamSize,
+                    courtsReduced: usedCourtReduction,
+                    teamSizeRelaxed: usedConstraintOverride,
+                    uses7PlayerTeams: true
+                  }
+                };
+                bestSolutionRounds = sevenPlayerRounds;
+                console.log(`💾 7-player solution stored as best`);
+
+                // If 7-player solution meets target, we're done
+                if (sevenPlayerRounds <= targetMaxRounds) {
+                  console.log(`✓ 7-player solution meets target - ending search`);
+                  break constraintLoop;
                 }
-              };
+              }
             } else {
               console.log(`   ℹ️  7-player teams cannot reduce rounds to ${targetMaxRounds} for this configuration`);
             }
           }
-
-          return {
-            courtsUsed: courtsToUse,
-            flexibleRounds: rounds,
-            constraintOverrides: {
-              minTeamSizeUsed: constraintSet.minTeamSize,
-              courtsReduced: usedCourtReduction,
-              teamSizeRelaxed: usedConstraintOverride
-            }
-          };
         } else {
           console.log(`        ${numRounds} rounds doesn't work`);
         }
       }
     }
   }
-  
+
+  // Return the best solution found
+  if (bestSolution) {
+    console.log(`\n🏆 RETURNING BEST SOLUTION: ${bestSolutionRounds} rounds, ${bestSolution.courtsUsed} courts`);
+    if (bestSolution.specialCase) {
+      console.log(`   Special case: ${bestSolution.description}`);
+    }
+    return bestSolution;
+  }
+
   console.error(`\n❌ NO SOLUTION FOUND`);
   console.error(`Even with constraint overrides:`);
   console.error(`- Courts: 1-${settings.courtsAvailable} tried`);
   console.error(`- Min team size: ${Math.max(4, settings.minPlayersPerTeam - 1)}-${settings.minPlayersPerTeam} tried`);
   console.error(`- Matches per player: ${settings.matchesPerPlayer} (non-negotiable)`);
-  
+
   throw new Error(`Impossible tournament structure: ${totalPlayers} players cannot form valid tournament with any allowed constraint relaxation`);
 }
 
@@ -1257,7 +1321,8 @@ function generateFlexibleByeSchedule(players, flexibleRounds, finalByePlayerName
     
     console.log(`  Target other bye composition: ${targetMalesOnBye}M : ${targetFemalesOnBye}F (maintaining ${(otherMalePercent * 100).toFixed(1)}% male ratio)`);
     
-    // Separate other players by gender and sort by priority
+    // Separate other players by gender and sort by priority for BYE selection
+    // Priority for byes: players who have played more (can afford a bye)
     const sortByPriority = (a, b) => {
       const aAssignment = playerRoundAssignments[a.id];
       const bAssignment = playerRoundAssignments[b.id];
@@ -1265,8 +1330,10 @@ function generateFlexibleByeSchedule(players, flexibleRounds, finalByePlayerName
       const aMatchesNeeded = matchesPerPlayer - aAssignment.matchesAssigned;
       const bMatchesNeeded = matchesPerPlayer - bAssignment.matchesAssigned;
 
+      // FIXED: Players who need FEWER matches (have played more) should get bye priority
+      // Lower matchesNeeded = can afford bye = should come first
       if (aMatchesNeeded !== bMatchesNeeded) {
-        return bMatchesNeeded - aMatchesNeeded;
+        return aMatchesNeeded - bMatchesNeeded;
       }
 
       const aLastRound = aAssignment.roundsPlaying.length > 0 ?
@@ -1277,12 +1344,15 @@ function generateFlexibleByeSchedule(players, flexibleRounds, finalByePlayerName
       const aIsConsecutive = (roundIndex - aLastRound) === 1;
       const bIsConsecutive = (roundIndex - bLastRound) === 1;
 
+      // Players who just played should get bye priority (avoid consecutive play)
       if (aIsConsecutive !== bIsConsecutive) {
-        return aIsConsecutive ? 1 : -1;
+        return aIsConsecutive ? -1 : 1;
       }
 
+      // FIXED: Among equal neediness, prefer giving byes to those who have played more
+      // Higher matchesAssigned = played more = should get bye = should come first
       if (aAssignment.matchesAssigned !== bAssignment.matchesAssigned) {
-        return aAssignment.matchesAssigned - bAssignment.matchesAssigned;
+        return bAssignment.matchesAssigned - aAssignment.matchesAssigned;
       }
 
       return Math.random() - 0.5;
