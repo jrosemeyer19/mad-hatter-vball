@@ -4083,7 +4083,14 @@ function createSpecial37PlayerTeams(players, roundNumber) {
       player: players.find(p => p.id === parseInt(id)),
       count
     }))
-    .sort((a, b) => a.count - b.count);
+    .sort((a, b) => {
+      // Primary: Sort by count (lowest first for fair rotation)
+      if (a.count !== b.count) {
+        return a.count - b.count;
+      }
+      // Secondary: Randomize when counts are equal (prevents same players every time)
+      return Math.random() - 0.5;
+    });
 
   sortedCounts.forEach(({ player, count }) => {
     if (count > 0) {
