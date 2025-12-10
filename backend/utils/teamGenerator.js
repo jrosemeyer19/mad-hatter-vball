@@ -4098,14 +4098,118 @@ function createSpecial37PlayerTeams(players, roundNumber) {
     }
   });
 
-  const candidatesFor7Team = sortedCounts.slice(0, 7);
-  const playersFor7Team = candidatesFor7Team.map(c => c.player);
+  // ENHANCED: Select 7 players from a larger candidate pool to ensure team balance
+  // Take top ~40% with lowest rotation counts (ensures rotation fairness)
+  const poolSize = Math.min(16, Math.ceil(players.length * 0.45));
+  const candidatePool = sortedCounts.slice(0, poolSize);
+
+  console.log(`\nSelecting balanced 7-player team from pool of ${poolSize} candidates with lowest rotation counts...`);
+
+  // Calculate target gender distribution based on tournament composition
+  const totalMales = players.filter(p => p.gender === 'male').length;
+  const totalFemales = players.filter(p => p.gender === 'female').length;
+  const maleRatio = totalMales / players.length;
+  const targetMalesIn7Team = Math.round(7 * maleRatio);
+  const targetFemalesIn7Team = 7 - targetMalesIn7Team;
+
+  console.log(`Tournament composition: ${totalMales}M:${totalFemales}F (${(maleRatio * 100).toFixed(0)}% male)`);
+  console.log(`Target for 7-player team: ${targetMalesIn7Team}M:${targetFemalesIn7Team}F`);
+
+  // Categorize candidate pool by skill level and gender
+  const poolByCategory = {
+    maleAA: candidatePool.filter(c => c.player.gender === 'male' && c.player.skill_level === 'AA'),
+    femaleAA: candidatePool.filter(c => c.player.gender === 'female' && c.player.skill_level === 'AA'),
+    maleA: candidatePool.filter(c => c.player.gender === 'male' && c.player.skill_level === 'A'),
+    femaleA: candidatePool.filter(c => c.player.gender === 'female' && c.player.skill_level === 'A'),
+    maleBB: candidatePool.filter(c => c.player.gender === 'male' && c.player.skill_level === 'BB'),
+    femaleBB: candidatePool.filter(c => c.player.gender === 'female' && c.player.skill_level === 'BB'),
+    maleB: candidatePool.filter(c => c.player.gender === 'male' && c.player.skill_level === 'B'),
+    femaleB: candidatePool.filter(c => c.player.gender === 'female' && c.player.skill_level === 'B')
+  };
+
+  // Use balanced draft-style selection
+  const playersFor7Team = [];
+  const pickFromCategory = (category, reason = '') => {
+    if (poolByCategory[category] && poolByCategory[category].length > 0) {
+      const pick = poolByCategory[category].shift();
+      playersFor7Team.push(pick.player);
+      console.log(`  Picked: ${pick.player.name} (${category}${reason})`);
+      return true;
+    }
+    return false;
+  };
+
+  // Strategy: Balanced skill distribution, avoid clustering
+  // Round 1: Try to get mix of skill levels for each gender
+  console.log(`\nBalanced selection (targeting ${targetMalesIn7Team}M:${targetFemalesIn7Team}F):`);
+
+  let malesSelected = 0;
+  let femalesSelected = 0;
+
+  // Alternate between skill levels to prevent clustering
+  const maleCategories = ['maleAA', 'maleA', 'maleBB', 'maleB'];
+  const femaleCategories = ['femaleAA', 'femaleA', 'femaleBB', 'femaleB'];
+
+  // Select males (spread across skill levels)
+  for (let i = 0; i < targetMalesIn7Team && malesSelected < targetMalesIn7Team; i++) {
+    let picked = false;
+    // Try each skill level
+    for (const category of maleCategories) {
+      if (playersFor7Team.length >= 7) break;
+      if (pickFromCategory(category)) {
+        malesSelected++;
+        picked = true;
+        break;
+      }
+    }
+    if (!picked) break; // No more males available in pool
+  }
+
+  // Select females (spread across skill levels)
+  for (let i = 0; i < targetFemalesIn7Team && femalesSelected < targetFemalesIn7Team; i++) {
+    let picked = false;
+    // Try each skill level
+    for (const category of femaleCategories) {
+      if (playersFor7Team.length >= 7) break;
+      if (pickFromCategory(category)) {
+        femalesSelected++;
+        picked = true;
+        break;
+      }
+    }
+    if (!picked) break; // No more females available in pool
+  }
+
+  // Fill remaining slots if we didn't hit 7 (fallback to any available from pool)
+  while (playersFor7Team.length < 7) {
+    const remaining = candidatePool.filter(c => !playersFor7Team.some(s => s.id === c.player.id));
+    if (remaining.length > 0) {
+      const pick = remaining[0];
+      playersFor7Team.push(pick.player);
+      console.log(`  Picked (fallback): ${pick.player.name} (${pick.player.gender}/${pick.player.skill_level})`);
+    } else {
+      console.error(`❌ Could not select 7 players from candidate pool`);
+      break;
+    }
+  }
+
   const remainingPlayers = players.filter(p => !playersFor7Team.some(selected => selected.id === p.id));
 
-  console.log(`Selected for 7-player team (lowest previous assignments):`);
+  // Log final composition
+  const finalMales = playersFor7Team.filter(p => p.gender === 'male').length;
+  const finalFemales = playersFor7Team.length - finalMales;
+  const skillBreakdown = {
+    AA: playersFor7Team.filter(p => p.skill_level === 'AA').length,
+    A: playersFor7Team.filter(p => p.skill_level === 'A').length,
+    BB: playersFor7Team.filter(p => p.skill_level === 'BB').length,
+    B: playersFor7Team.filter(p => p.skill_level === 'B').length
+  };
+  console.log(`\n7-player team composition: ${finalMales}M:${finalFemales}F, Skills: ${skillBreakdown.AA} AA, ${skillBreakdown.A} A, ${skillBreakdown.BB} BB, ${skillBreakdown.B} B`);
+
+  console.log(`Selected for 7-player team (balanced from low-rotation candidates):`);
   playersFor7Team.forEach(player => {
     const count = playerCounts[player.id];
-    console.log(`  ${player.name} (previously on 7-team ${count} time${count === 1 ? '' : 's'})`);
+    console.log(`  ${player.name} (${player.gender}/${player.skill_level}, previously on 7-team ${count} time${count === 1 ? '' : 's'})`);
   });
 
   playersFor7Team.forEach(player => {
