@@ -3891,10 +3891,28 @@ function createSpecial37PlayerTeams(players, roundNumber) {
   // Use the balanced team creation for the 31 players (30 real + 1 dummy)
   const balancedTeams = createBalancedTeams(playersForBalancing, teamConfig, roundNumber);
 
-  // Remove the dummy 6th team (it only has the dummy player)
-  const teamsToKeep = balancedTeams.filter(team =>
-    !team.players.some(p => p.id === dummyPlayer.id)
-  ).slice(0, 5);
+  // Take only teams with targetSize 6 (the first 5 teams)
+  // The 6th team has targetSize 1 and contains the dummy player
+  const teamsToKeep = balancedTeams.filter(team => team.targetSize === 6);
+
+  // Remove the dummy player from all teams (in case it was redistributed during balancing)
+  teamsToKeep.forEach(team => {
+    const hadDummy = team.players.some(p => p.id === dummyPlayer.id);
+    team.players = team.players.filter(p => p.id !== dummyPlayer.id);
+    // Recalculate stats if we removed the dummy
+    if (hadDummy) {
+      recalculateTeamStats(team);
+    }
+  });
+
+  // Validate we have exactly 5 teams with 30 total players
+  const totalPlayersInBalancedTeams = teamsToKeep.reduce((sum, team) => sum + team.players.length, 0);
+  if (teamsToKeep.length !== 5) {
+    console.error(`❌ Expected 5 balanced teams, got ${teamsToKeep.length}`);
+  }
+  if (totalPlayersInBalancedTeams !== 30) {
+    console.error(`❌ Expected 30 players in balanced teams, got ${totalPlayersInBalancedTeams}`);
+  }
 
   // Rename team IDs to match expected format
   teamsToKeep.forEach((team, index) => {
