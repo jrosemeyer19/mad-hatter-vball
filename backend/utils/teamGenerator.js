@@ -832,11 +832,20 @@ function calculateOptimalStructure(totalPlayers, settings) {
             break;
           }
 
-          rounds.push({
+          const roundConfig = {
             roundNumber: i + 1,
             playersPlaying: playersThisRound,
             playersBye: totalPlayers - playersThisRound
-          });
+          };
+
+          // Include team configuration if using 7-player teams
+          if (maxPlayersPerTeam === 7) {
+            roundConfig.teamConfiguration = {
+              maxTeamSize: 7
+            };
+          }
+
+          rounds.push(roundConfig);
 
           console.log(`        Round ${i + 1}: ${playersThisRound} playing, ${totalPlayers - playersThisRound} bye - VALID`);
         }
