@@ -261,7 +261,10 @@ function generateAllRounds(players, settings) {
     // Use the actual min team size from the structure (may be relaxed from settings)
     const minTeamSize = structure.constraintOverrides?.minTeamSizeUsed || settings.minPlayersPerTeam;
 
-    const round = generateFlexibleRound(playingPlayers, byePlayers, structure.courtsUsed, minTeamSize, roundNum, maxTeamSize);
+    // Pass the special case flag to prevent false triggering of 37-player logic
+    const isSpecial37 = roundConfig.specialCase === '37player';
+
+    const round = generateFlexibleRound(playingPlayers, byePlayers, structure.courtsUsed, minTeamSize, roundNum, maxTeamSize, isSpecial37);
     allRounds.push(round);
     
     round.teams.forEach(team => {
@@ -407,7 +410,7 @@ function logBPlayerSupportStats(players) {
   }
 }
 
-function generateFlexibleRound(playingPlayers, byePlayers, courtsUsed, minPlayersPerTeam, roundNumber, maxPlayersPerTeam = 6) {
+function generateFlexibleRound(playingPlayers, byePlayers, courtsUsed, minPlayersPerTeam, roundNumber, maxPlayersPerTeam = 6, isSpecial37PlayerTournament = false) {
   const maxTeams = courtsUsed * 2;
 
   console.log(`\n=== Creating Flexible Round ${roundNumber} ===`);
@@ -416,14 +419,15 @@ function generateFlexibleRound(playingPlayers, byePlayers, courtsUsed, minPlayer
     console.log(`🎯 Using 7-player max team size for this round`);
   }
 
-  if (playingPlayers.length === 37 && courtsUsed === 3) {
+  // Only use special 37-player logic if this is actually a 37-player tournament
+  if (isSpecial37PlayerTournament && playingPlayers.length === 37 && courtsUsed === 3) {
     console.log(`🎯 Special 37-player round: creating 5 teams of 6 + 1 team of 7`);
-    
+
     const teams = createSpecial37PlayerTeams(playingPlayers, roundNumber);
     const matches = createSpecial37PlayerMatches(teams);
-    
+
     console.log(`Special round ${roundNumber} created: 6 teams (5×6 + 1×7), 3 matches`);
-    
+
     return {
       roundNumber,
       teams,
