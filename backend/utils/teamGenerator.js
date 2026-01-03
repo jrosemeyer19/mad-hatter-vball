@@ -719,8 +719,18 @@ function calculateOptimalStructure(totalPlayers, settings) {
 
   const totalPlayerMatches = totalPlayers * settings.matchesPerPlayer;
   console.log(`Total player-matches needed: ${totalPlayerMatches}`);
-  
-  const maxPlayersPerTeam = 6;
+
+  // Override: For large tournaments (>45 players) with standard settings,
+  // try 7-player teams first to avoid exceeding 5 rounds
+  let maxPlayersPerTeam = 6;
+  if (totalPlayers > 45 &&
+      settings.courtsAvailable === 3 &&
+      settings.matchesPerPlayer === 4 &&
+      settings.minPlayersPerTeam === 5) {
+    console.log(`\n🎯 LARGE TOURNAMENT OVERRIDE: ${totalPlayers} players > 45`);
+    console.log(`Enabling 7-player teams to minimize rounds (target: ≤5 rounds)`);
+    maxPlayersPerTeam = 7;
+  }
 
   const canFormValidTeams = (totalPlayers, maxTeams, minPerTeam, maxPerTeam) => {
     for (let teamCount = 2; teamCount <= maxTeams; teamCount += 2) {
