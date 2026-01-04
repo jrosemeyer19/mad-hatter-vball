@@ -1761,7 +1761,6 @@ function tryFixAssignments(playerRoundAssignments, flexibleRounds, matchesPerPla
       const estimatedTeams = Math.min(maxTeamsInRound, Math.ceil(round.playersPlaying / 5));
 
       // Use dynamic minimum males per team based on availability
-      const totalMales = players.filter(p => p.gender === 'male').length;
       const totalPlayers = players.length;
       const minMalesPerTeam = calculateMinMalesPerTeam(totalMales, totalPlayers, estimatedTeams, round.playersPlaying);
       const minMalesNeeded = estimatedTeams * minMalesPerTeam;
@@ -1913,7 +1912,6 @@ function tryFixAssignments(playerRoundAssignments, flexibleRounds, matchesPerPla
       const estimatedTeams = Math.min(maxTeamsInRound, Math.ceil(round.playersPlaying / 5));
 
       // Use dynamic minimum males per team based on availability
-      const totalMales = players.filter(p => p.gender === 'male').length;
       const totalPlayers = players.length;
       const minMalesPerTeam = calculateMinMalesPerTeam(totalMales, totalPlayers, estimatedTeams, round.playersPlaying);
       const minMalesNeeded = estimatedTeams * minMalesPerTeam;
