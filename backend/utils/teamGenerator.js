@@ -261,10 +261,7 @@ function generateAllRounds(players, settings) {
     // Use the actual min team size from the structure (may be relaxed from settings)
     const minTeamSize = structure.constraintOverrides?.minTeamSizeUsed || settings.minPlayersPerTeam;
 
-    // Pass the special case flag to prevent false triggering of 37-player logic
-    const isSpecial37 = roundConfig.specialCase === '37player';
-
-    const round = generateFlexibleRound(playingPlayers, byePlayers, structure.courtsUsed, minTeamSize, roundNum, maxTeamSize, isSpecial37);
+    const round = generateFlexibleRound(playingPlayers, byePlayers, structure.courtsUsed, minTeamSize, roundNum, maxTeamSize);
     allRounds.push(round);
     
     round.teams.forEach(team => {
@@ -410,7 +407,7 @@ function logBPlayerSupportStats(players) {
   }
 }
 
-function generateFlexibleRound(playingPlayers, byePlayers, courtsUsed, minPlayersPerTeam, roundNumber, maxPlayersPerTeam = 6, isSpecial37PlayerTournament = false) {
+function generateFlexibleRound(playingPlayers, byePlayers, courtsUsed, minPlayersPerTeam, roundNumber, maxPlayersPerTeam = 6) {
   const maxTeams = courtsUsed * 2;
 
   console.log(`\n=== Creating Flexible Round ${roundNumber} ===`);
@@ -419,15 +416,14 @@ function generateFlexibleRound(playingPlayers, byePlayers, courtsUsed, minPlayer
     console.log(`🎯 Using 7-player max team size for this round`);
   }
 
-  // Only use special 37-player logic if this is actually a 37-player tournament
-  if (isSpecial37PlayerTournament && playingPlayers.length === 37 && courtsUsed === 3) {
+  if (playingPlayers.length === 37 && courtsUsed === 3) {
     console.log(`🎯 Special 37-player round: creating 5 teams of 6 + 1 team of 7`);
-
+    
     const teams = createSpecial37PlayerTeams(playingPlayers, roundNumber);
     const matches = createSpecial37PlayerMatches(teams);
-
+    
     console.log(`Special round ${roundNumber} created: 6 teams (5×6 + 1×7), 3 matches`);
-
+    
     return {
       roundNumber,
       teams,
@@ -723,18 +719,8 @@ function calculateOptimalStructure(totalPlayers, settings) {
 
   const totalPlayerMatches = totalPlayers * settings.matchesPerPlayer;
   console.log(`Total player-matches needed: ${totalPlayerMatches}`);
-
-  // Override: For large tournaments (>45 players) with standard settings,
-  // try 7-player teams first to avoid exceeding 5 rounds
-  let maxPlayersPerTeam = 6;
-  if (totalPlayers > 45 &&
-      settings.courtsAvailable === 3 &&
-      settings.matchesPerPlayer === 4 &&
-      settings.minPlayersPerTeam === 5) {
-    console.log(`\n🎯 LARGE TOURNAMENT OVERRIDE: ${totalPlayers} players > 45`);
-    console.log(`Enabling 7-player teams to minimize rounds (target: ≤5 rounds)`);
-    maxPlayersPerTeam = 7;
-  }
+  
+  const maxPlayersPerTeam = 6;
 
   const canFormValidTeams = (totalPlayers, maxTeams, minPerTeam, maxPerTeam) => {
     for (let teamCount = 2; teamCount <= maxTeams; teamCount += 2) {
@@ -832,20 +818,11 @@ function calculateOptimalStructure(totalPlayers, settings) {
             break;
           }
 
-          const roundConfig = {
+          rounds.push({
             roundNumber: i + 1,
             playersPlaying: playersThisRound,
             playersBye: totalPlayers - playersThisRound
-          };
-
-          // Include team configuration if using 7-player teams
-          if (maxPlayersPerTeam === 7) {
-            roundConfig.teamConfiguration = {
-              maxTeamSize: 7
-            };
-          }
-
-          rounds.push(roundConfig);
+          });
 
           console.log(`        Round ${i + 1}: ${playersThisRound} playing, ${totalPlayers - playersThisRound} bye - VALID`);
         }
