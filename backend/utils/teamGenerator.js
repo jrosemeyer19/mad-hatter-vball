@@ -1843,42 +1843,6 @@ function validateByeScheduleCorrectness(players, byeSchedule, flexibleRounds, ex
   };
 }
 
-function validateByeScheduleCorrectness(players, byeSchedule, flexibleRounds, expectedMatchesPerPlayer) {
-  const errors = [];
-  const playerMatchCounts = {};
-  
-  players.forEach(player => {
-    playerMatchCounts[player.id] = 0;
-  });
-  
-  byeSchedule.forEach((roundByes, roundIndex) => {
-    const round = flexibleRounds[roundIndex];
-    const byePlayerIds = new Set(roundByes.map(p => p.id));
-    
-    const playingPlayers = players.filter(player => !byePlayerIds.has(player.id));
-    
-    if (playingPlayers.length !== round.playersPlaying) {
-      errors.push(`Round ${roundIndex + 1}: expected ${round.playersPlaying} players, got ${playingPlayers.length}`);
-    }
-    
-    playingPlayers.forEach(player => {
-      playerMatchCounts[player.id]++;
-    });
-  });
-  
-  players.forEach(player => {
-    const actualMatches = playerMatchCounts[player.id];
-    if (actualMatches !== expectedMatchesPerPlayer) {
-      errors.push(`${player.name}: ${actualMatches}/${expectedMatchesPerPlayer} matches`);
-    }
-  });
-  
-  return {
-    isValid: errors.length === 0,
-    errors: errors
-  };
-}
-
 function selectFlexibleByeCandidates(players, roundIndex, byesNeeded, playerByeCount, playerTargetByes, playerLastByeRound) {
   let candidates = [...players];
   
