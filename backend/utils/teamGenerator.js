@@ -44,9 +44,53 @@ function initializeTeammateTracking(players) {
   });
 }
 
+/**
+ * Calculate the minimum males per team based on availability
+ * When there aren't enough males to give every team 2 males while maintaining
+ * flexibility for match distribution, this relaxes the constraint.
+ *
+ * @param {number} totalMales - Total number of male players
+ * @param {number} totalPlayers - Total number of players
+ * @param {number} teamCount - Number of teams in a round
+ * @param {number} playersPerRound - Number of players playing per round
+ * @returns {number} Minimum males per team (0, 1, or 2)
+ */
+function calculateMinMalesPerTeam(totalMales, totalPlayers, teamCount, playersPerRound) {
+  // Ideal constraint: 2 males per team
+  const idealMinMales = 2;
+  const malesNeededForIdeal = teamCount * idealMinMales;
+
+  // Calculate males playing in this round (proportional to total)
+  const malesPlayingEstimate = Math.round((totalMales / totalPlayers) * playersPerRound);
+
+  // If we have enough males with some buffer for flexibility (at least 20% extra)
+  // then we can maintain the strict 2-per-team requirement
+  if (malesPlayingEstimate >= malesNeededForIdeal * 1.2) {
+    console.log(`  ✓ Sufficient males (${malesPlayingEstimate}) for 2 per team with flexibility`);
+    return 2;
+  }
+
+  // If we have enough for exactly 2 per team but no flexibility,
+  // relax to 1 per team to allow for match distribution swaps
+  if (malesPlayingEstimate >= malesNeededForIdeal) {
+    console.log(`  ⚠ Relaxing to 1 male minimum per team (tight male availability: ${malesPlayingEstimate}/${malesNeededForIdeal} needed for 2 per team)`);
+    return 1;
+  }
+
+  // If we have at least 1 male per team
+  if (malesPlayingEstimate >= teamCount) {
+    console.log(`  ⚠ Setting 1 male minimum per team (${malesPlayingEstimate} males for ${teamCount} teams)`);
+    return 1;
+  }
+
+  // Extreme case: not even 1 per team - no minimum
+  console.log(`  ⚠ No male minimum enforced (only ${malesPlayingEstimate} males for ${teamCount} teams)`);
+  return 0;
+}
+
 function recordTeammates(team) {
   if (!team.players || team.players.length === 0) return;
-  
+
   const playerIds = team.players.map(p => p.id);
   
   // Record each pair of teammates
@@ -1715,7 +1759,12 @@ function tryFixAssignments(playerRoundAssignments, flexibleRounds, matchesPerPla
       // Use actual courts used, not estimation from player count
       const maxTeamsInRound = courtsUsed * 2;
       const estimatedTeams = Math.min(maxTeamsInRound, Math.ceil(round.playersPlaying / 5));
-      const minMalesNeeded = estimatedTeams * 2;
+
+      // Use dynamic minimum males per team based on availability
+      const totalMales = players.filter(p => p.gender === 'male').length;
+      const totalPlayers = players.length;
+      const minMalesPerTeam = calculateMinMalesPerTeam(totalMales, totalPlayers, estimatedTeams, round.playersPlaying);
+      const minMalesNeeded = estimatedTeams * minMalesPerTeam;
 
       if (malesPlayingAfterSwap < minMalesNeeded) {
         console.log(`  ⚠️  Skipping swap of ${overPlayer.player.name} and ${underPlayer.player.name} in round ${swapRound + 1} - would leave only ${malesPlayingAfterSwap}/${minMalesNeeded} males needed for ${estimatedTeams} teams`);
@@ -1862,7 +1911,12 @@ function tryFixAssignments(playerRoundAssignments, flexibleRounds, matchesPerPla
       // Use actual courts used, not estimation from player count
       const maxTeamsInRound = courtsUsed * 2;
       const estimatedTeams = Math.min(maxTeamsInRound, Math.ceil(round.playersPlaying / 5));
-      const minMalesNeeded = estimatedTeams * 2;
+
+      // Use dynamic minimum males per team based on availability
+      const totalMales = players.filter(p => p.gender === 'male').length;
+      const totalPlayers = players.length;
+      const minMalesPerTeam = calculateMinMalesPerTeam(totalMales, totalPlayers, estimatedTeams, round.playersPlaying);
+      const minMalesNeeded = estimatedTeams * minMalesPerTeam;
 
       if (malesPlayingAfterSwap < minMalesNeeded) {
         console.log(`  ⚠️  Skipping swap of ${overPlayer.player.name} and ${underPlayer.player.name} in round ${swapRound + 1} - would leave only ${malesPlayingAfterSwap}/${minMalesNeeded} males needed for ${estimatedTeams} teams`);
@@ -2552,7 +2606,7 @@ function generateRound(playingPlayers, byePlayers, structure, roundNumber, round
 
 function createBalancedTeams(players, teamConfig, roundNumber) {
   const { teamCount, teamSizes } = teamConfig;
-  
+
   const teams = [];
   for (let i = 0; i < teamCount; i++) {
     teams.push({
@@ -2574,7 +2628,7 @@ function createBalancedTeams(players, teamConfig, roundNumber) {
       }
     });
   }
-  
+
   const teamPairs = [];
   for (let i = 0; i < teamCount; i += 2) {
     teamPairs.push({
@@ -2585,6 +2639,12 @@ function createBalancedTeams(players, teamConfig, roundNumber) {
   }
 
   console.log(`\nCreating ${teamPairs.length} balanced match pairs with constraints...`);
+
+  // Calculate dynamic minimum males per team based on male availability
+  const totalMales = players.filter(p => p.gender === 'male').length;
+  const totalPlayers = players.length;
+  const minMalesPerTeam = calculateMinMalesPerTeam(totalMales, totalPlayers, teamCount, players.length);
+  console.log(`Using minimum ${minMalesPerTeam} males per team for this round`);
 
   const shuffledPlayers = shuffleArray([...players]);
   const categories = {
@@ -2622,19 +2682,19 @@ function createBalancedTeams(players, teamConfig, roundNumber) {
   
   distributionOrder.forEach(category => {
     const playersInCategory = categories[category];
-    
+
     playersInCategory.forEach(player => {
       // ENHANCED: Use constraint-aware team selection
-      const bestTeam = findBestTeamForPlayerWithConstraints(teams, teamPairs, player, category);
+      const bestTeam = findBestTeamForPlayerWithConstraints(teams, teamPairs, player, category, minMalesPerTeam);
       if (bestTeam) {
         bestTeam.players.push(player);
         updateTeamStats(bestTeam.stats, player);
       }
     });
-    
+
     console.log(`Distributed ${playersInCategory.length} ${category} players`);
   });
-  
+
   // Handle any unassigned players
   const assignedPlayerIds = new Set();
   teams.forEach(team => {
@@ -2647,7 +2707,7 @@ function createBalancedTeams(players, teamConfig, roundNumber) {
   }
 
   unassignedPlayers.forEach(player => {
-    const bestTeam = findBestTeamForPlayerWithConstraints(teams, teamPairs, player, 'remaining');
+    const bestTeam = findBestTeamForPlayerWithConstraints(teams, teamPairs, player, 'remaining', minMalesPerTeam);
     if (bestTeam && bestTeam.players.length < bestTeam.targetSize) {
       bestTeam.players.push(player);
       updateTeamStats(bestTeam.stats, player);
@@ -3182,7 +3242,8 @@ function recalculateTeamStats(team) {
 
 // ENHANCED: Check if team can accept a player given constraints
 // Now accepts allTeams to enforce even male distribution across teams
-function canTeamAcceptPlayer(team, player, allTeams = null) {
+// minMalesPerTeam: dynamic minimum based on male availability (0, 1, or 2)
+function canTeamAcceptPlayer(team, player, allTeams = null, minMalesPerTeam = 2) {
   if (team.players.length >= team.targetSize) {
     return { canAccept: false, reason: 'Team full' };
   }
@@ -3192,29 +3253,29 @@ function canTeamAcceptPlayer(team, player, allTeams = null) {
     const currentMaleCount = team.stats?.male || team.players.filter(p => p.gender === 'male').length;
     const spotsRemaining = targetSize - team.players.length;
 
-    // ENHANCED: Enforce minimum 2 males - check earlier in the process
+    // ENHANCED: Enforce minimum males - now dynamic based on availability
     // Calculate how many males we need vs how many spots we have
-    const malesNeeded = Math.max(0, 2 - currentMaleCount);
+    const malesNeeded = Math.max(0, minMalesPerTeam - currentMaleCount);
     const femalesAllowed = spotsRemaining - malesNeeded;
 
-    // If adding a female would make it impossible to get 2 males
-    if (player.gender === 'female' && femalesAllowed <= 0) {
-      return { canAccept: false, reason: 'Need male to meet minimum 2 males requirement' };
+    // If adding a female would make it impossible to meet minimum males requirement
+    if (player.gender === 'female' && femalesAllowed <= 0 && minMalesPerTeam > 0) {
+      return { canAccept: false, reason: `Need male to meet minimum ${minMalesPerTeam} males requirement` };
     }
 
-    // ENHANCED: Prevent adding a 3rd+ male to a team when other teams still need males
-    // This ensures males are distributed evenly (2 per team) before any team gets extras
-    if (player.gender === 'male' && currentMaleCount >= 2 && allTeams) {
+    // ENHANCED: Prevent adding extra males to a team when other teams still need males
+    // This ensures males are distributed evenly before any team gets extras
+    if (player.gender === 'male' && currentMaleCount >= minMalesPerTeam && allTeams && minMalesPerTeam > 0) {
       const teamsNeedingMales = allTeams.filter(t => {
         if (t.is_bye_team) return false;
         const tMaleCount = t.stats?.male || t.players.filter(p => p.gender === 'male').length;
         const tSpotsRemaining = t.targetSize - t.players.length;
-        // Team needs males if it has < 2 males and has room for more players
-        return tMaleCount < 2 && tSpotsRemaining > 0;
+        // Team needs males if it has < minMalesPerTeam males and has room for more players
+        return tMaleCount < minMalesPerTeam && tSpotsRemaining > 0;
       });
 
       if (teamsNeedingMales.length > 0) {
-        return { canAccept: false, reason: 'Other teams need males first (ensuring 2 per team)' };
+        return { canAccept: false, reason: `Other teams need males first (ensuring ${minMalesPerTeam} per team)` };
       }
     }
 
@@ -3287,10 +3348,10 @@ function canTeamAcceptPlayer(team, player, allTeams = null) {
 }
 
 // ENHANCED: Team selection with stronger constraints for male/B distribution
-function findBestTeamForPlayerWithConstraints(teams, teamPairs, player, category) {
+function findBestTeamForPlayerWithConstraints(teams, teamPairs, player, category, minMalesPerTeam = 2) {
   const availableTeams = teams.filter(team => {
     // Pass all teams to canTeamAcceptPlayer for cross-team constraint checking
-    const check = canTeamAcceptPlayer(team, player, teams);
+    const check = canTeamAcceptPlayer(team, player, teams, minMalesPerTeam);
     return check.canAccept;
   });
 
@@ -3300,15 +3361,15 @@ function findBestTeamForPlayerWithConstraints(teams, teamPairs, player, category
   }
 
   availableTeams.sort((a, b) => {
-    // Priority 1: For ALL males, STRONGLY prefer teams that need males to reach minimum of 2
-    // This is the highest priority to ensure every team gets 2 males before any gets 3+
-    if (player.gender === 'male') {
+    // Priority 1: For ALL males, STRONGLY prefer teams that need males to reach minimum
+    // This is the highest priority to ensure every team gets minMalesPerTeam males before any gets more
+    if (player.gender === 'male' && minMalesPerTeam > 0) {
       const aMaleCount = a.stats.male || 0;
       const bMaleCount = b.stats.male || 0;
 
-      // Strongly prefer teams with fewer than 2 males
-      const aNeeds = aMaleCount < 2;
-      const bNeeds = bMaleCount < 2;
+      // Strongly prefer teams with fewer than minMalesPerTeam males
+      const aNeeds = aMaleCount < minMalesPerTeam;
+      const bNeeds = bMaleCount < minMalesPerTeam;
       if (aNeeds !== bNeeds) {
         return aNeeds ? -1 : 1; // Team that needs males comes first
       }
@@ -4276,13 +4337,18 @@ function createSpecial37PlayerTeams(players, roundNumber) {
     'maleBB', 'femaleBB', 'maleOther', 'maleB', 'femaleB'
   ];
 
+  // Calculate dynamic minimum males per team for 37-player special case
+  const totalMalesIn30 = remainingPlayers.filter(p => p.gender === 'male').length;
+  const minMalesPerTeam = calculateMinMalesPerTeam(totalMalesIn30, remainingPlayers.length, 5, remainingPlayers.length);
+  console.log(`Using minimum ${minMalesPerTeam} males per team for 37-player special case`);
+
   distributionOrder.forEach(category => {
     const playersInCategory = categories[category];
     playersInCategory.forEach(player => {
       // Use constraint-aware team selection for only the first 5 teams
       const teamsFor37 = teams.slice(0, 5);
       const pairsFor37 = teamPairs.slice(0, 2); // Only first 2 pairs (courts 1 & 2)
-      const bestTeam = findBestTeamForPlayerWithConstraints(teamsFor37, pairsFor37, player, category);
+      const bestTeam = findBestTeamForPlayerWithConstraints(teamsFor37, pairsFor37, player, category, minMalesPerTeam);
 
       if (bestTeam && bestTeam.players.length < 6) {
         bestTeam.players.push(player);
