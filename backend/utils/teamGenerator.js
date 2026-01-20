@@ -1382,16 +1382,17 @@ function generateFlexibleByeSchedule(players, flexibleRounds, finalByePlayerName
     const otherFemales = otherPlayers.filter(p => p.gender === 'female').length;
     const otherMalePercent = otherMales / (otherMales + otherFemales);
 
-    // ENHANCED: Calculate max males that can go on bye to ensure 2 males per team
-    // Estimate number of teams: playersPlaying / avgTeamSize (assume ~5.5)
-    const estimatedTeams = Math.ceil(playersNeeded / 5.5);
-    const malesNeededForTeams = estimatedTeams * 2; // Need at least 2 males per team
+    // ENHANCED: Calculate max males that can go on bye using dynamic male-per-team requirements
+    // Use courtsUsed for accurate team count (not estimation from player count)
+    const estimatedTeams = courtsUsed * 2;
+    const minMalesPerTeam = calculateMinMalesPerTeam(totalMales, totalPlayers, estimatedTeams, playersNeeded);
+    const malesNeededForTeams = estimatedTeams * minMalesPerTeam;
     const maxMalesOnBye = Math.max(0, totalMales - malesNeededForTeams);
 
     let targetMalesOnBye = Math.round(otherByesNeeded * otherMalePercent);
     // Cap male byes to ensure enough males remain for team composition
     if (targetMalesOnBye > maxMalesOnBye) {
-      console.log(`  ⚠️  Reducing male byes from ${targetMalesOnBye} to ${maxMalesOnBye} to ensure 2 males per team`);
+      console.log(`  ⚠️  Reducing male byes from ${targetMalesOnBye} to ${maxMalesOnBye} to ensure ${minMalesPerTeam} males per team`);
       targetMalesOnBye = maxMalesOnBye;
     }
     const targetFemalesOnBye = otherByesNeeded - targetMalesOnBye;
