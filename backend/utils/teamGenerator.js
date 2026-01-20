@@ -2746,12 +2746,20 @@ function rebalanceBPlayersByGender(teams, _teamPairs, gender) {
 
 // Check if a swap for B player rebalancing is valid
 function canSwapForBRebalance(team1, team2, player1, player2, allTeams) {
+  // Calculate dynamic minimum males per team based on availability
+  const playingTeams = allTeams.filter(t => !t.is_bye_team);
+  const teamCount = playingTeams.length;
+  const allPlayers = playingTeams.flatMap(t => t.players);
+  const totalPlayers = allPlayers.length;
+  const totalMales = allPlayers.filter(p => p.gender === 'male').length;
+  const minMalesPerTeam = calculateMinMalesPerTeam(totalMales, totalPlayers, teamCount, totalPlayers);
+
   // Check male counts after swap
   const team1Males = team1.stats.male - (player1.gender === 'male' ? 1 : 0) + (player2.gender === 'male' ? 1 : 0);
   const team2Males = team2.stats.male - (player2.gender === 'male' ? 1 : 0) + (player1.gender === 'male' ? 1 : 0);
 
-  // Both teams need at least 2 males
-  if (team1Males < 2 || team2Males < 2) {
+  // Both teams need at least the dynamic minimum males
+  if (team1Males < minMalesPerTeam || team2Males < minMalesPerTeam) {
     return false;
   }
 
@@ -2759,8 +2767,6 @@ function canSwapForBRebalance(team1, team2, player1, player2, allTeams) {
   const player1IsFemSetter = player1.gender === 'female' && player1.is_setter;
   const player2IsFemSetter = player2.gender === 'female' && player2.is_setter;
 
-  const playingTeams = allTeams.filter(t => !t.is_bye_team);
-  const teamCount = playingTeams.length;
   const totalFemaleSetters = playingTeams.reduce((sum, t) =>
     sum + t.players.filter(p => p.gender === 'female' && p.is_setter).length, 0);
   const maxSettersPerTeam = Math.ceil(totalFemaleSetters / teamCount);
@@ -2946,12 +2952,20 @@ function findBeneficialSwap(team1, team2, currentSkillDiff, currentGenderDiff, a
 function isSwapValid(team1, team2, player1, player2, allTeams) {
   // Simulate the swap and check constraints
 
+  // Calculate dynamic minimum males per team based on availability
+  const playingTeams = allTeams.filter(t => !t.is_bye_team);
+  const teamCount = playingTeams.length;
+  const allPlayers = playingTeams.flatMap(t => t.players);
+  const totalPlayers = allPlayers.length;
+  const totalMales = allPlayers.filter(p => p.gender === 'male').length;
+  const minMalesPerTeam = calculateMinMalesPerTeam(totalMales, totalPlayers, teamCount, totalPlayers);
+
   // Check male counts after swap
   const team1Males = team1.stats.male - (player1.gender === 'male' ? 1 : 0) + (player2.gender === 'male' ? 1 : 0);
   const team2Males = team2.stats.male - (player2.gender === 'male' ? 1 : 0) + (player1.gender === 'male' ? 1 : 0);
 
-  // Both teams need at least 2 males
-  if (team1Males < 2 || team2Males < 2) {
+  // Both teams need at least the dynamic minimum males
+  if (team1Males < minMalesPerTeam || team2Males < minMalesPerTeam) {
     return false;
   }
 
@@ -2960,8 +2974,6 @@ function isSwapValid(team1, team2, player1, player2, allTeams) {
   const player2IsFemSetter = player2.gender === 'female' && player2.is_setter;
 
   // Calculate total female setters across all teams and the max allowed per team
-  const playingTeams = allTeams.filter(t => !t.is_bye_team);
-  const teamCount = playingTeams.length;
   const totalFemaleSetters = playingTeams.reduce((sum, t) =>
     sum + t.players.filter(p => p.gender === 'female' && p.is_setter).length, 0);
   const maxSettersPerTeam = Math.ceil(totalFemaleSetters / teamCount);
