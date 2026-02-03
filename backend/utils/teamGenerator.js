@@ -4095,16 +4095,18 @@ function createSpecial37PlayerTeams(players, roundNumber) {
     return false;
   };
 
-  // Strategy: Balanced skill distribution, avoid clustering
-  // Round 1: Try to get mix of skill levels for each gender
-  console.log(`\nBalanced selection (targeting ${targetMalesIn7Team}M:${targetFemalesIn7Team}F):`);
+  // Strategy: Favor weaker players for the 7-player team.
+  // Since only 6 of 7 play at once (one rotates out), the effective on-court
+  // skill is totalSkill * 6/7. Picking weaker players ensures the effective
+  // skill is comparable to the opposing 6-player team.
+  console.log(`\nBalanced selection (targeting ${targetMalesIn7Team}M:${targetFemalesIn7Team}F, favoring weaker players):`);
 
   let malesSelected = 0;
   let femalesSelected = 0;
 
-  // Alternate between skill levels to prevent clustering
-  const maleCategories = ['maleAA', 'maleA', 'maleBB', 'maleB'];
-  const femaleCategories = ['femaleAA', 'femaleA', 'femaleBB', 'femaleB'];
+  // Pick weaker skill levels first to avoid stacking the 7-player team
+  const maleCategories = ['maleB', 'maleBB', 'maleA', 'maleAA'];
+  const femaleCategories = ['femaleB', 'femaleBB', 'femaleA', 'femaleAA'];
 
   // Select males (spread across skill levels)
   for (let i = 0; i < targetMalesIn7Team && malesSelected < targetMalesIn7Team; i++) {
@@ -4304,6 +4306,96 @@ function createSpecial37PlayerTeams(players, roundNumber) {
   }
 
   const allTeams = [...teamsToKeep, oversizeTeam];
+
+  // POST-FORMATION COURT 3 BALANCING
+  // The 7-player team (oversizeTeam) plays against team 5 (teamsToKeep[4]) on Court 3.
+  // Since only 6 of 7 play at once, the effective on-court skill is totalSkill * 6/7.
+  // Swap players between the two Court 3 teams until effective skills are balanced.
+  const court3Opponent = teamsToKeep[4]; // Team 5, plays on Court 3
+  if (court3Opponent) {
+    const getEffectiveSkill7 = (team) => calculateTeamSkillRating(team) * 6 / 7;
+    const getSkill6 = (team) => calculateTeamSkillRating(team);
+
+    let effectiveSkill7 = getEffectiveSkill7(oversizeTeam);
+    let skill6 = getSkill6(court3Opponent);
+    const threshold = 0.15; // Allow up to 15% imbalance
+    const maxSwaps = 10;
+    let swapCount = 0;
+
+    console.log(`\n=== Court 3 Skill Balancing ===`);
+    console.log(`  7-player team effective skill (×6/7): ${effectiveSkill7.toFixed(1)}, Opponent skill: ${skill6.toFixed(1)}`);
+
+    while (swapCount < maxSwaps) {
+      effectiveSkill7 = getEffectiveSkill7(oversizeTeam);
+      skill6 = getSkill6(court3Opponent);
+      const avgSkill = (effectiveSkill7 + skill6) / 2;
+      const imbalance = Math.abs(effectiveSkill7 - skill6) / avgSkill;
+
+      if (imbalance <= threshold) {
+        console.log(`  ✅ Court 3 balanced (${(imbalance * 100).toFixed(1)}% imbalance)`);
+        break;
+      }
+
+      // Determine which team is stronger and find a swap to balance
+      const strongTeam = effectiveSkill7 > skill6 ? oversizeTeam : court3Opponent;
+      const weakTeam = effectiveSkill7 > skill6 ? court3Opponent : oversizeTeam;
+
+      // Find the best swap: move a strong player from the strong team
+      // and a weak player from the weak team
+      let bestSwap = null;
+      let bestImbalance = imbalance;
+
+      for (const strongPlayer of strongTeam.players) {
+        for (const weakPlayer of weakTeam.players) {
+          // Skip if same gender mismatch would break male minimums
+          if (strongPlayer.gender !== weakPlayer.gender) continue;
+
+          // Simulate the swap
+          const strongTeamNewSkill = calculateTeamSkillRating(strongTeam)
+            - getSkillRating(strongPlayer) + getSkillRating(weakPlayer);
+          const weakTeamNewSkill = calculateTeamSkillRating(weakTeam)
+            - getSkillRating(weakPlayer) + getSkillRating(strongPlayer);
+
+          const newEffective7 = strongTeam === oversizeTeam
+            ? strongTeamNewSkill * 6 / 7 : weakTeamNewSkill * 6 / 7;
+          const newSkill6 = strongTeam === court3Opponent
+            ? strongTeamNewSkill : weakTeamNewSkill;
+
+          const newAvg = (newEffective7 + newSkill6) / 2;
+          const newImbalance = Math.abs(newEffective7 - newSkill6) / newAvg;
+
+          if (newImbalance < bestImbalance) {
+            bestImbalance = newImbalance;
+            bestSwap = { strongPlayer, weakPlayer };
+          }
+        }
+      }
+
+      if (!bestSwap) {
+        console.log(`  No further improving swaps found (${(imbalance * 100).toFixed(1)}% imbalance remaining)`);
+        break;
+      }
+
+      // Execute the swap
+      const sIdx = strongTeam.players.findIndex(p => p.id === bestSwap.strongPlayer.id);
+      const wIdx = weakTeam.players.findIndex(p => p.id === bestSwap.weakPlayer.id);
+      strongTeam.players[sIdx] = bestSwap.weakPlayer;
+      weakTeam.players[wIdx] = bestSwap.strongPlayer;
+
+      // Update stats
+      strongTeam.stats = { male: 0, female: 0, femaleSetters: 0, maleAA: 0, femaleAA: 0, maleA: 0, femaleA: 0, maleBB: 0, femaleBB: 0, maleB: 0, femaleB: 0, skillRating: 0 };
+      weakTeam.stats = { male: 0, female: 0, femaleSetters: 0, maleAA: 0, femaleAA: 0, maleA: 0, femaleA: 0, maleBB: 0, femaleBB: 0, maleB: 0, femaleB: 0, skillRating: 0 };
+      strongTeam.players.forEach(p => updateTeamStats(strongTeam.stats, p));
+      weakTeam.players.forEach(p => updateTeamStats(weakTeam.stats, p));
+
+      swapCount++;
+      console.log(`  Swap ${swapCount}: ${bestSwap.strongPlayer.name} ↔ ${bestSwap.weakPlayer.name} (imbalance: ${(bestImbalance * 100).toFixed(1)}%)`);
+    }
+
+    effectiveSkill7 = getEffectiveSkill7(oversizeTeam);
+    skill6 = getSkill6(court3Opponent);
+    console.log(`  Final: 7-team effective ${effectiveSkill7.toFixed(1)} vs opponent ${skill6.toFixed(1)}`);
+  }
 
   console.log(`\nTeam compositions:`);
   allTeams.forEach(team => {
