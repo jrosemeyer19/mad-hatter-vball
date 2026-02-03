@@ -1385,15 +1385,40 @@ function generateFlexibleByeSchedule(players, flexibleRounds, finalByePlayerName
     // ENHANCED: Calculate max males that can go on bye using dynamic male-per-team requirements
     // Use courtsUsed for accurate team count (not estimation from player count)
     const estimatedTeams = courtsUsed * 2;
-    const minMalesPerTeam = calculateMinMalesPerTeam(totalMales, totalPlayers, estimatedTeams, playersNeeded);
+
+    // Calculate the minimum number of males that MUST be on bye this round
+    // to ensure all males get their required total byes across all rounds.
+    // Without this, the male bye cap can be too tight (e.g. 7 males / 38 females / 45 total
+    // needs 7 male byes across 5 rounds, but a cap of 1-per-round only allows 5).
+    const byesPerPlayer = totalRounds - matchesPerPlayer;
+    let maleByesAssignedSoFar = 0;
+    players.forEach(p => {
+      if (p.gender === 'male') {
+        maleByesAssignedSoFar += playerRoundAssignments[p.id].roundsOnBye.length;
+      }
+    });
+    const remainingMaleByes = totalMales * byesPerPlayer - maleByesAssignedSoFar;
+    const remainingRounds = totalRounds - roundIndex;
+    const minMalesOnByeThisRound = remainingRounds > 0 ? Math.ceil(remainingMaleByes / remainingRounds) : 0;
+
+    // Calculate min males per team, accounting for mandatory male byes.
+    // When mandatory byes leave fewer males than teams, relax to 0 (match count > gender balance).
+    const actualMalesAvailable = totalMales - Math.max(0, minMalesOnByeThisRound);
+    const minMalesPerTeam = actualMalesAvailable >= estimatedTeams ?
+      calculateMinMalesPerTeam(totalMales, totalPlayers, estimatedTeams, playersNeeded) : 0;
     const malesNeededForTeams = estimatedTeams * minMalesPerTeam;
-    const maxMalesOnBye = Math.max(0, totalMales - malesNeededForTeams);
+    const maxMalesOnBye = Math.max(minMalesOnByeThisRound, totalMales - malesNeededForTeams);
 
     let targetMalesOnBye = Math.round(otherByesNeeded * otherMalePercent);
     // Cap male byes to ensure enough males remain for team composition
     if (targetMalesOnBye > maxMalesOnBye) {
       console.log(`  ⚠️  Reducing male byes from ${targetMalesOnBye} to ${maxMalesOnBye} to ensure ${minMalesPerTeam} males per team`);
       targetMalesOnBye = maxMalesOnBye;
+    }
+    // Ensure enough males get byes to distribute male byes across all rounds
+    if (targetMalesOnBye < minMalesOnByeThisRound) {
+      console.log(`  ⚠️  Increasing male byes from ${targetMalesOnBye} to ${minMalesOnByeThisRound} to ensure all males get required byes`);
+      targetMalesOnBye = minMalesOnByeThisRound;
     }
     const targetFemalesOnBye = otherByesNeeded - targetMalesOnBye;
     
@@ -1761,9 +1786,16 @@ function tryFixAssignments(playerRoundAssignments, flexibleRounds, matchesPerPla
       const maxTeamsInRound = courtsUsed * 2;
       const estimatedTeams = Math.min(maxTeamsInRound, Math.ceil(round.playersPlaying / 5));
 
-      // Use dynamic minimum males per team based on availability
+      // Use dynamic minimum males per team based on availability.
+      // When swapping would leave fewer males than teams, relax to 0 —
+      // match count correctness takes priority over gender distribution.
       const totalPlayers = players.length;
-      const minMalesPerTeam = calculateMinMalesPerTeam(totalMales, totalPlayers, estimatedTeams, round.playersPlaying);
+      let minMalesPerTeam;
+      if (malesPlayingAfterSwap < estimatedTeams) {
+        minMalesPerTeam = 0;
+      } else {
+        minMalesPerTeam = calculateMinMalesPerTeam(totalMales, totalPlayers, estimatedTeams, round.playersPlaying);
+      }
       const minMalesNeeded = estimatedTeams * minMalesPerTeam;
 
       if (malesPlayingAfterSwap < minMalesNeeded) {
