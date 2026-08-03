@@ -237,6 +237,18 @@ function calculateTeamSkillRating(team) {
   return team.players.reduce((sum, player) => sum + getSkillRating(player), 0);
 }
 
+// Combined attacking strength at the net.
+// On a men's-height net the male hitters dominate front-row play, so two teams
+// can have identical male counts AND identical total skill ratings while one
+// side has a far stronger net (AA+A vs B+B, with the female side compensating
+// in the total). Tracking male skill on its own is what makes that visible.
+function calculateNetStrength(players) {
+  return players.reduce(
+    (sum, player) => sum + (player.gender === 'male' ? getSkillRating(player) : 0),
+    0
+  );
+}
+
 function getOpponentTeam(teams, teamPairs, team) {
   for (const pair of teamPairs) {
     if (pair.team1.id === team.id) return pair.team2;
@@ -710,6 +722,65 @@ function trySevenPlayerTeamSolution(totalPlayers, totalPlayerMatches, settings, 
   return { rounds };
 }
 
+// The "everybody plays every round" solution.
+//
+// This is the insight behind the 37-player case, stated generally. When the
+// player count sits just above what teams of 6 can seat, no bye schedule can
+// work: 37 players needing 4 matches each is 148 player-slots, but 4 rounds on
+// 3 courts caps at 4 x 36 = 144, and 5 rounds needs 37 byes spread over 5
+// rounds (7.4 per round) which is not a whole number. Letting one team carry an
+// extra player who rotates in and out resolves it exactly - 5 teams of 6 plus
+// one of 7 seats all 37, so 4 rounds x 37 = 148 with nobody ever sitting out.
+//
+// The same arithmetic applies at any count between maxTeams*6 and maxTeams*7:
+// 37-42 on three courts, 25-28 on two, 49-56 on four.
+function tryZeroByeOversizeSolution(totalPlayers, settings, courtsToUse, minTeamSize) {
+  const maxTeams = courtsToUse * 2;
+  const OVERSIZE_TEAM_LIMIT = 7;
+
+  // Only relevant when teams of 6 cannot seat everyone but teams of 7 can.
+  // Below this range the normal 6-max search already finds a zero-bye solution.
+  if (totalPlayers <= maxTeams * 6) return null;
+  if (totalPlayers > maxTeams * OVERSIZE_TEAM_LIMIT) return null;
+  if (totalPlayers < maxTeams * minTeamSize) return null;
+
+  const baseSize = Math.floor(totalPlayers / maxTeams);
+  const oversizeTeams = totalPlayers % maxTeams;
+  const regularTeams = maxTeams - oversizeTeams;
+
+  if (baseSize < minTeamSize || baseSize + (oversizeTeams > 0 ? 1 : 0) > OVERSIZE_TEAM_LIMIT) {
+    return null;
+  }
+
+  const rounds = [];
+  for (let i = 1; i <= settings.matchesPerPlayer; i++) {
+    rounds.push({
+      roundNumber: i,
+      playersPlaying: totalPlayers,
+      playersBye: 0,
+      teamConfiguration: {
+        maxTeamSize: OVERSIZE_TEAM_LIMIT,
+        regularTeams,
+        oversizeTeams,
+        regularTeamSize: baseSize,
+        oversizeTeamSize: baseSize + 1
+      }
+    });
+  }
+
+  console.log(`\n🎯 Zero-bye solution: ${settings.matchesPerPlayer} rounds, nobody sits out`);
+  console.log(`   Each round: ${regularTeams} team(s) of ${baseSize} + ${oversizeTeams} team(s) of ${baseSize + 1} = ${totalPlayers}`);
+  console.log(`   Total player-matches: ${settings.matchesPerPlayer * totalPlayers} (exactly ${totalPlayers} x ${settings.matchesPerPlayer})`);
+  console.log(`   Oversized teams rotate a player in and out, 6 on court at a time`);
+
+  return {
+    courtsUsed: courtsToUse,
+    flexibleRounds: rounds,
+    zeroBye: true,
+    description: `zero-bye structure with ${oversizeTeams} oversized team(s) per round`
+  };
+}
+
 function calculateOptimalStructure(totalPlayers, settings) {
   console.log(`\n--- Match-Balanced Structure Calculation ---`);
   console.log(`Total players: ${totalPlayers}`);
@@ -717,12 +788,16 @@ function calculateOptimalStructure(totalPlayers, settings) {
   console.log(`Matches per player: ${settings.matchesPerPlayer}`);
   console.log(`Min per team: ${settings.minPlayersPerTeam}`);
 
-  // RESTRICTION: 37-player special case with 7-player teams
-  // This ONLY applies to the exact scenario: 37 players, 3 courts, 4 matches per player, 5 min per team
-  // This special case should NEVER trigger for any other player count or configuration
-  // Maximum player count for any 7-player team feature: 45 players
+  // 37-player special case: 4 rounds with one 7-player team and no byes.
+  // Only for the exact scenario of 37 players, 3 courts, 4 matches/player, 5 min.
+  //
+  // This one is NOT gated behind allowSevenPlayerTeams, because at 37 there is
+  // no valid alternative. A 5-round bye schedule needs 148 player-slots across
+  // 5 rounds, but 6 teams at the 5-player minimum seat 30 per round = 150, so
+  // two rounds must seat only 29 - and 29 cannot split into six teams of 5+.
+  // Turning the option off there produces teams of 4, which breaks the minimum.
+  // The 7-player team is the only structure that works at this count.
   if (totalPlayers === 37 &&
-      totalPlayers <= 45 &&
       settings.courtsAvailable === 3 &&
       settings.matchesPerPlayer === 4 &&
       settings.minPlayersPerTeam === 5) {
@@ -761,9 +836,25 @@ function calculateOptimalStructure(totalPlayers, settings) {
     };
   }
 
+  // Generalized form of the case above: if teams of 6 cannot seat everyone but
+  // teams of 7 can, everybody can play every round with no bye schedule at all.
+  //
+  // OFF BY DEFAULT. A 7-player team means someone rotates off the court every
+  // rotation, which is a worse experience than sitting a whole round, so an
+  // extra round with byes is preferred unless the director opts in.
+  if (settings.allowSevenPlayerTeams) {
+    // Preferring the most courts keeps teams as small as possible
+    for (let courtsToUse = settings.courtsAvailable; courtsToUse >= 1; courtsToUse--) {
+      const zeroByeSolution = tryZeroByeOversizeSolution(
+        totalPlayers, settings, courtsToUse, settings.minPlayersPerTeam
+      );
+      if (zeroByeSolution) return zeroByeSolution;
+    }
+  }
+
   const totalPlayerMatches = totalPlayers * settings.matchesPerPlayer;
   console.log(`Total player-matches needed: ${totalPlayerMatches}`);
-  
+
   const maxPlayersPerTeam = 6;
 
   const canFormValidTeams = (totalPlayers, maxTeams, minPerTeam, maxPerTeam) => {
@@ -941,9 +1032,10 @@ function calculateOptimalStructure(totalPlayers, settings) {
             // Continue checking 7-player teams, but we have a fallback
           }
 
-          // INTELLIGENT 7-PLAYER TEAM SUGGESTION SYSTEM
-          // Check if using 7-player teams could prevent extra rounds
-          if (hasExcessiveRounds && totalPlayers <= 45) {
+          // Check if using 7-player teams could prevent extra rounds.
+          // Also opt-in: trading byes for on-court rotation is the director's
+          // call, and the default is to accept the extra round instead.
+          if (settings.allowSevenPlayerTeams && hasExcessiveRounds && totalPlayers <= 45) {
             console.log(`\n🔍 Checking if 7-player teams could reduce rounds from ${numRounds} to ${targetMaxRounds}...`);
 
             // Try to find a solution with 7-player teams that achieves targetMaxRounds
@@ -2843,12 +2935,17 @@ function refineTeamBalance(teams, teamPairs) {
 
       const skillDiff = Math.abs(team1.stats.skillRating - team2.stats.skillRating);
       const genderDiff = Math.abs(team1.stats.male - team2.stats.male);
+      const netDiff = Math.abs(
+        calculateNetStrength(team1.players) - calculateNetStrength(team2.players)
+      );
 
       // Try to improve if skill difference > 2 OR gender difference >= 1
+      // OR the net is lopsided by more than roughly one male skill tier
       const needsSkillBalance = skillDiff > 2;
       const needsGenderBalance = genderDiff >= 1;
+      const needsNetBalance = netDiff > 2;
 
-      if (!needsSkillBalance && !needsGenderBalance) continue;
+      if (!needsSkillBalance && !needsGenderBalance && !needsNetBalance) continue;
 
       // Try to find a beneficial swap (considers both skill and gender)
       const swap = findBeneficialSwap(team1, team2, skillDiff, genderDiff, teams);
@@ -2865,6 +2962,9 @@ function refineTeamBalance(teams, teamPairs) {
         }
         if (swap.genderImprovement > 0) {
           console.log(`    Gender diff: ${genderDiff} -> ${swap.newGenderDiff}`);
+        }
+        if (swap.netImprovement > 0) {
+          console.log(`    Net strength diff: ${netDiff.toFixed(1)} -> ${swap.newNetDiff.toFixed(1)}`);
         }
       }
     }
@@ -2885,6 +2985,10 @@ function refineTeamBalance(teams, teamPairs) {
 function findBeneficialSwap(team1, team2, currentSkillDiff, currentGenderDiff, allTeams) {
   let bestSwap = null;
   let bestScore = 0;
+
+  const team1Net = calculateNetStrength(team1.players);
+  const team2Net = calculateNetStrength(team2.players);
+  const currentNetDiff = Math.abs(team1Net - team2Net);
 
   for (const player1 of team1.players) {
     for (const player2 of team2.players) {
@@ -2911,8 +3015,16 @@ function findBeneficialSwap(team1, team2, currentSkillDiff, currentGenderDiff, a
       const team2MalesAfter = team2.stats.male - (player2.gender === 'male' ? 1 : 0) + (player1.gender === 'male' ? 1 : 0);
       const newGenderDiff = Math.abs(team1MalesAfter - team2MalesAfter);
 
+      // Net strength after the swap: only the male side of the exchange moves it
+      const player1Net = player1.gender === 'male' ? player1Skill : 0;
+      const player2Net = player2.gender === 'male' ? player2Skill : 0;
+      const newTeam1Net = team1Net - player1Net + player2Net;
+      const newTeam2Net = team2Net - player2Net + player1Net;
+      const newNetDiff = Math.abs(newTeam1Net - newTeam2Net);
+
       const skillImprovement = currentSkillDiff - newSkillDiff;
       const genderImprovement = currentGenderDiff - newGenderDiff;
+      const netImprovement = currentNetDiff - newNetDiff;
 
       // Calculate B player support impact
       // If teams have B players, swaps that improve their support should be weighted
@@ -2952,14 +3064,25 @@ function findBeneficialSwap(team1, team2, currentSkillDiff, currentGenderDiff, a
       const skillWeight = hasBPlayers ? 1.0 : 0.5; // Double weight when B players present
 
       // Combined score with B player support consideration
-      const combinedScore = skillImprovement * skillWeight + genderImprovement * 1.5 + bPlayerSupportBonus;
+      // Net strength weighted at 0.6: one male skill tier (~1.2 rating points)
+      // scores comparably to a one-player male count difference, so it refines
+      // matchups without overriding the male-count parity above it.
+      const combinedScore = skillImprovement * skillWeight +
+                            genderImprovement * 1.5 +
+                            netImprovement * 0.6 +
+                            bPlayerSupportBonus;
 
       // Only consider swaps that provide meaningful improvement
       const isWorthwhile = (skillImprovement > 0.5 && newSkillDiff <= currentSkillDiff) ||
                            (genderImprovement >= 1 && newGenderDiff < currentGenderDiff) ||
+                           (netImprovement > 1.0 && newNetDiff < currentNetDiff) ||
                            (bPlayerSupportBonus > 0.3); // Also worthwhile if significantly helps B players
 
-      if (isWorthwhile && combinedScore > bestScore && newSkillDiff <= currentSkillDiff + 0.5) {
+      // A swap must never trade away male-count parity to chase the other goals
+      const keepsGenderParity = newGenderDiff <= currentGenderDiff;
+
+      if (isWorthwhile && keepsGenderParity && combinedScore > bestScore &&
+          newSkillDiff <= currentSkillDiff + 0.5) {
         // Don't allow swaps that make skill significantly worse
         bestScore = combinedScore;
         bestSwap = {
@@ -2969,8 +3092,10 @@ function findBeneficialSwap(team1, team2, currentSkillDiff, currentGenderDiff, a
           player2,
           newSkillDiff,
           newGenderDiff,
+          newNetDiff,
           skillImprovement,
           genderImprovement,
+          netImprovement,
           bPlayerSupportBonus
         };
       }
@@ -3812,50 +3937,102 @@ function validateGenderBalance(teams) {
   console.log(`Teams with severe gender imbalance: ${severeImbalances}/${teams.length}`);
 }
 
+// Scores how even a single matchup is across the three things that decide it:
+// total skill, male count, and strength at the net. The overall grade is the
+// WORST of the three, because any one of them being lopsided makes a bad match.
+// Exported so the API can report the same numbers the generator optimized for.
+const MATCH_BALANCE_THRESHOLDS = {
+  skill: { excellent: 2, good: 4, fair: 6 },
+  net: { excellent: 1.5, good: 3, fair: 4.5 },
+  males: { excellent: 0, good: 1, fair: 2 }
+};
+
+function gradeMetric(diff, thresholds) {
+  if (diff <= thresholds.excellent) return 'excellent';
+  if (diff <= thresholds.good) return 'good';
+  if (diff <= thresholds.fair) return 'fair';
+  return 'poor';
+}
+
+const GRADE_ORDER = ['excellent', 'good', 'fair', 'poor'];
+
+function calculateMatchBalance(team1Players, team2Players) {
+  const skill1 = team1Players.reduce((sum, p) => sum + getSkillRating(p), 0);
+  const skill2 = team2Players.reduce((sum, p) => sum + getSkillRating(p), 0);
+  const males1 = team1Players.filter(p => p.gender === 'male').length;
+  const males2 = team2Players.filter(p => p.gender === 'male').length;
+  const net1 = calculateNetStrength(team1Players);
+  const net2 = calculateNetStrength(team2Players);
+
+  const skillDiff = Math.abs(skill1 - skill2);
+  const maleDiff = Math.abs(males1 - males2);
+  const netDiff = Math.abs(net1 - net2);
+
+  const grades = [
+    gradeMetric(skillDiff, MATCH_BALANCE_THRESHOLDS.skill),
+    gradeMetric(netDiff, MATCH_BALANCE_THRESHOLDS.net),
+    gradeMetric(maleDiff, MATCH_BALANCE_THRESHOLDS.males)
+  ];
+  const overall = GRADE_ORDER[Math.max(...grades.map(g => GRADE_ORDER.indexOf(g)))];
+
+  return {
+    skill: { team1: round1(skill1), team2: round1(skill2), diff: round1(skillDiff) },
+    males: { team1: males1, team2: males2, diff: maleDiff },
+    net: { team1: round1(net1), team2: round1(net2), diff: round1(netDiff) },
+    overall
+  };
+}
+
+function round1(value) {
+  return Math.round(value * 10) / 10;
+}
+
 function validateMatchBalance(teamPairs) {
   console.log('\n--- Match Balance Validation ---');
-  
-  let excellentMatches = 0;
-  let goodMatches = 0;
-  let fairMatches = 0;
-  let poorMatches = 0;
-  
+
+  const counts = { excellent: 0, good: 0, fair: 0, poor: 0 };
   let totalSkillDiff = 0;
   let maxSkillDiff = 0;
-  
+  let totalNetDiff = 0;
+  let maxNetDiff = 0;
+
   teamPairs.forEach(pair => {
-    const team1Skill = pair.team1.stats.skillRating;
-    const team2Skill = pair.team2.stats.skillRating;
-    const skillDiff = Math.abs(team1Skill - team2Skill);
-    
-    totalSkillDiff += skillDiff;
-    maxSkillDiff = Math.max(maxSkillDiff, skillDiff);
-    
-    if (skillDiff < 2) {
-      excellentMatches++;
-    } else if (skillDiff < 4) {
-      goodMatches++;
-    } else if (skillDiff < 6) {
-      fairMatches++;
-    } else {
-      poorMatches++;
-      console.warn(`  Court ${pair.court}: Large skill gap (${skillDiff.toFixed(1)} points)`);
+    const balance = calculateMatchBalance(pair.team1.players, pair.team2.players);
+
+    counts[balance.overall]++;
+    totalSkillDiff += balance.skill.diff;
+    maxSkillDiff = Math.max(maxSkillDiff, balance.skill.diff);
+    totalNetDiff += balance.net.diff;
+    maxNetDiff = Math.max(maxNetDiff, balance.net.diff);
+
+    console.log(
+      `  Court ${pair.court}: skill ${balance.skill.team1} v ${balance.skill.team2} ` +
+      `(Δ${balance.skill.diff}), males ${balance.males.team1} v ${balance.males.team2}, ` +
+      `net ${balance.net.team1} v ${balance.net.team2} (Δ${balance.net.diff}) → ${balance.overall}`
+    );
+
+    if (balance.overall === 'poor') {
+      console.warn(`  ⚠ Court ${pair.court} is lopsided`);
     }
   });
-  
-  const avgSkillDiff = teamPairs.length > 0 ? (totalSkillDiff / teamPairs.length).toFixed(2) : 0;
-  
+
+  const matchCount = teamPairs.length;
+  const avgSkillDiff = matchCount > 0 ? (totalSkillDiff / matchCount).toFixed(2) : 0;
+  const avgNetDiff = matchCount > 0 ? (totalNetDiff / matchCount).toFixed(2) : 0;
+
   console.log(`Match quality distribution:`);
-  console.log(`  Excellent (<2 skill diff): ${excellentMatches}`);
-  console.log(`  Good (2-4 skill diff): ${goodMatches}`);
-  console.log(`  Fair (4-6 skill diff): ${fairMatches}`);
-  console.log(`  Poor (>6 skill diff): ${poorMatches}`);
-  console.log(`Average skill difference: ${avgSkillDiff}`);
-  console.log(`Max skill difference: ${maxSkillDiff.toFixed(2)}`);
-  
-  const qualityScore = ((excellentMatches * 3 + goodMatches * 2 + fairMatches * 1) / (teamPairs.length * 3) * 100).toFixed(1);
+  console.log(`  Excellent: ${counts.excellent}`);
+  console.log(`  Good: ${counts.good}`);
+  console.log(`  Fair: ${counts.fair}`);
+  console.log(`  Poor: ${counts.poor}`);
+  console.log(`Average skill difference: ${avgSkillDiff} (max ${maxSkillDiff.toFixed(2)})`);
+  console.log(`Average net strength difference: ${avgNetDiff} (max ${maxNetDiff.toFixed(2)})`);
+
+  const qualityScore = matchCount > 0
+    ? ((counts.excellent * 3 + counts.good * 2 + counts.fair * 1) / (matchCount * 3) * 100).toFixed(1)
+    : '0.0';
   console.log(`Overall match quality score: ${qualityScore}%`);
-  
+
   if (qualityScore >= 80) {
     console.log('✅ Excellent match balance across the round');
   } else if (qualityScore >= 60) {
@@ -4477,5 +4654,8 @@ module.exports = {
   resetSpecial37PlayerTracking,
   initializeSpecial37PlayerTracking,
   resetTeammateTracking,
-  initializeTeammateTracking
+  initializeTeammateTracking,
+  getSkillRating,
+  calculateNetStrength,
+  calculateMatchBalance
 };

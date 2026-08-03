@@ -16,6 +16,9 @@ CREATE TABLE tournaments (
     courts_available INTEGER DEFAULT 3,
     min_players_per_team INTEGER DEFAULT 5,
     matches_per_player INTEGER DEFAULT 4,
+    -- Off by default: an extra round with byes is preferred over a 7-player
+    -- team, where someone rotates off the court every rotation.
+    allow_seven_player_teams BOOLEAN DEFAULT FALSE,
     entry_fee DECIMAL(10,2) DEFAULT 0,
     director_cost DECIMAL(10,2) DEFAULT 0,
     status VARCHAR(20) DEFAULT 'setup', -- 'setup', 'in_progress', 'completed'

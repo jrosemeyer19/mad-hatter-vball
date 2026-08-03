@@ -1,7 +1,7 @@
 const express = require('express');
 const pool = require('../database/db');
 const { authenticateToken } = require('../middleware/auth');
-const { generateTeams, generateAllRounds, balancePlayerMatches } = require('../utils/teamGenerator');
+const { generateTeams, generateAllRounds, balancePlayerMatches, calculateMatchBalance } = require('../utils/teamGenerator');
 
 const router = express.Router();
 
@@ -43,7 +43,8 @@ router.put('/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;
     const {
       name, date, location, courtsAvailable = 3, minPlayersPerTeam = 5,
-      matchesPerPlayer = 4, entryFee = 0, directorCost = 0
+      matchesPerPlayer = 4, entryFee = 0, directorCost = 0,
+      allowSevenPlayerTeams = false
     } = req.body;
 
     if (!name || !date || !location) {
@@ -64,11 +65,11 @@ router.put('/:id', authenticateToken, async (req, res) => {
       UPDATE tournaments
       SET name = $1, date = $2, location = $3, courts_available = $4,
           min_players_per_team = $5, matches_per_player = $6, entry_fee = $7,
-          director_cost = $8
-      WHERE id = $9
+          director_cost = $8, allow_seven_player_teams = $9
+      WHERE id = $10
       RETURNING *
     `, [name, date, location, courtsAvailable, minPlayersPerTeam, matchesPerPlayer,
-        entryFee, directorCost, id]);
+        entryFee, directorCost, allowSevenPlayerTeams, id]);
     
     res.json(result.rows[0]);
   } catch (error) {
@@ -85,7 +86,8 @@ router.post('/', authenticateToken, async (req, res) => {
 
     const {
       name, date, location, courtsAvailable = 3, minPlayersPerTeam = 5,
-      matchesPerPlayer = 4, entryFee = 0, directorCost = 0
+      matchesPerPlayer = 4, entryFee = 0, directorCost = 0,
+      allowSevenPlayerTeams = false
     } = req.body;
 
     if (!name || !date || !location) {
@@ -95,11 +97,12 @@ router.post('/', authenticateToken, async (req, res) => {
     const result = await client.query(`
       INSERT INTO tournaments (
         name, date, location, courts_available, min_players_per_team,
-        matches_per_player, entry_fee, director_cost, created_by
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        matches_per_player, entry_fee, director_cost, allow_seven_player_teams,
+        created_by
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *
     `, [name, date, location, courtsAvailable, minPlayersPerTeam, matchesPerPlayer,
-        entryFee, directorCost, req.user.id]);
+        entryFee, directorCost, allowSevenPlayerTeams, req.user.id]);
     
     await client.query('COMMIT');
     res.status(201).json(result.rows[0]);
@@ -268,11 +271,30 @@ router.get('/:id', async (req, res) => {
       ORDER BY r.round_number, m.court
     `, [id]);
     
+    // Attach per-match balance metrics. These are derived from the stored
+    // rosters using the same rating functions the generator optimizes with,
+    // so what the UI shows always matches what the algorithm was aiming for.
+    const playersByTeamId = new Map();
+    roundsResult.rows.forEach(round => {
+      (round.teams || []).forEach(team => {
+        if (team && team.id) playersByTeamId.set(team.id, team.players || []);
+      });
+    });
+
+    const matches = matchesResult.rows.map(match => {
+      const team1Players = playersByTeamId.get(match.team1_id);
+      const team2Players = playersByTeamId.get(match.team2_id);
+
+      if (!team1Players?.length || !team2Players?.length) return match;
+
+      return { ...match, balance: calculateMatchBalance(team1Players, team2Players) };
+    });
+
     res.json({
       tournament,
       players: playersResult.rows,
       rounds: roundsResult.rows,
-      matches: matchesResult.rows
+      matches
     });
   } catch (error) {
     console.error('Error fetching tournament details:', error);
@@ -444,6 +466,7 @@ router.post('/:id/start', authenticateToken, async (req, res) => {
       courtsAvailable: tournament.courts_available,
       minPlayersPerTeam: tournament.min_players_per_team,
       matchesPerPlayer: tournament.matches_per_player,
+      allowSevenPlayerTeams: tournament.allow_seven_player_teams === true,
       finalByePlayerName: finalByePlayerName || null
     };
     
@@ -882,6 +905,7 @@ router.post('/:id/regenerate', authenticateToken, async (req, res) => {
       courtsAvailable: tournament.courts_available,
       minPlayersPerTeam: tournament.min_players_per_team,
       matchesPerPlayer: tournament.matches_per_player,
+      allowSevenPlayerTeams: tournament.allow_seven_player_teams === true,
       finalByePlayerName: finalByePlayerName || null
     };
     

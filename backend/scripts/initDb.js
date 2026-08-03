@@ -116,7 +116,33 @@ async function runMigrations() {
         console.log('✓ Point differential support already exists');
       }
     }
-    
+
+    // Check for the 7-player team opt-in
+    const tournamentsExists = await checkTableExists('tournaments');
+    if (tournamentsExists) {
+      const sevenColumnExists = await checkColumnExists('tournaments', 'allow_seven_player_teams');
+
+      if (!sevenColumnExists) {
+        console.log('Adding 7-player team option to existing database...');
+
+        // Defaults to FALSE so existing tournaments keep preferring byes
+        await pool.query(`
+          ALTER TABLE tournaments
+          ADD COLUMN allow_seven_player_teams BOOLEAN DEFAULT FALSE
+        `);
+        console.log('✓ Added allow_seven_player_teams column');
+
+        await pool.query(`
+          COMMENT ON COLUMN tournaments.allow_seven_player_teams IS 'When true, the generator may build one or more 7-player teams to avoid an extra round of byes. Off by default.'
+        `);
+        console.log('✓ Added column comment');
+
+        console.log('7-player team option migration completed successfully!');
+      } else {
+        console.log('✓ 7-player team option already exists');
+      }
+    }
+
   } catch (error) {
     console.error('Error during migration:', error);
     throw error;

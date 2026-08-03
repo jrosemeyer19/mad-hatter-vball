@@ -11,6 +11,7 @@ function TournamentSetup({ isEditing = false }) {
     courtsAvailable: 3,
     minPlayersPerTeam: 5,
     matchesPerPlayer: 4,
+    allowSevenPlayerTeams: false,
     entryFee: 0,
     directorCost: 0
   });
@@ -96,6 +97,7 @@ function TournamentSetup({ isEditing = false }) {
         courtsAvailable: tournament.courts_available,
         minPlayersPerTeam: tournament.min_players_per_team,
         matchesPerPlayer: tournament.matches_per_player,
+        allowSevenPlayerTeams: tournament.allow_seven_player_teams === true,
         entryFee: tournament.entry_fee,
         directorCost: tournament.director_cost
       });
@@ -583,6 +585,25 @@ function TournamentSetup({ isEditing = false }) {
               min="1"
               max="10"
             />
+          </div>
+
+          <div className="form-group">
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                name="allowSevenPlayerTeams"
+                checked={tournamentData.allowSevenPlayerTeams}
+                onChange={handleTournamentChange}
+              />
+              Allow 7-player teams
+            </label>
+            <p className="field-hint">
+              Off by default. When a player count does not divide evenly, the schedule
+              adds a round and gives everyone a bye instead. Turning this on lets one or
+              more teams carry a 7th player who rotates on and off the court, which can
+              save a whole round — for example 37 players finish in 4 rounds with nobody
+              sitting out, instead of 5 rounds with one bye each.
+            </p>
           </div>
 
           <div className="form-group">
