@@ -1,1 +1,24 @@
+# Dependencies — reinstalled with `npm install` on each machine
+node_modules/
+
+# Production build — regenerated with `npm run build` on the server
+frontend/build/
+
+# Secrets and local config
+.env
+.env.local
+.env.*.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+*.log
+
+# OS / editor cruft
 .DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
