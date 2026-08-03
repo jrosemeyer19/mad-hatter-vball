@@ -22,3 +22,6 @@ Thumbs.db
 *.swp
 .idea/
 .vscode/
+
+# Lockfiles: dependencies are installed on the server with `npm install`
+package-lock.json
