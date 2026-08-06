@@ -365,10 +365,6 @@ function TournamentDetail({ user }) {
             <div className="stat-label">Matches each</div>
             <div className="stat-value">{tournament.matches_per_player}</div>
           </div>
-          <div className="stat">
-            <div className="stat-label">Entry fee</div>
-            <div className="stat-value">${tournament.entry_fee}</div>
-          </div>
         </div>
 
         {isAdmin && rounds.length > 0 && (

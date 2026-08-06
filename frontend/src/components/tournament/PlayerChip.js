@@ -4,12 +4,7 @@ import React from 'react';
 // palette is themeable and not rebuilt as a new style object on every render.
 function PlayerChip({ player, detailed }) {
   if (!detailed) {
-    return (
-      <span>
-        {player.name}
-        {player.is_setter && <span className="setter-star" title="Setter"> ★</span>}
-      </span>
-    );
+    return <span>{player.name}</span>;
   }
 
   const gender = player.gender?.toLowerCase() === 'female' ? 'f' : 'm';
@@ -21,7 +16,6 @@ function PlayerChip({ player, detailed }) {
       title={`${player.gender}, ${skill}${player.is_setter ? ', setter' : ''}`}
     >
       {player.name}
-      {player.is_setter && <span className="setter-star">★</span>}
     </span>
   );
 }
@@ -40,7 +34,7 @@ export function PlayerLegend() {
         <span key={`f${s}`} className={`player-chip f-${s}`}>F-{s}</span>
       ))}
       <span className="legend-sep" />
-      <span className="player-chip m-BB is-setter">Setter <span className="setter-star">★</span></span>
+      <span className="player-chip m-BB is-setter">Setter</span>
     </div>
   );
 }

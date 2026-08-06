@@ -98,8 +98,9 @@ function TournamentSetup({ isEditing = false }) {
         minPlayersPerTeam: tournament.min_players_per_team,
         matchesPerPlayer: tournament.matches_per_player,
         allowSevenPlayerTeams: tournament.allow_seven_player_teams === true,
-        entryFee: tournament.entry_fee,
-        directorCost: tournament.director_cost
+        // Defaulted because the API withholds these from anonymous requests
+        entryFee: tournament.entry_fee ?? 0,
+        directorCost: tournament.director_cost ?? 0
       });
       
       setPlayers(response.data.players);

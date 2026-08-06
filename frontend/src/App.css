@@ -650,10 +650,6 @@ input:focus, select:focus, textarea:focus {
   font-weight: 750;
 }
 
-.setter-star { color: var(--c-accent); font-size: 0.8em; }
-.player-chip.m-B .setter-star,
-.player-chip.f-B .setter-star { color: #8a6300; }
-
 .legend {
   display: flex;
   flex-wrap: wrap;

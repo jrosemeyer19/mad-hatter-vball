@@ -1,9 +1,17 @@
 const express = require('express');
 const pool = require('../database/db');
-const { authenticateToken } = require('../middleware/auth');
+const { authenticateToken, optionalAuth } = require('../middleware/auth');
 const { generateTeams, generateAllRounds, balancePlayerMatches, calculateMatchBalance } = require('../utils/teamGenerator');
 
 const router = express.Router();
+
+// Entry fee and director cost are the director's business, not the players'.
+// Stripped from every anonymous response so the numbers are absent from the
+// payload itself, not merely hidden by the UI.
+function withoutFinancials(tournament) {
+  const { entry_fee, director_cost, ...rest } = tournament;
+  return rest;
+}
 
 // Get all tournaments (public - shows active tournaments)
 router.get('/', async (req, res) => {
@@ -116,7 +124,7 @@ router.post('/', authenticateToken, async (req, res) => {
 });
 
 // Get tournament results with payouts (for completed tournaments) - FIXED VERSION
-router.get('/:id/results', async (req, res) => {
+router.get('/:id/results', optionalAuth, async (req, res) => {
   try {
     const { id } = req.params;
     console.log('Getting results for tournament ID:', id);
@@ -193,14 +201,18 @@ router.get('/:id/results', async (req, res) => {
       console.log('- Remaining for director:', remainingMoney);
     }
     
+    // Standings are public; the money is not
     const results = {
-      tournament,
-      standings: standingsResult.rows,
-      payouts,
-      totalPool,
-      hasPayouts: totalPool > 0
+      tournament: req.user ? tournament : withoutFinancials(tournament),
+      standings: standingsResult.rows
     };
-    
+
+    if (req.user) {
+      results.payouts = payouts;
+      results.totalPool = totalPool;
+      results.hasPayouts = totalPool > 0;
+    }
+
     res.json(results);
   } catch (error) {
     console.error('Error fetching tournament results:', error);
@@ -209,7 +221,7 @@ router.get('/:id/results', async (req, res) => {
 });
 
 // Get tournament details (updated to include bye teams)
-router.get('/:id', async (req, res) => {
+router.get('/:id', optionalAuth, async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -291,7 +303,7 @@ router.get('/:id', async (req, res) => {
     });
 
     res.json({
-      tournament,
+      tournament: req.user ? tournament : withoutFinancials(tournament),
       players: playersResult.rows,
       rounds: roundsResult.rows,
       matches

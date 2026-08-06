@@ -76,28 +76,41 @@ function ResultsPanel({ results, user }) {
           )}
         </div>
 
-        <div className="stat-grid mb-1">
-          <div className="stat">
-            <div className="stat-label">Entry fee</div>
-            <div className="stat-value">${results.tournament.entry_fee}</div>
-          </div>
-          <div className="stat">
-            <div className="stat-label">Players</div>
-            <div className="stat-value">{results.standings.length}</div>
-          </div>
-          <div className="stat">
-            <div className="stat-label">Director cost</div>
-            <div className="stat-value">${results.tournament.director_cost}</div>
-          </div>
-          <div className="stat">
-            <div className="stat-label">Prize pool</div>
-            <div className="stat-value">${results.totalPool}</div>
-          </div>
-        </div>
+        {/* The server omits the money entirely for anonymous visitors, so
+            there is nothing to render for them here */}
+        {user ? (
+          <>
+            <div className="stat-grid mb-1">
+              <div className="stat">
+                <div className="stat-label">Entry fee</div>
+                <div className="stat-value">${results.tournament.entry_fee}</div>
+              </div>
+              <div className="stat">
+                <div className="stat-label">Players</div>
+                <div className="stat-value">{results.standings.length}</div>
+              </div>
+              <div className="stat">
+                <div className="stat-label">Director cost</div>
+                <div className="stat-value">${results.tournament.director_cost}</div>
+              </div>
+              <div className="stat">
+                <div className="stat-label">Prize pool</div>
+                <div className="stat-value">${results.totalPool}</div>
+              </div>
+            </div>
 
-        {!results.hasPayouts && (
-          <div className="info-message" style={{ marginBottom: 0 }}>
-            No prize money to distribute — the entry fee is $0 or does not cover the director cost.
+            {!results.hasPayouts && (
+              <div className="info-message" style={{ marginBottom: 0 }}>
+                No prize money to distribute — the entry fee is $0 or does not cover the director cost.
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="stat-grid">
+            <div className="stat">
+              <div className="stat-label">Players</div>
+              <div className="stat-value">{results.standings.length}</div>
+            </div>
           </div>
         )}
       </div>
