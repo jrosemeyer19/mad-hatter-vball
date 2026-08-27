@@ -327,7 +327,9 @@ function generateAllRounds(players, settings) {
       }
     });
   });
-  
+
+  assignCourtsAcrossRounds(allRounds);
+
   console.log('\n=== PRE-VALIDATION PLAYER MATCH ANALYSIS ===');
   const playerMatchCount = {};
   players.forEach(p => playerMatchCount[p.id] = 0);
@@ -4094,6 +4096,188 @@ function createSimpleMatches(teams) {
   validateMatchQuality(matches);
 
   return matches;
+}
+
+// Court numbers start out as a side effect of team numbering (teams 1&2 land on
+// court 1, 3&4 on court 2, ...), so the same players can end up on the same
+// court most of the day. Courts are not equal at every facility, so once the
+// pairings are locked in we relabel which pair plays where. This changes nothing
+// about who plays whom - only the court sign above the match.
+function assignCourtsAcrossRounds(allRounds) {
+  console.log('\n=== Court Assignment ===');
+
+  // playerId -> { courtNumber: timesPlayedThere }
+  const courtHistory = {};
+
+  const timesOnCourt = (playerId, court) =>
+    (courtHistory[playerId] && courtHistory[playerId][court]) || 0;
+
+  // Cost of putting this match on this court: repeats hurt, and each additional
+  // repeat hurts more than the last (squared), which spreads players around.
+  const assignmentCost = (match, court) =>
+    [...match.team1.players, ...match.team2.players].reduce((cost, player) => {
+      const prior = timesOnCourt(player.id, court);
+      return cost + (prior + 1) ** 2 - prior ** 2;
+    }, 0);
+
+  const recordAssignment = (matches, assignment, delta) => {
+    matches.forEach((match, index) => {
+      const court = assignment[index];
+      [...match.team1.players, ...match.team2.players].forEach(player => {
+        if (!courtHistory[player.id]) courtHistory[player.id] = {};
+        courtHistory[player.id][court] = timesOnCourt(player.id, court) + delta;
+      });
+    });
+  };
+
+  const totalCost = (matches, assignment) =>
+    matches.reduce((sum, match, index) => sum + assignmentCost(match, assignment[index]), 0);
+
+  const pickAssignment = matches => {
+    const courts = matches.map((_, index) => index + 1);
+    return matches.length <= 6
+      ? bestCourtPermutation(matches, courts, assignmentCost)
+      : greedyCourtAssignment(matches, courts, assignmentCost);
+  };
+
+  const matchesFor = round => round.matches || [];
+
+  // First pass: walk the rounds in order, each one placed against what has been
+  // scheduled so far.
+  const assignments = allRounds.map(round => {
+    const matches = matchesFor(round);
+    if (matches.length === 0) return [];
+    const assignment = pickAssignment(matches);
+    recordAssignment(matches, assignment, 1);
+    return assignment;
+  });
+
+  // Early rounds were placed blind to the later ones, so revisit each round with
+  // the whole tournament in view. Only strict improvements are taken, so this
+  // settles quickly.
+  for (let pass = 0; pass < 10; pass++) {
+    let improved = false;
+
+    allRounds.forEach((round, roundIndex) => {
+      const matches = matchesFor(round);
+      if (matches.length === 0) return;
+
+      recordAssignment(matches, assignments[roundIndex], -1);
+      const current = assignments[roundIndex];
+      const candidate = pickAssignment(matches);
+
+      if (totalCost(matches, candidate) < totalCost(matches, current)) {
+        assignments[roundIndex] = candidate;
+        improved = true;
+      }
+      recordAssignment(matches, assignments[roundIndex], 1);
+    });
+
+    if (!improved) break;
+  }
+
+  allRounds.forEach((round, roundIndex) => {
+    const matches = matchesFor(round);
+
+    matches.forEach((match, index) => {
+      const court = assignments[roundIndex][index];
+      match.court = court;
+      match.id = `round_${round.roundNumber}_match_court_${court}`;
+      match.team1.court = court;
+      match.team2.court = court;
+    });
+
+    if (matches.length > 0) {
+      const summary = [...matches]
+        .sort((a, b) => a.court - b.court)
+        .map(m => `Court ${m.court}: Team ${m.team1.team_number} vs Team ${m.team2.team_number}`)
+        .join(', ');
+      console.log(`Round ${round.roundNumber} - ${summary}`);
+    }
+  });
+
+  logCourtDistribution(courtHistory);
+}
+
+// Few enough courts to check every arrangement. Ties are broken randomly, so
+// round 1 (where every player has a clean slate) comes out purely random.
+function bestCourtPermutation(matches, courts, assignmentCost) {
+  let best = null;
+  let bestCost = Infinity;
+
+  shuffleArray(permutations(courts)).forEach(candidate => {
+    const cost = matches.reduce(
+      (total, match, index) => total + assignmentCost(match, candidate[index]),
+      0
+    );
+    if (cost < bestCost) {
+      bestCost = cost;
+      best = candidate;
+    }
+  });
+
+  return best;
+}
+
+// Fallback for facilities with more courts than we want to brute force: walk the
+// matches in random order and give each one the cheapest court still open.
+function greedyCourtAssignment(matches, courts, assignmentCost) {
+  const remaining = [...courts];
+  const result = new Array(matches.length);
+
+  shuffleArray(matches.map((_, index) => index)).forEach(matchIndex => {
+    let bestSlot = 0;
+    let bestCost = Infinity;
+    remaining.forEach((court, slot) => {
+      const cost = assignmentCost(matches[matchIndex], court);
+      if (cost < bestCost) {
+        bestCost = cost;
+        bestSlot = slot;
+      }
+    });
+    result[matchIndex] = remaining.splice(bestSlot, 1)[0];
+  });
+
+  return result;
+}
+
+function permutations(items) {
+  if (items.length <= 1) return [items];
+
+  return items.flatMap((item, index) => {
+    const rest = [...items.slice(0, index), ...items.slice(index + 1)];
+    return permutations(rest).map(perm => [item, ...perm]);
+  });
+}
+
+function logCourtDistribution(courtHistory) {
+  const playerIds = Object.keys(courtHistory);
+  if (playerIds.length === 0) return;
+
+  let worstRepeat = 0;
+  let playersWithLopsidedCourts = 0;
+
+  playerIds.forEach(playerId => {
+    const counts = Object.values(courtHistory[playerId]);
+    const maxOnOneCourt = Math.max(...counts);
+    const played = counts.reduce((a, b) => a + b, 0);
+
+    worstRepeat = Math.max(worstRepeat, maxOnOneCourt);
+    // More than half of someone's matches on a single court is the pattern we
+    // are trying to avoid (only meaningful once they have played 3+).
+    if (played >= 3 && maxOnOneCourt > played / 2) {
+      playersWithLopsidedCourts++;
+    }
+  });
+
+  console.log(`Most matches any player spends on one court: ${worstRepeat}`);
+  console.log(`Players with more than half their matches on one court: ${playersWithLopsidedCourts}/${playerIds.length}`);
+
+  if (playersWithLopsidedCourts === 0) {
+    console.log('✅ Court time is spread evenly');
+  } else {
+    console.log('✓ Court time is spread as evenly as the round structure allows');
+  }
 }
 
 function validateMatchQuality(matches) {
