@@ -1044,6 +1044,21 @@ input:focus, select:focus, textarea:focus {
   }
 }
 
+/* ===== Footer ============================================================ */
+
+.app-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--s-2);
+  padding: var(--s-5) var(--s-4) var(--s-6);
+  font-size: 0.8rem;
+  color: var(--c-text-faint);
+}
+
+.app-footer a { color: var(--c-text-muted); }
+.app-footer a:hover { color: var(--c-primary); }
+
 /* ===== Tappable names ====================================================
    Any player name in the app opens that player's own schedule, so names have
    to be real buttons without looking like buttons in a dense roster list.
@@ -1146,6 +1161,7 @@ input:focus, select:focus, textarea:focus {
   /* Hide the whole app rather than enumerating every button and tab, so new
      UI never has to remember to opt out of printing */
   .header,
+  .app-footer,
   .main-content > .stack > *:not(.print-sheet) { display: none !important; }
 
   html, body, .App, .main-content {

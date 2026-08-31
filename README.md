@@ -224,3 +224,17 @@ cd ../backend && npm run init-db      # applies any new migrations
 
 `node_modules/`, `frontend/build/`, `package-lock.json`, and `.env` are not tracked — dependencies are
 installed and the frontend is built on the server.
+
+## License
+
+Copyright © 2026 Jeff Rosemeyer.
+
+Licensed under the [GNU Affero General Public License v3.0 or later](LICENSE).
+You are free to use, run, modify, and share this software. If you distribute a
+modified version — **including running one as a network service** — you must
+release your source under the same license and keep the copyright notice
+intact. That network clause is the whole reason for choosing AGPL over GPL: a
+tournament app is something people host rather than ship.
+
+The project name is not covered by that grant. A fork is welcome; calling it
+"Jeff's Mad Hatter Machine" is not.

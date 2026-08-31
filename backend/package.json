@@ -2,6 +2,7 @@
   "name": "volleyball-tournament-backend",
   "version": "1.0.0",
   "description": "Backend for Mad Hatter Volleyball Tournament Manager",
+  "license": "AGPL-3.0-or-later",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
