@@ -64,7 +64,7 @@ Tournaments have status: `setup` → `in_progress` → `completed`
 
 The `backend/utils/teamGenerator.js` is the most complex part of the codebase (~97KB). It handles:
 
-- Skill level balancing (A, BB, B levels)
+- Skill level balancing (AA, A, BB, B levels)
 - Gender distribution with configurable weighting
 - Setter distribution across teams
 - Teammate rotation tracking across rounds (players shouldn't repeat teammates)
@@ -78,4 +78,4 @@ Recent commits have focused heavily on improving team balance fairness.
 - JWT authentication with super admin role for user management
 - Frontend proxy config in `frontend/package.json` routes `/api` to backend
 - Production: Express serves React build, Nginx config in `nginx/`
-- Players have: name, gender (male/female), skill_level (A/BB/B), is_setter flag
+- Players have: name, gender (male/female), skill_level (AA/A/BB/B), is_setter flag
