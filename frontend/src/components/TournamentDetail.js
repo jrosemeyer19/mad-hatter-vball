@@ -6,6 +6,9 @@ import RoundView from './tournament/RoundView';
 import Leaderboard from './tournament/Leaderboard';
 import ResultsPanel from './tournament/ResultsPanel';
 import { PlayerLegend } from './tournament/PlayerChip';
+import PrintSchedule from './tournament/PrintSchedule';
+import PlayerScheduleModal from './tournament/PlayerScheduleModal';
+import { buildPlayerSchedule } from './tournament/playerSchedule';
 
 function TournamentDetail({ user }) {
   const { id } = useParams();
@@ -27,6 +30,7 @@ function TournamentDetail({ user }) {
   const [activeRound, setActiveRound] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
   const [showRegenerateModal, setShowRegenerateModal] = useState(false);
+  const [selectedPlayerId, setSelectedPlayerId] = useState(null);
   const [finalByePlayerName, setFinalByePlayerName] = useState('');
 
   useEffect(() => {
@@ -63,6 +67,8 @@ function TournamentDetail({ user }) {
   };
 
   const getRoundMatches = roundNumber => matches.filter(m => m.round_number === roundNumber);
+
+  const openPlayerSchedule = player => setSelectedPlayerId(player.id);
 
   const sortedRounds = useMemo(
     () => [...rounds].sort((a, b) => a.round_number - b.round_number),
@@ -245,6 +251,19 @@ function TournamentDetail({ user }) {
   const allRoundsComplete = () =>
     rounds.length > 0 && matches.length > 0 && matches.every(m => m.is_completed);
 
+  // Rounds carry a snapshot of each player, so look the live row up by id to
+  // get totals that reflect the scores entered so far.
+  const selectedPlayer = useMemo(
+    () => players.find(p => p.id === selectedPlayerId) || null,
+    [players, selectedPlayerId]
+  );
+
+  const selectedSchedule = useMemo(
+    () =>
+      selectedPlayer ? buildPlayerSchedule(selectedPlayer.id, rounds, matches, players) : [],
+    [selectedPlayer, rounds, matches, players]
+  );
+
   const progress = useMemo(() => {
     const total = matches.length;
     const completed = matches.filter(m => m.is_completed).length;
@@ -281,6 +300,14 @@ function TournamentDetail({ user }) {
 
   return (
     <div className="stack">
+      {/* Hidden on screen; this is what the Print schedule button produces */}
+      <PrintSchedule
+        tournament={tournament}
+        players={players}
+        rounds={rounds}
+        matches={matches}
+      />
+
       {/* ---- Tournament header ---- */}
       <div className="card">
         <div className="card-header">
@@ -300,6 +327,11 @@ function TournamentDetail({ user }) {
             <button className="btn btn-secondary btn-sm" onClick={copyTournamentLink}>
               Share link
             </button>
+            {rounds.length > 0 && (
+              <button className="btn btn-secondary btn-sm" onClick={() => window.print()}>
+                Print schedule
+              </button>
+            )}
             {tournament.status === 'setup' && isAdmin && (
               <Link to={`/tournament/${id}/setup`} className="btn btn-success btn-sm">
                 Continue setup
@@ -454,17 +486,32 @@ function TournamentDetail({ user }) {
                   onSubmit={submitScores}
                   onStartEdit={startEditingMatch}
                   onCancelEdit={() => setEditingMatch(null)}
+                  onSelectPlayer={openPlayerSchedule}
                 />
               )}
             </div>
           )}
 
           {activeTab === 'leaderboard' && (
-            <Leaderboard players={players} onExport={exportPlayers} canExport={isAdmin} />
+            <Leaderboard
+              players={players}
+              onExport={exportPlayers}
+              canExport={isAdmin}
+              onSelectPlayer={openPlayerSchedule}
+            />
           )}
 
           {activeTab === 'results' && <ResultsPanel results={completionResults} user={user} />}
         </>
+      )}
+
+      {/* ---- Player schedule modal ---- */}
+      {selectedPlayer && (
+        <PlayerScheduleModal
+          player={selectedPlayer}
+          schedule={selectedSchedule}
+          onClose={() => setSelectedPlayerId(null)}
+        />
       )}
 
       {/* ---- Regenerate modal ---- */}

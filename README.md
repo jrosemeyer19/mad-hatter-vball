@@ -28,9 +28,11 @@ and players enter their own scores from their phones between matches.
 
 **Running the day**
 - Round-by-round view with courts, matchups, and per-match balance readouts
+- One-page printable schedule — a round × court grid for the wall, plus a player × round lookup so everyone can find their own name
 - Two games per match; game 2 is optional
 - Live leaderboard, ranked separately for men and women
 - Score entry is public by design — no login needed on a player's phone
+- Tap any player's name for a popup of their whole day — court, team, teammates, and result for every round
 - Final standings with automatic payout calculation
 - Tournament history for past events
 

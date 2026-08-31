@@ -13,7 +13,8 @@ function RoundView({
   onScoreChange,
   onSubmit,
   onStartEdit,
-  onCancelEdit
+  onCancelEdit,
+  onSelectPlayer
 }) {
   const teams = round.teams || [];
   const playingTeams = teams.filter(t => !t.is_bye_team);
@@ -73,6 +74,7 @@ function RoundView({
                 onSubmit={onSubmit}
                 onStartEdit={onStartEdit}
                 onCancelEdit={onCancelEdit}
+                onSelectPlayer={onSelectPlayer}
               />
             ))}
         </div>
@@ -88,7 +90,9 @@ function RoundView({
             </div>
             <ul className="player-list">
               {byePlayers.map(p => (
-                <li key={p.id}><PlayerChip player={p} detailed={showDetails} /></li>
+                <li key={p.id}>
+                  <PlayerChip player={p} detailed={showDetails} onSelect={onSelectPlayer} />
+                </li>
               ))}
             </ul>
           </div>
@@ -109,7 +113,9 @@ function RoundView({
                   </div>
                   <ul className="player-list">
                     {(team.players || []).map(p => (
-                      <li key={p.id}><PlayerChip player={p} detailed /></li>
+                      <li key={p.id}>
+                        <PlayerChip player={p} detailed onSelect={onSelectPlayer} />
+                      </li>
                     ))}
                   </ul>
                 </div>

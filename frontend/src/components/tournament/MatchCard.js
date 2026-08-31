@@ -35,13 +35,15 @@ function ScoreCell({ label, value, win }) {
   );
 }
 
-function TeamSide({ team, players, detailed, won }) {
+function TeamSide({ team, players, detailed, won, onSelectPlayer }) {
   return (
     <div className={`match-side${won ? ' win' : ''}`}>
       <div className="match-side-name">Team {team?.team_number ?? '?'}</div>
       <ul className="player-list">
         {players.map(p => (
-          <li key={p.id}><PlayerChip player={p} detailed={detailed} /></li>
+          <li key={p.id}>
+            <PlayerChip player={p} detailed={detailed} onSelect={onSelectPlayer} />
+          </li>
         ))}
       </ul>
     </div>
@@ -61,7 +63,8 @@ function MatchCard({
   onScoreChange,
   onSubmit,
   onStartEdit,
-  onCancelEdit
+  onCancelEdit,
+  onSelectPlayer
 }) {
   const t1Label = `Team ${team1?.team_number ?? 1}`;
   const t2Label = `Team ${team2?.team_number ?? 2}`;
@@ -231,6 +234,7 @@ function MatchCard({
             players={team1Players}
             detailed={showDetails}
             won={match.is_completed && t1Total > t2Total}
+            onSelectPlayer={onSelectPlayer}
           />
           <span className="match-vs">VS</span>
           <TeamSide
@@ -238,6 +242,7 @@ function MatchCard({
             players={team2Players}
             detailed={showDetails}
             won={match.is_completed && t2Total > t1Total}
+            onSelectPlayer={onSelectPlayer}
           />
         </div>
 

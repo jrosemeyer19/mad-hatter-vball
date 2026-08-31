@@ -1043,3 +1043,224 @@ input:focus, select:focus, textarea:focus {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ===== Tappable names ====================================================
+   Any player name in the app opens that player's own schedule, so names have
+   to be real buttons without looking like buttons in a dense roster list.
+   ========================================================================== */
+
+.player-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--c-primary);
+  cursor: pointer;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+
+.player-link:hover { color: var(--c-primary-hover); }
+
+.player-link:focus-visible,
+.player-chip.is-tappable:focus-visible {
+  outline: 2px solid var(--c-primary);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+.player-chip.is-tappable {
+  border: 0;
+  font-family: inherit;
+  cursor: pointer;
+  /* Chips sit in dense lists, so buy a little more tap height without pushing
+     the rows apart */
+  padding-top: 0.3rem;
+  padding-bottom: 0.3rem;
+}
+
+.player-chip.is-tappable:active { transform: translateY(1px); }
+
+/* ===== Player schedule popup ============================================= */
+
+.player-day { border-top: 1px solid var(--c-border); }
+
+.player-day-row {
+  display: flex;
+  gap: var(--s-3);
+  padding: var(--s-3) 0;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.player-day-row.is-off { color: var(--c-text-muted); }
+
+.player-day-round {
+  flex: 0 0 2.25rem;
+  font-weight: 700;
+  color: var(--c-text-muted);
+}
+
+.player-day-body { flex: 1 1 auto; min-width: 0; }
+
+.player-day-where {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+
+.player-day-with {
+  margin-top: var(--s-1);
+  font-size: 0.86rem;
+  color: var(--c-text-muted);
+}
+
+.player-day-result {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.player-day-result.win  { color: var(--c-success); }
+.player-day-result.loss { color: var(--c-danger); }
+.player-day-result.tie  { color: var(--c-text-muted); }
+
+/* ===== Print schedule ====================================================
+   The sheet exists only for the printer: one landscape page with the court
+   grid on top and the player lookup below it. Everything is black on white
+   with hairline rules, because browsers strip background colours when
+   printing and the colour-coded player chips would come out blank.
+   ========================================================================== */
+
+.print-sheet { display: none; }
+
+@media print {
+  @page {
+    size: letter landscape;
+    margin: 0.35in;
+  }
+
+  /* Hide the whole app rather than enumerating every button and tab, so new
+     UI never has to remember to opt out of printing */
+  .header,
+  .main-content > .stack > *:not(.print-sheet) { display: none !important; }
+
+  html, body, .App, .main-content {
+    background: #fff;
+    color: #000;
+    margin: 0;
+    padding: 0;
+    max-width: none;
+  }
+
+  .print-sheet {
+    display: block;
+    font-family: var(--f-sans);
+    color: #000;
+  }
+
+  .print-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8pt;
+    margin-bottom: 5pt;
+  }
+
+  .print-head h1 { font-size: 13pt; margin: 0; }
+  .print-meta { font-size: 8pt; }
+
+  .print-grid,
+  .print-lookup {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .print-grid { table-layout: fixed; }
+
+  .print-grid th,
+  .print-grid td {
+    border: 0.5pt solid #999;
+    padding: 2pt 3pt;
+    vertical-align: top;
+    font-size: 7.5pt;
+  }
+
+  .print-grid thead th {
+    font-size: 8pt;
+    text-align: left;
+  }
+
+  .print-rowhead {
+    width: 52pt;
+    font-size: 8pt;
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  .print-bye-col { width: 70pt; }
+  .print-empty { text-align: center; color: #777; }
+
+  .print-match { display: flex; gap: 7pt; }
+  .print-team { flex: 1 1 0; min-width: 0; }
+
+  .print-team-name {
+    font-weight: 700;
+    border-bottom: 0.5pt solid #bbb;
+    margin-bottom: 1pt;
+  }
+
+  .print-player {
+    display: flex;
+    justify-content: space-between;
+    gap: 3pt;
+    line-height: 1.3;
+  }
+
+  .print-player-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .print-player-tag {
+    font-size: 6.5pt;
+    color: #555;
+    white-space: nowrap;
+  }
+
+  .print-subhead { font-size: 9.5pt; margin: 7pt 0 2pt; }
+
+  .print-columns {
+    display: flex;
+    gap: 12pt;
+    align-items: flex-start;
+  }
+
+  .print-lookup { flex: 1 1 0; }
+
+  .print-lookup th,
+  .print-lookup td {
+    border-bottom: 0.5pt solid #ccc;
+    padding: 1pt 3pt;
+    font-size: 7.5pt;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  .print-lookup th { border-bottom: 0.75pt solid #000; }
+  .print-lookup th:first-child,
+  .print-lookup-name { text-align: left; }
+  .print-bye-cell { color: #777; }
+
+  .print-foot { margin-top: 5pt; font-size: 7pt; color: #444; }
+
+  /* Keep a round's block of names, and any single player's row, off a page seam */
+  .print-grid tr,
+  .print-lookup tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}

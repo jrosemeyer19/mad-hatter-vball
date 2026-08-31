@@ -2,19 +2,39 @@ import React from 'react';
 
 // Skill/gender colouring lives in App.css (.player-chip.m-AA etc) so the
 // palette is themeable and not rebuilt as a new style object on every render.
-function PlayerChip({ player, detailed }) {
+// Passing onSelect turns the name into a button that opens that player's own
+// schedule; without it the chip stays inert, which is what the legend and the
+// printable sheet want.
+function PlayerChip({ player, detailed, onSelect }) {
+  const tappable = typeof onSelect === 'function';
+  const open = () => onSelect(player);
+
   if (!detailed) {
-    return <span>{player.name}</span>;
+    return tappable ? (
+      <button type="button" className="player-link" onClick={open}>
+        {player.name}
+      </button>
+    ) : (
+      <span>{player.name}</span>
+    );
   }
 
   const gender = player.gender?.toLowerCase() === 'female' ? 'f' : 'm';
   const skill = player.skill_level || 'BB';
+  const className = `player-chip ${gender}-${skill}${player.is_setter ? ' is-setter' : ''}`;
+  const title = `${player.gender}, ${skill}${player.is_setter ? ', setter' : ''}`;
 
-  return (
-    <span
-      className={`player-chip ${gender}-${skill}${player.is_setter ? ' is-setter' : ''}`}
-      title={`${player.gender}, ${skill}${player.is_setter ? ', setter' : ''}`}
+  return tappable ? (
+    <button
+      type="button"
+      className={`${className} is-tappable`}
+      title={`${title} — tap for their schedule`}
+      onClick={open}
     >
+      {player.name}
+    </button>
+  ) : (
+    <span className={className} title={title}>
       {player.name}
     </span>
   );

@@ -13,7 +13,7 @@ function isMale(p) {
   return g === 'male' || g === 'm';
 }
 
-function Leaderboard({ players, onExport, canExport }) {
+function Leaderboard({ players, onExport, canExport, onSelectPlayer }) {
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
 
@@ -82,7 +82,19 @@ function Leaderboard({ players, onExport, canExport }) {
                   <td className={i < 3 ? `rank-${i + 1}` : 'text-faint'}>
                     {i < 3 ? MEDALS[i] : i + 1}
                   </td>
-                  <td><strong>{player.name}</strong></td>
+                  <td>
+                    {onSelectPlayer ? (
+                      <button
+                        type="button"
+                        className="player-link"
+                        onClick={() => onSelectPlayer(player)}
+                      >
+                        <strong>{player.name}</strong>
+                      </button>
+                    ) : (
+                      <strong>{player.name}</strong>
+                    )}
+                  </td>
                   <td className="num">{player.matches_played}</td>
                   <td className="num">{player.total_points}</td>
                   <td className="num"><Delta value={player.point_differential} /></td>
@@ -91,6 +103,10 @@ function Leaderboard({ players, onExport, canExport }) {
             </tbody>
           </table>
         </div>
+      )}
+
+      {onSelectPlayer && visible.length > 0 && (
+        <p className="field-hint">Tap a name to see that player's round-by-round schedule.</p>
       )}
 
       {filter !== 'all' && (
