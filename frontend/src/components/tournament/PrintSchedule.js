@@ -6,9 +6,9 @@ import { buildPlayerSchedule, byePlayersOf } from './playerSchedule';
 // page: the court grid up top (the copy that gets taped to the wall) and the
 // player lookup below it (what someone scans to find their own name). Two views
 // of the same day because they answer different questions.
-
-const tagFor = player =>
-  `${player.gender?.toLowerCase() === 'female' ? 'F' : 'M'}-${player.skill_level}`;
+//
+// Names only: this sheet gets posted where everyone can read it, so skill
+// levels and setter marks are deliberately left off it entirely.
 
 function PrintSchedule({ tournament, players, rounds, matches }) {
   const sortedRounds = [...rounds].sort((a, b) => a.round_number - b.round_number);
@@ -106,7 +106,6 @@ function PrintSchedule({ tournament, players, rounds, matches }) {
                             {(team?.players || []).map(player => (
                               <div className="print-player" key={player.id}>
                                 <span className="print-player-name">{player.name}</span>
-                                <span className="print-player-tag">{tagFor(player)}</span>
                               </div>
                             ))}
                           </div>
@@ -147,9 +146,7 @@ function PrintSchedule({ tournament, players, rounds, matches }) {
             <tbody>
               {column.map(player => (
                 <tr key={player.id}>
-                  <td className="print-lookup-name">
-                    {player.name} <span className="print-player-tag">{tagFor(player)}</span>
-                  </td>
+                  <td className="print-lookup-name">{player.name}</td>
                   {sortedRounds.map((round, roundIndex) => {
                     const entry = scheduleByPlayer.get(player.id)?.[roundIndex];
 
@@ -177,8 +174,7 @@ function PrintSchedule({ tournament, players, rounds, matches }) {
       </div>
 
       <div className="print-foot">
-        C = court · T = team · the same team number within a round means teammates ·
-        M/F with AA/A/BB/B is gender and skill level
+        C = court · T = team · the same team number within a round means teammates
       </div>
     </div>
   );

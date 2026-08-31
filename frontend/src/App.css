@@ -1225,12 +1225,6 @@ input:focus, select:focus, textarea:focus {
     white-space: nowrap;
   }
 
-  .print-player-tag {
-    font-size: 6.5pt;
-    color: #555;
-    white-space: nowrap;
-  }
-
   .print-subhead { font-size: 9.5pt; margin: 7pt 0 2pt; }
 
   .print-columns {

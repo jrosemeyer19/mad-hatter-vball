@@ -46,7 +46,7 @@ function ScheduleRow({ entry }) {
   );
 }
 
-function PlayerScheduleModal({ player, schedule, onClose }) {
+function PlayerScheduleModal({ player, schedule, user, onClose }) {
   // Escape closes, the same way tapping the backdrop does
   useEffect(() => {
     const onKeyDown = e => {
@@ -71,11 +71,15 @@ function PlayerScheduleModal({ player, schedule, onClose }) {
         <div className="flex-between">
           <div>
             <h2 style={{ margin: 0 }}>{player.name}</h2>
-            <p className="text-muted text-sm" style={{ margin: 0 }}>
-              {player.gender?.toLowerCase() === 'female' ? 'Female' : 'Male'} ·{' '}
-              {player.skill_level}
-              {player.is_setter ? ' · setter' : ''}
-            </p>
+            {/* Skill level and setter status are the director's business, not
+                something a player should read off someone else's card */}
+            {user && (
+              <p className="text-muted text-sm" style={{ margin: 0 }}>
+                {player.gender?.toLowerCase() === 'female' ? 'Female' : 'Male'} ·{' '}
+                {player.skill_level}
+                {player.is_setter ? ' · setter' : ''}
+              </p>
+            )}
           </div>
           <button className="btn btn-ghost btn-sm" onClick={onClose} aria-label="Close">
             ✕

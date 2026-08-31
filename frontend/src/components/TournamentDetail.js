@@ -510,6 +510,7 @@ function TournamentDetail({ user }) {
         <PlayerScheduleModal
           player={selectedPlayer}
           schedule={selectedSchedule}
+          user={user}
           onClose={() => setSelectedPlayerId(null)}
         />
       )}
