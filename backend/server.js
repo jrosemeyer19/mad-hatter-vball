@@ -27,6 +27,10 @@ const userRoutes = require('./routes/users');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+// Bind to loopback by default: nginx is what faces the internet, so there is
+// no reason for node itself to be reachable from off the box. Set
+// HOST=0.0.0.0 in .env if something outside this machine must hit it directly.
+const HOST = process.env.HOST || 'localhost';
 
 // Middleware
 app.use(cors());
@@ -53,7 +57,7 @@ app.use((err, req, res, next) => {
 });
 
 // Start server
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+app.listen(PORT, HOST, () => {
+  console.log(`Server running on ${HOST}:${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV}`);
 });
