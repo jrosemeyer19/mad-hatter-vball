@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import PasswordRequirements from './PasswordRequirements';
+import { evaluatePassword, RULES_TEXT, MIN_LENGTH } from '../utils/passwordPolicy';
 
-function UserManagement() {
+function UserManagement({ user: currentUser }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -12,6 +14,10 @@ function UserManagement() {
     password: '',
     isSuperAdmin: false
   });
+  // The user whose password is being reset, plus the value being typed
+  const [resetTarget, setResetTarget] = useState(null);
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetting, setResetting] = useState(false);
 
   useEffect(() => {
     fetchUsers();
@@ -34,8 +40,8 @@ function UserManagement() {
     setError('');
     setSuccess('');
 
-    if (newUser.password.length < 6) {
-      setError('Password must be at least 6 characters');
+    if (!evaluatePassword(newUser.password, { username: newUser.username }).valid) {
+      setError(`Password does not meet the requirements. ${RULES_TEXT}`);
       return;
     }
 
@@ -48,6 +54,41 @@ function UserManagement() {
     } catch (error) {
       setError(error.response?.data?.message || 'Failed to create user');
     }
+  };
+
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+
+    if (!evaluatePassword(resetPassword, { username: resetTarget.username }).valid) {
+      setError(`Password does not meet the requirements. ${RULES_TEXT}`);
+      return;
+    }
+
+    setResetting(true);
+
+    try {
+      const response = await axios.put(`/api/users/${resetTarget.id}/password`, {
+        newPassword: resetPassword
+      });
+      setSuccess(
+        `${response.data.message}. Give it to them directly and have them change it.`
+      );
+      setResetTarget(null);
+      setResetPassword('');
+    } catch (error) {
+      setError(error.response?.data?.message || 'Failed to reset password');
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  const startReset = (user) => {
+    setError('');
+    setSuccess('');
+    setResetPassword('');
+    setResetTarget(user);
   };
 
   const handleDeleteUser = async (userId, username) => {
@@ -128,10 +169,15 @@ function UserManagement() {
                   <input
                     type="password"
                     id="password"
+                    autoComplete="new-password"
                     value={newUser.password}
                     onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
                     required
-                    minLength="6"
+                    minLength={MIN_LENGTH}
+                  />
+                  <PasswordRequirements
+                    password={newUser.password}
+                    username={newUser.username}
                   />
                 </div>
 
@@ -156,6 +202,51 @@ function UserManagement() {
                   type="button" 
                   className="btn btn-secondary"
                   onClick={() => setShowCreateForm(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {resetTarget && (
+          <div className="card" style={{ marginBottom: '2rem', backgroundColor: '#f8f9fa' }}>
+            <h3>Reset password for {resetTarget.username}</h3>
+            <p className="field-hint">
+              There is no email on these accounts, so this is the only way back in
+              for someone who has forgotten their password. It signs them out of
+              every device they are currently logged in on.
+            </p>
+            <form onSubmit={handleResetPassword}>
+              <div className="form-group">
+                <label htmlFor="resetPassword">New password:</label>
+                <input
+                  type="text"
+                  id="resetPassword"
+                  autoComplete="off"
+                  value={resetPassword}
+                  onChange={(e) => setResetPassword(e.target.value)}
+                  required
+                  disabled={resetting}
+                />
+                {/* Shown in plain text on purpose: whoever resets it has to be
+                    able to read it back to the user. */}
+                <PasswordRequirements
+                  password={resetPassword}
+                  username={resetTarget.username}
+                />
+              </div>
+
+              <div className="flex gap-1 mt-1">
+                <button type="submit" className="btn btn-success" disabled={resetting}>
+                  {resetting ? 'Resetting...' : 'Reset Password'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setResetTarget(null)}
+                  disabled={resetting}
                 >
                   Cancel
                 </button>
@@ -194,13 +285,26 @@ function UserManagement() {
                       {formatDate(user.created_at)}
                     </td>
                     <td>
-                      <button
-                        className="btn btn-danger"
-                        style={{ padding: '0.25rem 0.75rem', fontSize: '0.9rem' }}
-                        onClick={() => handleDeleteUser(user.id, user.username)}
-                      >
-                        Delete
-                      </button>
+                      <div className="flex gap-1">
+                        {/* Own password goes through the change form, which
+                            asks for the current one first */}
+                        {user.id !== currentUser?.id && (
+                          <button
+                            className="btn btn-secondary"
+                            style={{ padding: '0.25rem 0.75rem', fontSize: '0.9rem' }}
+                            onClick={() => startReset(user)}
+                          >
+                            Reset Password
+                          </button>
+                        )}
+                        <button
+                          className="btn btn-danger"
+                          style={{ padding: '0.25rem 0.75rem', fontSize: '0.9rem' }}
+                          onClick={() => handleDeleteUser(user.id, user.username)}
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -234,7 +338,9 @@ function UserManagement() {
           <div>
             <h4>Security Notes</h4>
             <ul style={{ marginLeft: '1rem' }}>
-              <li>Passwords must be at least 6 characters</li>
+              <li>{RULES_TEXT}</li>
+              <li>Users change their own password from the account name in the header</li>
+              <li>Changing or resetting a password signs that user out everywhere</li>
               <li>User sessions expire after 24 hours</li>
               <li>Cannot delete your own account</li>
               <li>Regular users cannot self-register</li>

@@ -4,6 +4,9 @@ CREATE TABLE users (
     username VARCHAR(50) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     is_super_admin BOOLEAN DEFAULT FALSE,
+    -- NULL means the password has never been changed. Any JWT issued before
+    -- this timestamp is rejected, so a password change signs out other devices.
+    password_changed_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

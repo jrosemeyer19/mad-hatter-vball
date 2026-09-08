@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const pool = require('../database/db');
+const { validatePassword, RULES_TEXT } = require('../utils/passwordPolicy');
 require('dotenv').config();
 
 async function checkTableExists(tableName) {
@@ -117,6 +118,34 @@ async function runMigrations() {
       }
     }
 
+    // Check for the password change timestamp
+    const usersExists = await checkTableExists('users');
+    if (usersExists) {
+      const passwordChangedExists = await checkColumnExists('users', 'password_changed_at');
+
+      if (!passwordChangedExists) {
+        console.log('Adding password change tracking to existing database...');
+
+        // Added without a default on purpose. A DEFAULT would backfill every
+        // existing row with "now" and sign everyone out at deploy time; NULL
+        // instead reads as "never changed" and retires no tokens.
+        await pool.query(`
+          ALTER TABLE users
+          ADD COLUMN password_changed_at TIMESTAMP
+        `);
+        console.log('✓ Added password_changed_at column');
+
+        await pool.query(`
+          COMMENT ON COLUMN users.password_changed_at IS 'When the password was last changed. JWTs issued before this are rejected, so a password change signs the user out of other devices. NULL means never changed.'
+        `);
+        console.log('✓ Added column comment');
+
+        console.log('Password change tracking migration completed successfully!');
+      } else {
+        console.log('✓ Password change tracking already exists');
+      }
+    }
+
     // Check for the 7-player team opt-in
     const tournamentsExists = await checkTableExists('tournaments');
     if (tournamentsExists) {
@@ -174,19 +203,36 @@ async function initializeDatabase() {
 
     // Create super admin user if environment variables are set
     if (process.env.SUPER_ADMIN_USERNAME && process.env.SUPER_ADMIN_PASSWORD) {
-      const hashedPassword = await bcrypt.hash(process.env.SUPER_ADMIN_PASSWORD, 10);
-      
-      const result = await client.query(`
-        INSERT INTO users (username, password_hash, is_super_admin) 
-        VALUES ($1, $2, true)
-        ON CONFLICT (username) DO NOTHING
-        RETURNING id
-      `, [process.env.SUPER_ADMIN_USERNAME, hashedPassword]);
-      
-      if (result.rows.length > 0) {
-        console.log(`✓ Super admin user '${process.env.SUPER_ADMIN_USERNAME}' created`);
+      const username = process.env.SUPER_ADMIN_USERNAME;
+
+      // Checked before hashing so an existing install is never blocked by a
+      // weak password left in .env — there is nothing to create in that case.
+      const existing = await client.query('SELECT id FROM users WHERE username = $1', [username]);
+
+      if (existing.rows.length > 0) {
+        console.log(`✓ Super admin user '${username}' already exists`);
       } else {
-        console.log(`✓ Super admin user '${process.env.SUPER_ADMIN_USERNAME}' already exists`);
+        // The first account created is also the most privileged one, so it is
+        // held to the same rules the app enforces everywhere else.
+        const problems = validatePassword(process.env.SUPER_ADMIN_PASSWORD, { username });
+
+        if (problems.length > 0) {
+          console.error(`✗ SUPER_ADMIN_PASSWORD is not acceptable: ${problems[0]}`);
+          console.error(`  ${RULES_TEXT}`);
+          console.error('  Update SUPER_ADMIN_PASSWORD in your .env and run this again.');
+          process.exit(1);
+        }
+
+        const hashedPassword = await bcrypt.hash(process.env.SUPER_ADMIN_PASSWORD, 10);
+
+        await client.query(`
+          INSERT INTO users (username, password_hash, is_super_admin) 
+          VALUES ($1, $2, true)
+          ON CONFLICT (username) DO NOTHING
+        `, [username, hashedPassword]);
+
+        console.log(`✓ Super admin user '${username}' created`);
+        console.log('  Log in and change this password from the account menu.');
       }
     } else {
       console.log('⚠  No super admin credentials in environment variables');

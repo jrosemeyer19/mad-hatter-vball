@@ -161,6 +161,7 @@ Tournament viewing and score entry are intentionally public; everything else nee
 | --- | --- | --- |
 | `POST` | `/api/auth/login` | — |
 | `GET` | `/api/auth/verify` | required |
+| `POST` | `/api/auth/change-password` | required (own account) |
 | `GET` | `/api/tournaments` | — |
 | `GET` | `/api/tournaments/:id` | optional (financials omitted when anonymous) |
 | `GET` | `/api/tournaments/:id/results` | optional (payouts omitted when anonymous) |
@@ -176,6 +177,25 @@ Tournament viewing and score entry are intentionally public; everything else nee
 | `POST` | `/api/tournaments/:id/regenerate` | required |
 | `POST` | `/api/tournaments/:id/complete` | required |
 | `GET`/`POST`/`DELETE` | `/api/users`, `/api/users/:id` | super admin |
+| `PUT` | `/api/users/:id/password` | super admin (reset someone else's) |
+
+### Passwords
+
+At least 9 characters, including 3 of these 4: uppercase letter, lowercase letter, number, symbol.
+Passwords that contain the username, or that appear in a short list of obvious choices, are refused.
+`backend/utils/passwordPolicy.js` is the authoritative copy of these rules;
+`frontend/src/utils/passwordPolicy.js` mirrors them so the form can tick requirements off as you
+type, and must be kept in step.
+
+Changing or resetting a password signs that account out everywhere. Tokens carry the
+`password_changed_at` they were issued against, so any token minted against the old password stops
+working — the change form swaps in a replacement so the tab you are using stays signed in. Accounts
+have no email address, so a forgotten password is recovered by a super admin resetting it rather than
+by a mail link.
+
+Failed logins are throttled per account (10 per 15 minutes) and so are password changes. The counters
+live in the app process, so they reset on restart and are not shared if the app is ever run on more
+than one box.
 
 ## Project structure
 
@@ -183,10 +203,12 @@ Tournament viewing and score entry are intentionally public; everything else nee
 backend/
 ├── server.js                 # Express entry; serves the React build in production
 ├── routes/
-│   ├── auth.js               # Login + token verification
+│   ├── auth.js               # Login, token verification, password change
 │   ├── tournaments.js        # Tournament CRUD, generation, scoring, results
 │   └── users.js              # User management (super admin only)
 ├── middleware/auth.js        # authenticateToken, optionalAuth, requireSuperAdmin
+├── middleware/rateLimit.js   # Per-account throttling for the password endpoints
+├── utils/passwordPolicy.js   # Password rules (authoritative copy)
 ├── utils/teamGenerator.js    # The draw: balancing, rotation, byes, courts
 ├── scripts/initDb.js         # Schema creation + incremental migrations
 └── database/

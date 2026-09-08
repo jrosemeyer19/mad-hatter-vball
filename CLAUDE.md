@@ -44,10 +44,12 @@ frontend/src/
 backend/
 ├── server.js                 # Express app entry
 ├── routes/
-│   ├── auth.js               # POST /api/auth/login, GET /api/auth/verify
+│   ├── auth.js               # POST /api/auth/login, GET /api/auth/verify, POST /api/auth/change-password
 │   ├── tournaments.js        # Tournament CRUD + team generation + scoring
 │   └── users.js              # User management (super admin only)
 ├── middleware/auth.js        # JWT verification
+├── middleware/rateLimit.js   # Per-account throttling on password endpoints
+├── utils/passwordPolicy.js   # Password rules (mirrored in frontend/src/utils/passwordPolicy.js)
 ├── utils/teamGenerator.js    # Team balancing algorithm
 └── database/
     ├── db.js                 # PostgreSQL connection pool
@@ -76,6 +78,10 @@ Recent commits have focused heavily on improving team balance fairness.
 ## Key Implementation Details
 
 - JWT authentication with super admin role for user management
+- Passwords: min 9 chars, 3 of 4 character classes. Enforced by `backend/utils/passwordPolicy.js`;
+  `frontend/src/utils/passwordPolicy.js` mirrors it for live form feedback and must stay in sync
+- Tokens carry a `pwc` claim holding the `users.password_changed_at` they were signed against, so
+  changing or resetting a password retires every token issued against the old one
 - Frontend proxy config in `frontend/package.json` routes `/api` to backend
 - Production: Express serves React build, Nginx config in `nginx/`
 - Players have: name, gender (male/female), skill_level (AA/A/BB/B), is_setter flag

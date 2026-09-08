@@ -27,6 +27,7 @@ import TournamentDetail from './components/TournamentDetail';
 import TournamentSetup from './components/TournamentSetup';
 import Login from './components/Login';
 import UserManagement from './components/UserManagement';
+import ChangePassword from './components/ChangePassword';
 import TournamentHistory from './components/TournamentHistory';
 
 // Set up axios defaults
@@ -47,6 +48,37 @@ function App() {
     }
   }, []);
 
+  useEffect(() => {
+    // Changing a password retires every token issued against the old one, so a
+    // session left open on another device starts failing with a 401. Drop it
+    // here rather than leaving that device on screens it can no longer use.
+    //
+    // These two endpoints are exempt because their 401 is about the password
+    // just submitted, not about the session: a mistyped current password must
+    // not sign the user out of the form they are standing in.
+    const credentialEndpoints = ['/api/auth/login', '/api/auth/change-password'];
+
+    const interceptor = axios.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        const url = error.config?.url || '';
+        const isSessionFailure =
+          error.response?.status === 401 &&
+          !credentialEndpoints.some((endpoint) => url.includes(endpoint));
+
+        if (isSessionFailure && localStorage.getItem('token')) {
+          localStorage.removeItem('token');
+          delete axios.defaults.headers.common['Authorization'];
+          setUser(null);
+        }
+
+        return Promise.reject(error);
+      }
+    );
+
+    return () => axios.interceptors.response.eject(interceptor);
+  }, []);
+
   const verifyToken = async () => {
     try {
       const response = await axios.get('/api/auth/verify');
@@ -63,6 +95,13 @@ function App() {
     localStorage.setItem('token', token);
     axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
     setUser(userData);
+  };
+
+  // A password change invalidates the token this tab is holding, so the server
+  // sends back a replacement to swap in.
+  const handleTokenRefresh = (token) => {
+    localStorage.setItem('token', token);
+    axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
   };
 
   const handleLogout = () => {
@@ -106,7 +145,15 @@ function App() {
             <Route 
               path="/users" 
               element={
-                user?.isSuperAdmin ? <UserManagement /> : <Navigate to="/" />
+                user?.isSuperAdmin ? <UserManagement user={user} /> : <Navigate to="/" />
+              } 
+            />
+            <Route 
+              path="/change-password" 
+              element={
+                user 
+                  ? <ChangePassword user={user} onTokenRefresh={handleTokenRefresh} /> 
+                  : <Navigate to="/login" />
               } 
             />
             <Route 

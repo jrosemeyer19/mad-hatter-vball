@@ -21,7 +21,16 @@ function Header({ user, onLogout }) {
             {user.isSuperAdmin && (
               <Link to="/users">Users</Link>
             )}
-            <span className="header-user hide-sm">{user.username}</span>
+            {/* The account name doubles as the way into the password form.
+                Kept visible at phone widths, unlike the old plain label, so
+                it is reachable from the same devices people run scoring on. */}
+            <Link
+              to="/change-password"
+              className="header-user"
+              title="Change password"
+            >
+              {user.username}
+            </Link>
             <button className="btn btn-secondary btn-sm" onClick={onLogout}>
               Log out
             </button>

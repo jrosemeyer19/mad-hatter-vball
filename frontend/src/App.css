@@ -192,9 +192,63 @@ a {
 }
 
 .header-user {
-  color: var(--c-text-faint);
   font-size: 0.85rem;
   margin-left: auto;
+}
+
+/* Overrides .header nav a so the account name reads as a quieter link than
+   the section links beside it */
+.header nav a.header-user { color: var(--c-text-faint); }
+.header nav a.header-user:hover { color: var(--c-text-muted); }
+
+/* ===== Password requirement checklist ==================================== */
+
+.password-rules { margin-top: var(--s-2); }
+
+.password-rules ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.password-rules li {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: 0.82rem;
+  line-height: 1.7;
+  color: var(--c-text-muted);
+}
+
+.password-rules li.met { color: var(--c-success); }
+
+.password-rule-icon {
+  width: 1em;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.password-classes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1);
+  margin-top: var(--s-2);
+}
+
+.password-class {
+  padding: 0.15rem var(--s-2);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-full);
+  background: var(--c-surface-3);
+  color: var(--c-text-faint);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.password-class.met {
+  border-color: var(--c-success);
+  background: var(--c-success-soft);
+  color: var(--c-success);
 }
 
 @media (min-width: 768px) {
