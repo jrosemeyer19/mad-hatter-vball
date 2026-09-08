@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
+import { getScorerId } from '../utils/scorerId';
 
 import RoundView from './tournament/RoundView';
 import Leaderboard from './tournament/Leaderboard';
+import ScoreLog from './tournament/ScoreLog';
 import ResultsPanel from './tournament/ResultsPanel';
 import { PlayerLegend } from './tournament/PlayerChip';
 import PrintSchedule from './tournament/PrintSchedule';
@@ -132,12 +134,15 @@ function TournamentDetail({ user }) {
     }
 
     try {
-      await axios.put(`/api/tournaments/${id}/matches/${matchId}/scores`, {
-        team1Game1,
-        team2Game1,
-        team1Game2,
-        team2Game2
-      });
+      // Identifies this phone in the score log. Absent when storage is
+      // blocked, which is fine — the submission just goes without it.
+      const scorerId = getScorerId();
+
+      await axios.put(
+        `/api/tournaments/${id}/matches/${matchId}/scores`,
+        { team1Game1, team2Game1, team1Game2, team2Game2 },
+        scorerId ? { headers: { 'X-Scorer-Id': scorerId } } : undefined
+      );
 
       setEditingMatch(null);
       setScoreInputs(prev => {
@@ -477,6 +482,14 @@ function TournamentDetail({ user }) {
             >
               Leaderboard <span className="tab-count">{players.length}</span>
             </button>
+            {isAdmin && (
+              <button
+                className={`tab${activeTab === 'scorelog' ? ' is-active' : ''}`}
+                onClick={() => setActiveTab('scorelog')}
+              >
+                Score log
+              </button>
+            )}
             {completionResults && (
               <button
                 className={`tab${activeTab === 'results' ? ' is-active' : ''}`}
@@ -535,6 +548,8 @@ function TournamentDetail({ user }) {
               }
             />
           )}
+
+          {activeTab === 'scorelog' && isAdmin && <ScoreLog tournamentId={id} />}
 
           {activeTab === 'results' && <ResultsPanel results={completionResults} user={user} />}
         </>

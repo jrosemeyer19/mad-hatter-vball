@@ -227,6 +227,13 @@ a {
   text-decoration: line-through;
 }
 
+/* ===== Score log ========================================================= */
+
+/* A submission that replaced an already-final match is the one a director
+   actually needs to find, so it is tinted rather than left to be spotted. */
+.score-log-overwrite { background: var(--c-warn-soft); }
+.score-log-overwrite td { border-color: var(--c-warn); }
+
 /* ===== Password requirement checklist ==================================== */
 
 .password-rules { margin-top: var(--s-2); }

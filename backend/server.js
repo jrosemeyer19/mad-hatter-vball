@@ -36,6 +36,14 @@ const HOST = process.env.HOST || 'localhost';
 app.use(cors());
 app.use(express.json());
 
+// nginx is what faces the internet and it sets X-Forwarded-For, so honour that
+// header to recover the real client address for the score change log. Scoped to
+// 'loopback' rather than trusting any hop: node binds to localhost by default,
+// so the only peer that can set this header is the local proxy. If HOST is ever
+// opened up, revisit this — a directly reachable app would let a client forge
+// its own address.
+app.set('trust proxy', 'loopback');
+
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/tournaments', tournamentRoutes);

@@ -118,6 +118,51 @@ async function runMigrations() {
       }
     }
 
+    // Check for the score change log
+    if (!(await checkTableExists('match_score_events'))) {
+      console.log('Adding score change log to existing database...');
+
+      await pool.query(`
+        CREATE TABLE match_score_events (
+            id SERIAL PRIMARY KEY,
+            match_id INTEGER REFERENCES matches(id) ON DELETE CASCADE,
+            tournament_id INTEGER REFERENCES tournaments(id) ON DELETE CASCADE,
+            previous_team1_game1_score INTEGER,
+            previous_team1_game2_score INTEGER,
+            previous_team2_game1_score INTEGER,
+            previous_team2_game2_score INTEGER,
+            previous_is_completed BOOLEAN,
+            team1_game1_score INTEGER,
+            team1_game2_score INTEGER,
+            team2_game1_score INTEGER,
+            team2_game2_score INTEGER,
+            is_completed BOOLEAN,
+            changed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            changed_by_username VARCHAR(50),
+            client_ip VARCHAR(45),
+            device_label VARCHAR(64),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      console.log('✓ Created match_score_events table');
+
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_score_events_tournament
+        ON match_score_events(tournament_id, created_at DESC)
+      `);
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_score_events_match
+        ON match_score_events(match_id)
+      `);
+      console.log('✓ Added score log indexes');
+
+      // Scores entered before this table existed have no history; the log
+      // simply starts from the next submission.
+      console.log('Score change log migration completed successfully!');
+    } else {
+      console.log('✓ Score change log already exists');
+    }
+
     // Check for the mid-tournament withdrawal flag
     if (await checkTableExists('players')) {
       const withdrawnExists = await checkColumnExists('players', 'is_withdrawn');

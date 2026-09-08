@@ -166,6 +166,7 @@ Tournament viewing and score entry are intentionally public; everything else nee
 | `GET` | `/api/tournaments/:id` | optional (financials omitted when anonymous) |
 | `GET` | `/api/tournaments/:id/results` | optional (payouts omitted when anonymous) |
 | `PUT` | `/api/tournaments/:id/matches/:matchId/scores` | — (players score their own matches) |
+| `GET` | `/api/tournaments/:id/score-events` | manager |
 | `GET` | `/api/tournaments/history` | required |
 | `POST` | `/api/tournaments` | required |
 | `PUT` | `/api/tournaments/:id` | manager |
@@ -181,6 +182,25 @@ Tournament viewing and score entry are intentionally public; everything else nee
 | `POST` | `/api/tournaments/:id/complete` | manager |
 | `GET`/`POST`/`DELETE` | `/api/users`, `/api/users/:id` | super admin |
 | `PUT` | `/api/users/:id/password` | super admin (reset someone else's) |
+
+### Score change log
+
+Score entry is open by design — players enter their own results from the share link — which means an
+already-final match can be silently overwritten and two people can submit the same match at once.
+Every submission is therefore recorded in `match_score_events` with the values it replaced, and
+directors get a **Score log** tab showing the history newest-first, with changes that replaced a
+final match tinted.
+
+What "who" can mean here is limited, and the UI says so: a signed-in director is recorded by name,
+while an anonymous scorer is identified only by client IP and `device_label` — an opaque per-browser
+id the scoring page sends as `X-Scorer-Id`. Everyone in a gym shares one public IP, so the device id
+is what actually separates two phones; neither is authenticated, so both are a hint for tracing an
+honest mistake, not proof. `app.set('trust proxy', 'loopback')` in `server.js` is what makes the
+recorded IP the real client rather than nginx on localhost.
+
+The log is written inside the same transaction as the score itself, so it can never disagree with the
+scores it describes, and the match row is taken with `FOR UPDATE` so two simultaneous submissions
+serialise instead of each reversing the other's point award.
 
 ### When a player drops out mid-tournament
 
@@ -304,7 +324,8 @@ frontend/src/
 nginx/volleyball-tournament.conf   # Sample reverse-proxy config
 ```
 
-**Database tables:** `users`, `tournaments`, `players`, `rounds`, `teams`, `team_players`, `matches`.
+**Database tables:** `users`, `tournaments`, `players`, `rounds`, `teams`, `team_players`, `matches`,
+`match_score_events`.
 Tournaments move `setup` → `in_progress` → `completed`.
 
 ## Deployment

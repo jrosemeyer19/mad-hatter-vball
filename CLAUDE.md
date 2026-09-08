@@ -60,7 +60,8 @@ backend/
 
 ## Database Schema
 
-Key tables: `users`, `tournaments`, `players`, `rounds`, `teams`, `team_players`, `matches`
+Key tables: `users`, `tournaments`, `players`, `rounds`, `teams`, `team_players`, `matches`,
+`match_score_events`
 
 Tournaments have status: `setup` → `in_progress` → `completed`
 
@@ -84,6 +85,11 @@ Recent commits have focused heavily on improving team balance fairness.
   `tournaments.allow_shared_management` (default FALSE) opens it to any signed-in user; only the
   creator or a super admin may change that flag. Guard is `requireTournamentManager`, applied to the
   8 management routes; score entry stays public and reads stay `optionalAuth`
+- Every score submission is logged to `match_score_events` with the values it replaced, inside the
+  same transaction as the score. `GET /api/tournaments/:id/score-events` is manager-only and backs a
+  director-only "Score log" tab. Scoring needs no account, so identity is a signed-in director's
+  username, else client IP plus an unauthenticated per-browser `X-Scorer-Id`. The match row is taken
+  `FOR UPDATE` so concurrent submissions serialise
 - Mid-tournament withdrawal (`POST /api/tournaments/:id/players/:playerId/withdraw`) drops a player
   from unplayed matches and rebalances those teams via `utils/rosterRebalance.js`. Swaps only, so no
   other player's match count changes; scored matches are frozen; floor is `min_players_per_team - 1`

@@ -1013,59 +1013,124 @@ router.post('/:id/start', authenticateToken, requireTournamentManager, async (re
 });
 
 // Submit match scores (no authentication required) - UPDATED WITH POINT DIFFERENTIAL AND PARTIAL SUBMISSION
-router.put('/:id/matches/:matchId/scores', async (req, res) => {
+// The score change log, for the director. Scoring is open to anyone with the
+// link, so this is how a disagreement on the day gets settled and an accidental
+// overwrite gets traced.
+router.get('/:id/score-events', authenticateToken, requireTournamentManager, async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 500);
+
+    const result = await pool.query(`
+      SELECT e.id, e.match_id, e.created_at,
+             e.previous_team1_game1_score, e.previous_team1_game2_score,
+             e.previous_team2_game1_score, e.previous_team2_game2_score,
+             e.previous_is_completed,
+             e.team1_game1_score, e.team1_game2_score,
+             e.team2_game1_score, e.team2_game2_score, e.is_completed,
+             e.changed_by_username, e.client_ip, e.device_label,
+             r.round_number, m.court,
+             t1.team_number AS team1_number, t2.team_number AS team2_number
+      FROM match_score_events e
+      JOIN matches m ON m.id = e.match_id
+      JOIN rounds r ON r.id = m.round_id
+      LEFT JOIN teams t1 ON t1.id = m.team1_id
+      LEFT JOIN teams t2 ON t2.id = m.team2_id
+      WHERE e.tournament_id = $1
+      ORDER BY e.created_at DESC, e.id DESC
+      LIMIT $2
+    `, [req.params.id, limit]);
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching score events:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// A per-browser id the scoring page sends so two phones on the gym's shared
+// address can be told apart. Not authenticated — a hint for tracing an honest
+// mistake, never proof of who did something.
+function readDeviceLabel(req) {
+  const raw = req.get('X-Scorer-Id');
+  return typeof raw === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(raw) ? raw : null;
+}
+
+// optionalAuth so a signed-in director is recorded by name. Scoring itself stays
+// open: players enter their own results from the shared link.
+router.put('/:id/matches/:matchId/scores', optionalAuth, async (req, res) => {
+  const { id, matchId } = req.params;
+  const { team1Game1, team1Game2, team2Game1, team2Game2 } = req.body;
+
+  // Validated before a connection is taken. These checks used to run after
+  // BEGIN and return without rolling back, which handed a client with an open
+  // transaction back to the pool.
+  const game1Scores = [team1Game1, team2Game1];
+  if (game1Scores.some(score => score === null || score === undefined || isNaN(Number(score)) || Number(score) < 0 || Number(score) > 50)) {
+    return res.status(400).json({ message: 'Game 1 scores are required and must be numbers between 0 and 50' });
+  }
+
+  const game2Scores = [team1Game2, team2Game2];
+  const hasGame2Scores = game2Scores.every(score => score !== null && score !== undefined && score !== '');
+
+  if (hasGame2Scores) {
+    if (game2Scores.some(score => isNaN(Number(score)) || Number(score) < 0 || Number(score) > 50)) {
+      return res.status(400).json({ message: 'Game 2 scores must be numbers between 0 and 50' });
+    }
+  }
+
+  // Convert to integers, using null for missing Game 2 scores to preserve them in the database
+  const t1g1 = parseInt(team1Game1, 10);
+  const t1g2 = hasGame2Scores ? parseInt(team1Game2, 10) : null;
+  const t2g1 = parseInt(team2Game1, 10);
+  const t2g2 = hasGame2Scores ? parseInt(team2Game2, 10) : null;
+
   const client = await pool.connect();
+
   try {
     await client.query('BEGIN');
-    
-    const { matchId } = req.params;
-    const { team1Game1, team1Game2, team2Game1, team2Game2 } = req.body;
-    
-    // Validate Game 1 scores are present and valid (required)
-    const game1Scores = [team1Game1, team2Game1];
-    if (game1Scores.some(score => score === null || score === undefined || isNaN(Number(score)) || Number(score) < 0 || Number(score) > 50)) {
-      return res.status(400).json({ message: 'Game 1 scores are required and must be numbers between 0 and 50' });
-    }
-    
-    // Validate Game 2 scores if provided (optional)
-    const game2Scores = [team1Game2, team2Game2];
-    const hasGame2Scores = game2Scores.every(score => score !== null && score !== undefined && score !== '');
-    
-    if (hasGame2Scores) {
-      // If Game 2 scores are provided, validate them
-      if (game2Scores.some(score => isNaN(Number(score)) || Number(score) < 0 || Number(score) > 50)) {
-        return res.status(400).json({ message: 'Game 2 scores must be numbers between 0 and 50' });
-      }
-    }
-    
-    // Convert to integers, using null for missing Game 2 scores to preserve them in the database
-    const t1g1 = parseInt(team1Game1, 10);
-    const t1g2 = hasGame2Scores ? parseInt(team1Game2, 10) : null;
-    const t2g1 = parseInt(team2Game1, 10);
-    const t2g2 = hasGame2Scores ? parseInt(team2Game2, 10) : null;
-    
-    // Check if match already has scores (for editing or adding Game 2)
+
+    // FOR UPDATE OF m serialises two people submitting the same match at once.
+    // Without it both could read the same previous scores and each reverse the
+    // other's award, leaving player totals wrong rather than merely stale.
     const existingMatchResult = await client.query(`
-      SELECT team1_game1_score, team1_game2_score, team2_game1_score, team2_game2_score, is_completed
-      FROM matches WHERE id = $1::integer
+      SELECT m.id, m.team1_game1_score, m.team1_game2_score,
+             m.team2_game1_score, m.team2_game2_score, m.is_completed,
+             r.tournament_id, r.round_number, m.court
+      FROM matches m
+      JOIN rounds r ON r.id = m.round_id
+      WHERE m.id = $1::integer
+      FOR UPDATE OF m
     `, [parseInt(matchId, 10)]);
-    
+
     const existingMatch = existingMatchResult.rows[0];
+
+    if (!existingMatch) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Match not found' });
+    }
+
+    // The route has always taken a tournament id but never checked it, so a
+    // match from another tournament could be scored through the wrong URL.
+    if (Number(existingMatch.tournament_id) !== Number(id)) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Match not found in this tournament' });
+    }
+
     // If match has any existing scores, we need to subtract them before adding new scores
-    const hasExistingScores = existingMatch && (
-      existingMatch.team1_game1_score !== null || 
+    const hasExistingScores = (
+      existingMatch.team1_game1_score !== null ||
       existingMatch.team1_game2_score !== null ||
       existingMatch.team2_game1_score !== null ||
       existingMatch.team2_game2_score !== null
     );
-    
+
     // If updating existing scores, subtract old scores and differentials from player totals first
     if (hasExistingScores) {
       const oldT1Total = (existingMatch.team1_game1_score || 0) + (existingMatch.team1_game2_score || 0);
       const oldT2Total = (existingMatch.team2_game1_score || 0) + (existingMatch.team2_game2_score || 0);
       const oldT1Differential = oldT1Total - oldT2Total;
       const oldT2Differential = oldT2Total - oldT1Total;
-      
+
       // Get team players and subtract old scores and differentials
       const teamPlayersResult = await client.query(`
         SELECT tp.player_id, 
@@ -1081,7 +1146,7 @@ router.put('/:id/matches/:matchId/scores', async (req, res) => {
         JOIN matches m ON (tp.team_id = m.team1_id OR tp.team_id = m.team2_id)
         WHERE m.id = $5::integer
       `, [oldT1Total, oldT2Total, oldT1Differential, oldT2Differential, parseInt(matchId, 10)]);
-      
+
       // Subtract old points, differential, and decrement match count
       for (const player of teamPlayersResult.rows) {
         await client.query(`
@@ -1097,31 +1162,31 @@ router.put('/:id/matches/:matchId/scores', async (req, res) => {
         ]);
       }
     }
-    
+
     // Update match scores with explicit integer casting
     // Only mark as completed if both games have scores
     const isCompleted = hasGame2Scores;
-    
+
     await client.query(`
       UPDATE matches 
-      SET team1_game1_score = $1::integer, team1_game2_score = $2, 
-          team2_game1_score = $3::integer, team2_game2_score = $4, 
+      SET team1_game1_score = $1::integer, team1_game2_score = $2::integer, 
+          team2_game1_score = $3::integer, team2_game2_score = $4::integer, 
           is_completed = $5
       WHERE id = $6::integer
     `, [t1g1, t1g2, t2g1, t2g2, isCompleted, parseInt(matchId, 10)]);
-    
+
     // Calculate new totals and differentials (using 0 for missing Game 2 scores in calculations)
     const newT1Total = t1g1 + (t1g2 || 0);
     const newT2Total = t2g1 + (t2g2 || 0);
     const newT1Differential = newT1Total - newT2Total; // Team 1's perspective
     const newT2Differential = newT2Total - newT1Total; // Team 2's perspective
-    
+
     // Get team players to add new points, differential, and increment match count
     const teamPlayersResult = await client.query(`
       SELECT tp.player_id, 
         CASE WHEN tp.team_id = m.team1_id 
-             THEN ($1::integer + COALESCE($2, 0))
-             ELSE ($3::integer + COALESCE($4, 0)) 
+             THEN ($1::integer + COALESCE($2::integer, 0))
+             ELSE ($3::integer + COALESCE($4::integer, 0)) 
         END as points_earned,
         CASE WHEN tp.team_id = m.team1_id 
              THEN $5::integer
@@ -1131,7 +1196,7 @@ router.put('/:id/matches/:matchId/scores', async (req, res) => {
       JOIN matches m ON (tp.team_id = m.team1_id OR tp.team_id = m.team2_id)
       WHERE m.id = $7::integer
     `, [t1g1, t1g2, t2g1, t2g2, newT1Differential, newT2Differential, parseInt(matchId, 10)]);
-    
+
     // Add new points, differential, and increment match count
     for (const player of teamPlayersResult.rows) {
       await client.query(`
@@ -1146,7 +1211,38 @@ router.put('/:id/matches/:matchId/scores', async (req, res) => {
         parseInt(player.player_id, 10)
       ]);
     }
-    
+
+    // Record what happened, inside the same transaction, so the log can never
+    // disagree with the scores it describes.
+    await client.query(`
+      INSERT INTO match_score_events (
+        match_id, tournament_id,
+        previous_team1_game1_score, previous_team1_game2_score,
+        previous_team2_game1_score, previous_team2_game2_score,
+        previous_is_completed,
+        team1_game1_score, team1_game2_score,
+        team2_game1_score, team2_game2_score, is_completed,
+        changed_by, changed_by_username, client_ip, device_label
+      ) VALUES (
+        $1::integer, $2::integer,
+        $3, $4, $5, $6, $7,
+        $8::integer, $9, $10::integer, $11, $12,
+        $13, $14, $15, $16
+      )
+    `, [
+      parseInt(matchId, 10), Number(id),
+      hasExistingScores ? existingMatch.team1_game1_score : null,
+      hasExistingScores ? existingMatch.team1_game2_score : null,
+      hasExistingScores ? existingMatch.team2_game1_score : null,
+      hasExistingScores ? existingMatch.team2_game2_score : null,
+      hasExistingScores ? existingMatch.is_completed : null,
+      t1g1, t1g2, t2g1, t2g2, isCompleted,
+      req.user ? req.user.id : null,
+      req.user ? req.user.username : null,
+      req.ip ? String(req.ip).slice(0, 45) : null,
+      readDeviceLabel(req)
+    ]);
+
     await client.query('COMMIT');
     res.json({ message: 'Scores updated successfully' });
   } catch (error) {

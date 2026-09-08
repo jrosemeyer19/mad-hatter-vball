@@ -91,6 +91,47 @@ CREATE TABLE matches (
     is_completed BOOLEAN DEFAULT FALSE
 );
 
+-- Score change log.
+--
+-- Score entry is deliberately open so players enter their own results from a
+-- shared link, which means an already-final match can be silently overwritten
+-- and two people can submit the same match at once. Every submission is
+-- recorded here with the values it replaced, so a disagreement on the day is
+-- answerable and an accidental overwrite is traceable.
+CREATE TABLE match_score_events (
+    id SERIAL PRIMARY KEY,
+    match_id INTEGER REFERENCES matches(id) ON DELETE CASCADE,
+    tournament_id INTEGER REFERENCES tournaments(id) ON DELETE CASCADE,
+
+    -- What was there before. All NULL for the first submission on a match.
+    previous_team1_game1_score INTEGER,
+    previous_team1_game2_score INTEGER,
+    previous_team2_game1_score INTEGER,
+    previous_team2_game2_score INTEGER,
+    previous_is_completed BOOLEAN,
+
+    -- What was submitted
+    team1_game1_score INTEGER,
+    team1_game2_score INTEGER,
+    team2_game1_score INTEGER,
+    team2_game2_score INTEGER,
+    is_completed BOOLEAN,
+
+    -- Who, as far as it can be known. Scoring needs no account, so only a
+    -- signed-in director gives a real identity; the rest is advisory.
+    changed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    -- Snapshot of the name, so the log still reads correctly if the account goes
+    changed_by_username VARCHAR(50),
+    -- Everyone in the gym shares one public IP, so this rarely separates people.
+    -- device_label is an opaque per-browser id the scoring page sends, which
+    -- does distinguish phones behind that shared address. Neither is
+    -- authenticated: treat both as a hint, not proof.
+    client_ip VARCHAR(45),
+    device_label VARCHAR(64),
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Create indexes for performance
 CREATE INDEX idx_tournaments_status ON tournaments(status);
 CREATE INDEX idx_players_tournament ON players(tournament_id);
@@ -99,6 +140,8 @@ CREATE INDEX idx_rounds_tournament ON rounds(tournament_id);
 CREATE INDEX idx_teams_round ON teams(round_id);
 CREATE INDEX idx_teams_bye_team ON teams(is_bye_team); -- New index for bye teams
 CREATE INDEX idx_matches_round ON matches(round_id);
+CREATE INDEX idx_score_events_tournament ON match_score_events(tournament_id, created_at DESC);
+CREATE INDEX idx_score_events_match ON match_score_events(match_id);
 
 -- Add comments for documentation
 COMMENT ON COLUMN teams.is_bye_team IS 'Indicates if this team represents players on bye (not playing this round)';
