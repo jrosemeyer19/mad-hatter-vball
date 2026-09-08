@@ -51,6 +51,7 @@ backend/
 ├── middleware/rateLimit.js   # Per-account throttling on password endpoints
 ├── middleware/tournamentAccess.js  # requireTournamentManager: creator/super admin/shared
 ├── utils/passwordPolicy.js   # Password rules (mirrored in frontend/src/utils/passwordPolicy.js)
+├── utils/rosterRebalance.js  # Post-withdrawal rebalancing (does NOT call the generator)
 ├── utils/teamGenerator.js    # Team balancing algorithm
 └── database/
     ├── db.js                 # PostgreSQL connection pool
@@ -83,6 +84,10 @@ Recent commits have focused heavily on improving team balance fairness.
   `tournaments.allow_shared_management` (default FALSE) opens it to any signed-in user; only the
   creator or a super admin may change that flag. Guard is `requireTournamentManager`, applied to the
   8 management routes; score entry stays public and reads stay `optionalAuth`
+- Mid-tournament withdrawal (`POST /api/tournaments/:id/players/:playerId/withdraw`) drops a player
+  from unplayed matches and rebalances those teams via `utils/rosterRebalance.js`. Swaps only, so no
+  other player's match count changes; scored matches are frozen; floor is `min_players_per_team - 1`
+  and is refused before any write. One-way. Withdrawn players stay ranked but are payout-ineligible
 - Rosters are per-tournament; `POST /api/tournaments/:id/players/copy` brings one forward from
   another tournament the user manages. Dedupes case-insensitively against the target, so it is safe
   to re-run. Sources are restricted to manageable tournaments because skill ratings are director-only

@@ -201,6 +201,32 @@ a {
 .header nav a.header-user { color: var(--c-text-faint); }
 .header nav a.header-user:hover { color: var(--c-text-muted); }
 
+/* ===== Withdrawn players ================================================= */
+
+/* A player who left partway through stays on the board, quieted rather than
+   hidden, so the standings still match what people remember of the day. */
+.withdrew-tag {
+  display: inline-block;
+  margin-left: var(--s-2);
+  padding: 0.1rem var(--s-2);
+  border-radius: var(--r-full);
+  background: var(--c-surface-3);
+  color: var(--c-text-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  vertical-align: middle;
+}
+
+.is-withdrawn-row { color: var(--c-text-muted); }
+.is-withdrawn-row strong { font-weight: 500; }
+
+.player-chip.is-withdrawn {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+
 /* ===== Password requirement checklist ==================================== */
 
 .password-rules { margin-top: var(--s-2); }

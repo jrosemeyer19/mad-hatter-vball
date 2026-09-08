@@ -201,6 +201,35 @@ function TournamentDetail({ user }) {
     }
   };
 
+  const withdrawPlayer = async (player) => {
+    const message =
+      `Withdraw ${player.name}?\n\n` +
+      'They will be removed from every match still to be played, and those teams ' +
+      'will be rebalanced so no court is left both short-handed and weak. Matches ' +
+      'already scored are untouched, and they keep the points earned so far but ' +
+      'will not be eligible for a payout.\n\n' +
+      'This cannot be undone.';
+
+    if (!window.confirm(message)) return;
+
+    try {
+      const response = await axios.post(`/api/tournaments/${id}/players/${player.id}/withdraw`);
+      await fetchTournamentData();
+
+      const rounds = response.data.roundsRebalanced || [];
+      setNotice(
+        `${player.name} has withdrawn.` +
+        (rounds.length > 0
+          ? ` Rebalanced ${rounds.length} remaining round${rounds.length === 1 ? '' : 's'}` +
+            ` (smallest team now ${Math.min(...rounds.map(r => r.smallestTeam))}).`
+          : ' No remaining rounds needed changes.')
+      );
+      setTimeout(() => setNotice(''), 8000);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to withdraw player');
+    }
+  };
+
   const exportPlayers = () => {
     if (players.length === 0) {
       setError('No players to export');
@@ -501,6 +530,9 @@ function TournamentDetail({ user }) {
               onExport={exportPlayers}
               canExport={isAdmin}
               onSelectPlayer={openPlayerSchedule}
+              onWithdraw={
+                isAdmin && tournament.status === 'in_progress' ? withdrawPlayer : undefined
+              }
             />
           )}
 

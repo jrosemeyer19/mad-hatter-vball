@@ -6,11 +6,14 @@ function Delta({ value }) {
   return <span className={cls}>{n > 0 ? '+' : ''}{n}</span>;
 }
 
-function payoutFor(results, rank) {
-  if (!results.hasPayouts) return null;
-  if (rank === 1) return results.payouts.first;
-  if (rank === 2) return results.payouts.second;
-  if (rank === 3) return results.payouts.third;
+// Paid on payout_rank, not the displayed rank. A player who withdrew keeps the
+// place their points earned but is not eligible, so the money slides to the
+// next person who played the whole tournament.
+function payoutFor(results, payoutRank) {
+  if (!results.hasPayouts || payoutRank == null) return null;
+  if (payoutRank === 1) return results.payouts.first;
+  if (payoutRank === 2) return results.payouts.second;
+  if (payoutRank === 3) return results.payouts.third;
   return 0;
 }
 
@@ -32,14 +35,21 @@ function StandingsTable({ title, rows, results, showPayouts }) {
           <tbody>
             {rows.map(player => {
               const rank = Number(player.rank);
-              const payout = payoutFor(results, rank);
+              const withdrawn = player.is_withdrawn === true;
+              const payoutRank = player.payout_rank == null ? null : Number(player.payout_rank);
+              const payout = payoutFor(results, payoutRank);
               return (
-                <tr key={player.name}>
-                  <td className={rank <= 3 ? `rank-${rank}` : 'text-faint'}>{rank}</td>
-                  <td><strong>{player.name}</strong></td>
+                <tr key={player.name} className={withdrawn ? 'is-withdrawn-row' : undefined}>
+                  <td className={!withdrawn && rank <= 3 ? `rank-${rank}` : 'text-faint'}>{rank}</td>
+                  <td>
+                    <strong>{player.name}</strong>
+                    {withdrawn && <span className="withdrew-tag">withdrew</span>}
+                  </td>
                   <td className="num">{player.total_points}</td>
                   <td className="num"><Delta value={player.point_differential} /></td>
-                  {showPayouts && <td className="num">${payout ?? 0}</td>}
+                  {showPayouts && (
+                    <td className="num">{withdrawn ? '—' : `$${payout ?? 0}`}</td>
+                  )}
                 </tr>
               );
             })}

@@ -6,6 +6,7 @@ const {
   canToggleSharing,
   requireTournamentManager
 } = require('../middleware/tournamentAccess');
+const { rebalanceUnplayedMatches } = require('../utils/rosterRebalance');
 const { generateTeams, generateAllRounds, balancePlayerMatches, calculateMatchBalance } = require('../utils/teamGenerator');
 
 const router = express.Router();
@@ -162,9 +163,23 @@ router.get('/:id/results', optionalAuth, async (req, res) => {
     }
     
     // Get final standings with point differential
+    // Withdrawn players keep the place their points earned them, so the
+    // leaderboard matches what everyone remembers of the day. payout_rank is
+    // ranked over eligible players only, which slides the prize money down to
+    // the next person who played the whole tournament rather than leaving it
+    // unclaimed.
     const standingsResult = await pool.query(`
-      SELECT name, gender, total_points, point_differential, matches_played,
-        RANK() OVER (PARTITION BY gender ORDER BY total_points DESC, point_differential DESC) as rank
+      SELECT name, gender, total_points, point_differential, matches_played, is_withdrawn,
+        RANK() OVER (
+          PARTITION BY gender
+          ORDER BY total_points DESC, point_differential DESC
+        ) as rank,
+        CASE WHEN is_withdrawn THEN NULL ELSE
+          RANK() OVER (
+            PARTITION BY gender, is_withdrawn
+            ORDER BY total_points DESC, point_differential DESC
+          )
+        END as payout_rank
       FROM players 
       WHERE tournament_id = $1
       ORDER BY gender, total_points DESC, point_differential DESC
@@ -173,6 +188,8 @@ router.get('/:id/results', optionalAuth, async (req, res) => {
     console.log('Standings found:', standingsResult.rows.length, 'players');
     
     // Calculate payouts - FIXED CALCULATION
+    // Everyone who entered counts toward the pool, including anyone who left
+    // partway through — they still paid.
     const totalEntryFees = standingsResult.rows.length * parseFloat(tournament.entry_fee || 0);
     const directorCost = parseFloat(tournament.director_cost || 0);
     const totalPool = Math.max(0, totalEntryFees - directorCost);
@@ -271,7 +288,8 @@ router.get('/:id', optionalAuth, async (req, res) => {
                   'name', p.name,
                   'gender', p.gender,
                   'skill_level', p.skill_level,
-                  'is_setter', p.is_setter
+                  'is_setter', p.is_setter,
+                  'is_withdrawn', p.is_withdrawn
                 )
                 ORDER BY tp.id
               )
@@ -538,6 +556,255 @@ router.put('/:id/players/:playerId', authenticateToken, requireTournamentManager
   } catch (error) {
     console.error('Error updating player:', error);
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Withdraw a player from a tournament that is already under way.
+//
+// There is rarely a spare body at these events — everyone present is playing —
+// so the departing player is not replaced. Instead their team would be left
+// both a player short and weakened by exactly whoever left, which on a
+// three-court draw turns one court into a blowout. So the remaining players are
+// reassigned across the teams of every match still unplayed, spreading the
+// shortfall and compensating the short side with stronger players.
+//
+// One-way on purpose: a player who returns cannot get back the matches their
+// team already played without them.
+router.post('/:id/players/:playerId/withdraw', authenticateToken, requireTournamentManager, async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const { id, playerId } = req.params;
+
+    if (req.tournament.status !== 'in_progress') {
+      return res.status(400).json({
+        message: req.tournament.status === 'setup'
+          ? 'Tournament has not started — remove the player from the roster instead'
+          : 'Cannot withdraw a player from a completed tournament'
+      });
+    }
+
+    const playerResult = await client.query(
+      'SELECT * FROM players WHERE id = $1 AND tournament_id = $2', [playerId, id]
+    );
+
+    if (playerResult.rows.length === 0) {
+      return res.status(404).json({ message: 'Player not found in this tournament' });
+    }
+
+    const player = playerResult.rows[0];
+
+    if (player.is_withdrawn) {
+      return res.status(400).json({ message: `${player.name} has already withdrawn` });
+    }
+
+    await client.query('BEGIN');
+
+    // Every team in the tournament, with its roster
+    const rowsResult = await client.query(`
+      SELECT r.id AS round_id, r.round_number,
+             t.id AS team_id, t.team_number, t.court, t.is_bye_team,
+             p.id AS player_id, p.name, p.gender, p.skill_level, p.is_setter
+      FROM rounds r
+      JOIN teams t ON t.round_id = r.id
+      LEFT JOIN team_players tp ON tp.team_id = t.id
+      LEFT JOIN players p ON p.id = tp.player_id
+      WHERE r.tournament_id = $1
+      ORDER BY r.round_number, t.team_number
+    `, [id]);
+
+    const matchesResult = await client.query(`
+      SELECT m.id, m.round_id, m.court, m.team1_id, m.team2_id, m.is_completed
+      FROM matches m
+      JOIN rounds r ON r.id = m.round_id
+      WHERE r.tournament_id = $1
+    `, [id]);
+
+    const teamsById = new Map();
+    const roundsByNumber = new Map();
+
+    for (const row of rowsResult.rows) {
+      if (!teamsById.has(row.team_id)) {
+        const team = {
+          id: row.team_id,
+          roundId: row.round_id,
+          roundNumber: row.round_number,
+          teamNumber: row.team_number,
+          isByeTeam: row.is_bye_team,
+          players: []
+        };
+        teamsById.set(row.team_id, team);
+
+        if (!roundsByNumber.has(row.round_number)) {
+          roundsByNumber.set(row.round_number, { roundNumber: row.round_number, teams: [] });
+        }
+        roundsByNumber.get(row.round_number).teams.push(team);
+      }
+
+      if (row.player_id) {
+        teamsById.get(row.team_id).players.push({
+          id: row.player_id,
+          name: row.name,
+          gender: row.gender,
+          skill_level: row.skill_level,
+          is_setter: row.is_setter
+        });
+      }
+    }
+
+    // Teammate history starts from matches actually played, then accumulates as
+    // each unplayed round is rebalanced, so the remaining schedule keeps
+    // rotating partners rather than repeating them.
+    const teammateHistory = {};
+    const recordTeam = (players) => {
+      for (let i = 0; i < players.length; i++) {
+        for (let j = i + 1; j < players.length; j++) {
+          const [a, b] = [players[i].id, players[j].id];
+          teammateHistory[a] = teammateHistory[a] || {};
+          teammateHistory[b] = teammateHistory[b] || {};
+          teammateHistory[a][b] = (teammateHistory[a][b] || 0) + 1;
+          teammateHistory[b][a] = (teammateHistory[b][a] || 0) + 1;
+        }
+      }
+    };
+
+    const completedTeamIds = new Set();
+    for (const match of matchesResult.rows) {
+      if (match.is_completed) {
+        completedTeamIds.add(match.team1_id);
+        completedTeamIds.add(match.team2_id);
+      }
+    }
+
+    for (const teamId of completedTeamIds) {
+      const team = teamsById.get(teamId);
+      if (team) recordTeam(team.players);
+    }
+
+    const rebalancedTeamIds = new Set();
+    const byeTeamIdsToClear = [];
+    const roundSummaries = [];
+
+    const sortedRounds = [...roundsByNumber.values()].sort((a, b) => a.roundNumber - b.roundNumber);
+
+    for (const round of sortedRounds) {
+      const roundMatches = matchesResult.rows.filter(m => {
+        const team = teamsById.get(m.team1_id);
+        return team && team.roundNumber === round.roundNumber;
+      });
+
+      // A round counts as played once any of its courts has a final score. Its
+      // bye list is history too, so the departing player stays on it.
+      const roundHasBeenPlayed = roundMatches.some(m => m.is_completed);
+
+      // Bye teams carry no match, so they are handled separately: someone who
+      // has left is not sitting out a round they will not attend. Queued rather
+      // than written here, so that nothing has touched the database yet if a
+      // later round turns out to breach the team-size floor.
+      if (!roundHasBeenPlayed) {
+        for (const team of round.teams) {
+          if (team.isByeTeam && team.players.some(p => p.id === player.id)) {
+            byeTeamIdsToClear.push(team.id);
+          }
+        }
+      }
+
+      const pairs = roundMatches
+        .filter(m => !m.is_completed)
+        .map(m => ({
+          court: m.court,
+          teamA: teamsById.get(m.team1_id),
+          teamB: teamsById.get(m.team2_id)
+        }))
+        .filter(pair => pair.teamA && pair.teamB);
+
+      if (pairs.length === 0) continue;
+
+      const wasPlaying = pairs.some(pair =>
+        [pair.teamA, pair.teamB].some(t => t.players.some(p => p.id === player.id))
+      );
+
+      for (const pair of pairs) {
+        for (const team of [pair.teamA, pair.teamB]) {
+          team.players = team.players.filter(p => p.id !== player.id);
+        }
+      }
+
+      // Nothing to do for a round the player was already sitting out
+      if (!wasPlaying) {
+        pairs.forEach(pair => { recordTeam(pair.teamA.players); recordTeam(pair.teamB.players); });
+        continue;
+      }
+
+      let outcome;
+      try {
+        outcome = rebalanceUnplayedMatches(pairs, {
+          minPlayersPerTeam: req.tournament.min_players_per_team,
+          teammateHistory
+        });
+      } catch (rebalanceError) {
+        // Reached before any statement has modified a row, so this leaves the
+        // tournament exactly as it was; the rollback is belt and braces.
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          message: `Cannot withdraw ${player.name}: ${rebalanceError.message}. ` +
+                   'Regenerate the tournament for the reduced roster instead.'
+        });
+      }
+
+      for (const pair of pairs) {
+        for (const team of [pair.teamA, pair.teamB]) {
+          rebalancedTeamIds.add(team.id);
+          recordTeam(team.players);
+        }
+      }
+
+      roundSummaries.push({
+        round: round.roundNumber,
+        smallestTeam: outcome.smallestTeam,
+        worstCourtGapBefore: Number(outcome.worstSkillGapBefore.toFixed(2)),
+        worstCourtGapAfter: Number(outcome.worstSkillGapAfter.toFixed(2))
+      });
+    }
+
+    // Every round has rebalanced successfully by this point, so the writes can
+    // go in: first the bye lists the player no longer belongs on.
+    for (const teamId of byeTeamIdsToClear) {
+      await client.query(
+        'DELETE FROM team_players WHERE team_id = $1 AND player_id = $2',
+        [teamId, player.id]
+      );
+    }
+
+    // Rewrite the rosters of every team that was rebalanced. Teams belonging to
+    // a completed match are never in this set, so scored results are untouched.
+    for (const teamId of rebalancedTeamIds) {
+      await client.query('DELETE FROM team_players WHERE team_id = $1', [teamId]);
+
+      for (const teamPlayer of teamsById.get(teamId).players) {
+        await client.query(
+          'INSERT INTO team_players (team_id, player_id) VALUES ($1, $2)',
+          [teamId, teamPlayer.id]
+        );
+      }
+    }
+
+    await client.query('UPDATE players SET is_withdrawn = TRUE WHERE id = $1', [player.id]);
+
+    await client.query('COMMIT');
+
+    res.json({
+      message: `${player.name} has withdrawn`,
+      player: { id: player.id, name: player.name },
+      roundsRebalanced: roundSummaries,
+      teamsChanged: rebalancedTeamIds.size
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error withdrawing player:', error);
+    res.status(500).json({ message: 'Server error' });
+  } finally {
+    client.release();
   }
 });
 

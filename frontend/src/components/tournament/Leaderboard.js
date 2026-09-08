@@ -13,7 +13,9 @@ function isMale(p) {
   return g === 'male' || g === 'm';
 }
 
-function Leaderboard({ players, onExport, canExport, onSelectPlayer }) {
+// onWithdraw is passed only when the viewer can manage the tournament and it is
+// still in progress; otherwise the column is absent entirely.
+function Leaderboard({ players, onExport, canExport, onSelectPlayer, onWithdraw }) {
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
 
@@ -74,32 +76,51 @@ function Leaderboard({ players, onExport, canExport, onSelectPlayer }) {
                 <th>Played</th>
                 <th>Points</th>
                 <th>+/–</th>
+                {onWithdraw && <th></th>}
               </tr>
             </thead>
             <tbody>
-              {visible.map((player, i) => (
-                <tr key={player.id}>
-                  <td className={i < 3 ? `rank-${i + 1}` : 'text-faint'}>
-                    {i < 3 ? MEDALS[i] : i + 1}
-                  </td>
-                  <td>
-                    {onSelectPlayer ? (
-                      <button
-                        type="button"
-                        className="player-link"
-                        onClick={() => onSelectPlayer(player)}
-                      >
+              {visible.map((player, i) => {
+                const withdrawn = player.is_withdrawn === true;
+                return (
+                  <tr key={player.id} className={withdrawn ? 'is-withdrawn-row' : undefined}>
+                    {/* Position is kept — those points were earned — but the
+                        medal is not, since they did not finish. */}
+                    <td className={!withdrawn && i < 3 ? `rank-${i + 1}` : 'text-faint'}>
+                      {!withdrawn && i < 3 ? MEDALS[i] : i + 1}
+                    </td>
+                    <td>
+                      {onSelectPlayer ? (
+                        <button
+                          type="button"
+                          className="player-link"
+                          onClick={() => onSelectPlayer(player)}
+                        >
+                          <strong>{player.name}</strong>
+                        </button>
+                      ) : (
                         <strong>{player.name}</strong>
-                      </button>
-                    ) : (
-                      <strong>{player.name}</strong>
+                      )}
+                      {withdrawn && <span className="withdrew-tag">withdrew</span>}
+                    </td>
+                    <td className="num">{player.matches_played}</td>
+                    <td className="num">{player.total_points}</td>
+                    <td className="num"><Delta value={player.point_differential} /></td>
+                    {onWithdraw && (
+                      <td>
+                        {!withdrawn && (
+                          <button
+                            className="btn btn-danger btn-sm"
+                            onClick={() => onWithdraw(player)}
+                          >
+                            Withdraw
+                          </button>
+                        )}
+                      </td>
                     )}
-                  </td>
-                  <td className="num">{player.matches_played}</td>
-                  <td className="num">{player.total_points}</td>
-                  <td className="num"><Delta value={player.point_differential} /></td>
-                </tr>
-              ))}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -111,6 +132,13 @@ function Leaderboard({ players, onExport, canExport, onSelectPlayer }) {
 
       {filter !== 'all' && (
         <p className="field-hint">Ranked within {filter === 'male' ? 'men' : 'women'} only.</p>
+      )}
+
+      {onWithdraw && (
+        <p className="field-hint">
+          Withdrawing a player removes them from every match still to be played and
+          rebalances those teams. It cannot be undone.
+        </p>
       )}
     </div>
   );

@@ -8,21 +8,27 @@ import React from 'react';
 function PlayerChip({ player, detailed, onSelect }) {
   const tappable = typeof onSelect === 'function';
   const open = () => onSelect(player);
+  // Someone who left partway through still appears on the rounds they played,
+  // so the roster reads the way the day actually went.
+  const withdrawn = player.is_withdrawn === true;
+  const withdrawnNote = withdrawn ? ' (withdrew)' : '';
 
   if (!detailed) {
     return tappable ? (
       <button type="button" className="player-link" onClick={open}>
-        {player.name}
+        {player.name}{withdrawnNote}
       </button>
     ) : (
-      <span>{player.name}</span>
+      <span>{player.name}{withdrawnNote}</span>
     );
   }
 
   const gender = player.gender?.toLowerCase() === 'female' ? 'f' : 'm';
   const skill = player.skill_level || 'BB';
-  const className = `player-chip ${gender}-${skill}${player.is_setter ? ' is-setter' : ''}`;
-  const title = `${player.gender}, ${skill}${player.is_setter ? ', setter' : ''}`;
+  const className = `player-chip ${gender}-${skill}` +
+    `${player.is_setter ? ' is-setter' : ''}${withdrawn ? ' is-withdrawn' : ''}`;
+  const title = `${player.gender}, ${skill}${player.is_setter ? ', setter' : ''}` +
+    `${withdrawn ? ' — withdrew partway through' : ''}`;
 
   return tappable ? (
     <button
@@ -31,11 +37,11 @@ function PlayerChip({ player, detailed, onSelect }) {
       title={`${title} — tap for their schedule`}
       onClick={open}
     >
-      {player.name}
+      {player.name}{withdrawnNote}
     </button>
   ) : (
     <span className={className} title={title}>
-      {player.name}
+      {player.name}{withdrawnNote}
     </span>
   );
 }

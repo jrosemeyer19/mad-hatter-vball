@@ -173,6 +173,7 @@ Tournament viewing and score entry are intentionally public; everything else nee
 | `GET` | `/api/tournaments/:id/roster-sources` | manager |
 | `POST` | `/api/tournaments/:id/players` | manager |
 | `POST` | `/api/tournaments/:id/players/copy` | manager (of both tournaments) |
+| `POST` | `/api/tournaments/:id/players/:playerId/withdraw` | manager |
 | `PUT` | `/api/tournaments/:id/players/:playerId` | manager |
 | `DELETE` | `/api/tournaments/:id/players/:playerId` | manager |
 | `POST` | `/api/tournaments/:id/start` | manager |
@@ -180,6 +181,39 @@ Tournament viewing and score entry are intentionally public; everything else nee
 | `POST` | `/api/tournaments/:id/complete` | manager |
 | `GET`/`POST`/`DELETE` | `/api/users`, `/api/users/:id` | super admin |
 | `PUT` | `/api/users/:id/password` | super admin (reset someone else's) |
+
+### When a player drops out mid-tournament
+
+Everyone at these events is playing, so there is no substitute to bring in. Withdrawing a player
+therefore removes them from every match still unplayed and **rebalances those teams** rather than
+leaving one side both a player short and weakened by exactly whoever left.
+
+Why that matters: one player leaving a 30-player, 3-court draw is arithmetically catastrophic if you
+re-solve it. Three courts need six teams of at least five, so 29 players cannot fill them — the
+generator drops to two courts, gains a round, and puts five or six people on bye *every* round.
+Rebalancing instead keeps the draw exactly as generated and only changes who stands on which side.
+
+- **Nobody else's match count moves.** Players are only swapped between teams already playing the
+  same round, so every remaining player keeps the slots they were scheduled for. Nobody is promoted
+  off a bye either — standings are cumulative points, so an extra match is an advantage.
+- **Scored matches are frozen.** Only teams whose match is still unplayed are touched. Scoring awards
+  points by joining `team_players` and a re-score reverses that award, so moving a player off a
+  scored team would corrupt totals.
+- **Rounds, courts and who-plays-whom never change.** This is not a re-solve; the court spreading
+  survives intact.
+- **The floor is `min_players_per_team - 1`.** Initial generation never goes below the configured
+  minimum (`canFormTeams` requires it), so a short team can only ever arise from a withdrawal. If a
+  withdrawal would take a team below the floor, it is refused *before any write* and the director is
+  pointed at regenerating for the reduced roster.
+- **One-way.** A player who comes back cannot recover the matches their team played without them.
+
+Withdrawn players keep the standings place their points earned and are shown with a `withdrew`
+marker, but are not payout-eligible: `payout_rank` is ranked over eligible players only, so prize
+money slides to the next person who played the whole tournament. They still count toward the entry
+pool — they paid. `backend/utils/rosterRebalance.js` holds the algorithm.
+
+In practice, on a 30-player draw losing its strongest player, the worst court skill gap goes from
+about 4.5 down to under 1 — better balanced than many intact tournaments.
 
 ### Reusing a roster
 
@@ -250,6 +284,7 @@ backend/
 ├── middleware/rateLimit.js   # Per-account throttling for the password endpoints
 ├── middleware/tournamentAccess.js  # Who may manage a given tournament
 ├── utils/passwordPolicy.js   # Password rules (authoritative copy)
+├── utils/rosterRebalance.js  # Re-spreads teams after a mid-tournament withdrawal
 ├── utils/teamGenerator.js    # The draw: balancing, rotation, byes, courts
 ├── scripts/initDb.js         # Schema creation + incremental migrations
 └── database/

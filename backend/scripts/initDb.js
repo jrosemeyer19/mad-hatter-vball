@@ -118,6 +118,30 @@ async function runMigrations() {
       }
     }
 
+    // Check for the mid-tournament withdrawal flag
+    if (await checkTableExists('players')) {
+      const withdrawnExists = await checkColumnExists('players', 'is_withdrawn');
+
+      if (!withdrawnExists) {
+        console.log('Adding player withdrawal support to existing database...');
+
+        await pool.query(`
+          ALTER TABLE players
+          ADD COLUMN is_withdrawn BOOLEAN DEFAULT FALSE
+        `);
+        console.log('✓ Added is_withdrawn column');
+
+        await pool.query(`
+          COMMENT ON COLUMN players.is_withdrawn IS 'Set when a player leaves partway through a tournament. They keep earned points and stay in the standings but are not payout-eligible, and are removed from the teams of any match still unplayed.'
+        `);
+        console.log('✓ Added column comment');
+
+        console.log('Player withdrawal migration completed successfully!');
+      } else {
+        console.log('✓ Player withdrawal support already exists');
+      }
+    }
+
     // Check for the password change timestamp
     const usersExists = await checkTableExists('users');
     if (usersExists) {

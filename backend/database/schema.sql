@@ -41,8 +41,17 @@ CREATE TABLE players (
     gender VARCHAR(10) NOT NULL, -- 'male', 'female'
     skill_level VARCHAR(2) NOT NULL, -- 'AA', 'A', 'BB', 'B'
     is_setter BOOLEAN DEFAULT FALSE,
+    -- Set when a player leaves partway through. They keep the points they
+    -- earned and stay in the standings, but are not eligible for a payout and
+    -- are dropped from the teams of any match still unplayed. One-way.
+    is_withdrawn BOOLEAN DEFAULT FALSE,
     total_points INTEGER DEFAULT 0,
-    matches_played INTEGER DEFAULT 0
+    matches_played INTEGER DEFAULT 0,
+    -- Points scored minus points allowed, the tiebreaker on the leaderboard.
+    -- Existing databases get this from a migration in scripts/initDb.js; it
+    -- belongs here too or a fresh install has no such column and the results
+    -- page fails on the standings query.
+    point_differential INTEGER DEFAULT 0
 );
 
 -- Rounds table
@@ -85,6 +94,7 @@ CREATE TABLE matches (
 -- Create indexes for performance
 CREATE INDEX idx_tournaments_status ON tournaments(status);
 CREATE INDEX idx_players_tournament ON players(tournament_id);
+CREATE INDEX idx_players_point_differential ON players(point_differential);
 CREATE INDEX idx_rounds_tournament ON rounds(tournament_id);
 CREATE INDEX idx_teams_round ON teams(round_id);
 CREATE INDEX idx_teams_bye_team ON teams(is_bye_team); -- New index for bye teams
