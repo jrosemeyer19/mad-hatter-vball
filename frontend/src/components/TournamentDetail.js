@@ -296,7 +296,10 @@ function TournamentDetail({ user }) {
   }
 
   const currentRound = sortedRounds.find(r => r.round_number === activeRound);
-  const isAdmin = !!user;
+  // Management controls follow what the API will actually allow: the creator,
+  // a super admin, or anyone signed in if the creator shared the tournament.
+  // Anonymous visitors get can_manage false, so this covers them too.
+  const isAdmin = tournament.can_manage === true;
 
   return (
     <div className="stack">

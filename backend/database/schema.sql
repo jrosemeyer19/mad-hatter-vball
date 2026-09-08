@@ -22,6 +22,10 @@ CREATE TABLE tournaments (
     -- Off by default: an extra round with byes is preferred over a 7-player
     -- team, where someone rotates off the court every rotation.
     allow_seven_player_teams BOOLEAN DEFAULT FALSE,
+    -- Off by default: a tournament is managed by the director who created it,
+    -- and by super admins. Turning this on lets any signed-in user change or
+    -- delete it, for events run by more than one person.
+    allow_shared_management BOOLEAN DEFAULT FALSE,
     entry_fee DECIMAL(10,2) DEFAULT 0,
     director_cost DECIMAL(10,2) DEFAULT 0,
     status VARCHAR(20) DEFAULT 'setup', -- 'setup', 'in_progress', 'completed'

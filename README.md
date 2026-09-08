@@ -162,22 +162,43 @@ Tournament viewing and score entry are intentionally public; everything else nee
 | `POST` | `/api/auth/login` | — |
 | `GET` | `/api/auth/verify` | required |
 | `POST` | `/api/auth/change-password` | required (own account) |
-| `GET` | `/api/tournaments` | — |
+| `GET` | `/api/tournaments` | optional (`can_manage` per row) |
 | `GET` | `/api/tournaments/:id` | optional (financials omitted when anonymous) |
 | `GET` | `/api/tournaments/:id/results` | optional (payouts omitted when anonymous) |
 | `PUT` | `/api/tournaments/:id/matches/:matchId/scores` | — (players score their own matches) |
 | `GET` | `/api/tournaments/history` | required |
 | `POST` | `/api/tournaments` | required |
-| `PUT` | `/api/tournaments/:id` | required |
-| `DELETE` | `/api/tournaments/:id` | required |
-| `POST` | `/api/tournaments/:id/players` | required |
-| `PUT` | `/api/tournaments/:id/players/:playerId` | required |
-| `DELETE` | `/api/tournaments/:id/players/:playerId` | required |
-| `POST` | `/api/tournaments/:id/start` | required |
-| `POST` | `/api/tournaments/:id/regenerate` | required |
-| `POST` | `/api/tournaments/:id/complete` | required |
+| `PUT` | `/api/tournaments/:id` | manager |
+| `DELETE` | `/api/tournaments/:id` | manager |
+| `POST` | `/api/tournaments/:id/players` | manager |
+| `PUT` | `/api/tournaments/:id/players/:playerId` | manager |
+| `DELETE` | `/api/tournaments/:id/players/:playerId` | manager |
+| `POST` | `/api/tournaments/:id/start` | manager |
+| `POST` | `/api/tournaments/:id/regenerate` | manager |
+| `POST` | `/api/tournaments/:id/complete` | manager |
 | `GET`/`POST`/`DELETE` | `/api/users`, `/api/users/:id` | super admin |
 | `PUT` | `/api/users/:id/password` | super admin (reset someone else's) |
+
+### Who can manage a tournament
+
+Creating a tournament makes you its director. By default nobody else signed in can edit it, add or
+remove players, generate teams, or delete it — only you and super admins. Checking **allow other
+users to manage this tournament** on the setup screen opens it to every signed-in user, for an event
+run by more than one person.
+
+The sharing checkbox is owner-only even while the tournament is shared, so a co-manager cannot lock
+the director out of their own event or reopen one the director closed. A co-manager's submitted value
+for that field is ignored server-side, not just disabled in the form.
+
+`allow_shared_management` defaults to FALSE, including for tournaments that already existed when the
+column was added — those become manageable only by their creator. Rows with a NULL `created_by` end
+up super-admin only, and `init-db` warns if it finds any.
+
+Score entry is unaffected: `PUT /api/tournaments/:id/matches/:matchId/scores` stays open, because
+players enter their own scores from the shared link. `GET /api/tournaments/:id` reports `can_manage`
+and `can_toggle_sharing` for the requesting user, and the tournament list reports `can_manage` per
+row, so the UI only offers buttons that will actually work. `backend/middleware/tournamentAccess.js`
+holds the rules.
 
 ### Passwords
 
@@ -208,6 +229,7 @@ backend/
 │   └── users.js              # User management (super admin only)
 ├── middleware/auth.js        # authenticateToken, optionalAuth, requireSuperAdmin
 ├── middleware/rateLimit.js   # Per-account throttling for the password endpoints
+├── middleware/tournamentAccess.js  # Who may manage a given tournament
 ├── utils/passwordPolicy.js   # Password rules (authoritative copy)
 ├── utils/teamGenerator.js    # The draw: balancing, rotation, byes, courts
 ├── scripts/initDb.js         # Schema creation + incremental migrations

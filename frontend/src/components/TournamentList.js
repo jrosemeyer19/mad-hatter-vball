@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
 
-function TournamentList({ user }) {
+function TournamentList() {
   const [tournaments, setTournaments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -27,8 +27,8 @@ function TournamentList({ user }) {
     e.preventDefault(); // Prevent navigation to tournament detail
     e.stopPropagation();
 
-    if (!user) {
-      alert('You must be logged in to delete tournaments');
+    if (!tournaments.find(t => t.id === tournamentId)?.can_manage) {
+      alert('Only the director who created this tournament can delete it');
       return;
     }
 
@@ -129,7 +129,7 @@ function TournamentList({ user }) {
                 </div>
               </Link>
               
-              {user && (
+              {tournament.can_manage && (
                 <div style={{ 
                   position: 'absolute', 
                   top: '0.5rem', 

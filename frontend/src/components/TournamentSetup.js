@@ -12,9 +12,15 @@ function TournamentSetup({ isEditing = false }) {
     minPlayersPerTeam: 5,
     matchesPerPlayer: 4,
     allowSevenPlayerTeams: false,
+    allowSharedManagement: false,
     entryFee: 0,
     directorCost: 0
   });
+
+  // Whoever creates a tournament owns it, so the sharing checkbox is always
+  // theirs to set here. When editing, the API says whether this user is the
+  // owner (or a super admin); a co-manager on a shared tournament is not.
+  const [canToggleSharing, setCanToggleSharing] = useState(true);
   
   const [players, setPlayers] = useState([]);
   const [currentPlayer, setCurrentPlayer] = useState({
@@ -89,6 +95,16 @@ function TournamentSetup({ isEditing = false }) {
         setError('Can only edit tournaments in setup phase');
         return;
       }
+
+      // Caught here as well as on save, so a co-manager who follows a link to
+      // someone else's private tournament is told up front instead of filling
+      // the form in and being refused by the API.
+      if (tournament.can_manage !== true) {
+        setError('Only the director who created this tournament can edit it');
+        return;
+      }
+
+      setCanToggleSharing(tournament.can_toggle_sharing === true);
       
       setTournamentData({
         name: tournament.name,
@@ -98,6 +114,7 @@ function TournamentSetup({ isEditing = false }) {
         minPlayersPerTeam: tournament.min_players_per_team,
         matchesPerPlayer: tournament.matches_per_player,
         allowSevenPlayerTeams: tournament.allow_seven_player_teams === true,
+        allowSharedManagement: tournament.allow_shared_management === true,
         // Defaulted because the API withholds these from anonymous requests
         entryFee: tournament.entry_fee ?? 0,
         directorCost: tournament.director_cost ?? 0
@@ -604,6 +621,35 @@ function TournamentSetup({ isEditing = false }) {
               more teams carry a 7th player who rotates on and off the court, which can
               save a whole round — for example 37 players finish in 4 rounds with nobody
               sitting out, instead of 5 rounds with one bye each.
+            </p>
+          </div>
+
+          <div className="form-group">
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                name="allowSharedManagement"
+                checked={tournamentData.allowSharedManagement}
+                onChange={handleTournamentChange}
+                disabled={!canToggleSharing}
+              />
+              Allow other users to manage this tournament
+            </label>
+            <p className="field-hint">
+              {canToggleSharing ? (
+                <>
+                  Off by default. Only you and super admins can edit players, generate
+                  teams, or delete this tournament. Turn it on for an event you are
+                  running with someone else, and any signed-in user will be able to
+                  manage it. Scoring is unaffected — players always enter their own
+                  scores from the shared link.
+                </>
+              ) : (
+                <>
+                  Only the director who created this tournament can change who manages
+                  it. You can edit everything else here.
+                </>
+              )}
             </p>
           </div>
 

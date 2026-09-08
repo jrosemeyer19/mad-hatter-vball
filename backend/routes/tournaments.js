@@ -1,6 +1,11 @@
 const express = require('express');
 const pool = require('../database/db');
 const { authenticateToken, optionalAuth } = require('../middleware/auth');
+const {
+  canManageTournament,
+  canToggleSharing,
+  requireTournamentManager
+} = require('../middleware/tournamentAccess');
 const { generateTeams, generateAllRounds, balancePlayerMatches, calculateMatchBalance } = require('../utils/teamGenerator');
 
 const router = express.Router();
@@ -14,15 +19,22 @@ function withoutFinancials(tournament) {
 }
 
 // Get all tournaments (public - shows active tournaments)
-router.get('/', async (req, res) => {
+router.get('/', optionalAuth, async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT id, name, date, location, status 
+      SELECT id, name, date, location, status, created_by, allow_shared_management
       FROM tournaments 
       WHERE status IN ('in_progress', 'setup')
       ORDER BY date DESC, created_at DESC
     `);
-    res.json(result.rows);
+
+    // created_by and the sharing flag are only fetched to work out can_manage;
+    // this listing is public, so they are dropped rather than handed to every
+    // player who opens the tournament list.
+    res.json(result.rows.map(({ created_by, allow_shared_management, ...tournament }) => ({
+      ...tournament,
+      can_manage: canManageTournament({ created_by, allow_shared_management }, req.user)
+    })));
   } catch (error) {
     console.error('Error fetching tournaments:', error);
     res.status(500).json({ message: 'Server error' });
@@ -46,38 +58,42 @@ router.get('/history', authenticateToken, async (req, res) => {
 });
 
 // Update tournament (authenticated users only)
-router.put('/:id', authenticateToken, async (req, res) => {
+router.put('/:id', authenticateToken, requireTournamentManager, async (req, res) => {
   try {
     const { id } = req.params;
     const {
       name, date, location, courtsAvailable = 3, minPlayersPerTeam = 5,
       matchesPerPlayer = 4, entryFee = 0, directorCost = 0,
-      allowSevenPlayerTeams = false
+      allowSevenPlayerTeams = false, allowSharedManagement
     } = req.body;
 
     if (!name || !date || !location) {
       return res.status(400).json({ message: 'Name, date, and location are required' });
     }
 
-    // Check if tournament exists and is in setup phase
-    const tournamentCheck = await pool.query('SELECT status FROM tournaments WHERE id = $1', [id]);
-    if (tournamentCheck.rows.length === 0) {
-      return res.status(404).json({ message: 'Tournament not found' });
-    }
-
-    if (tournamentCheck.rows[0].status !== 'setup') {
+    // requireTournamentManager already loaded the row and confirmed access
+    if (req.tournament.status !== 'setup') {
       return res.status(400).json({ message: 'Can only edit tournaments in setup phase' });
     }
+
+    // A co-manager can edit everything about a shared tournament except who is
+    // allowed to manage it, so their submitted value is ignored in favour of
+    // what the owner set. The form disables the checkbox for them too; this is
+    // the half that a hand-made request cannot get around.
+    const sharedManagement = canToggleSharing(req.tournament, req.user)
+      ? allowSharedManagement === true
+      : req.tournament.allow_shared_management;
 
     const result = await pool.query(`
       UPDATE tournaments
       SET name = $1, date = $2, location = $3, courts_available = $4,
           min_players_per_team = $5, matches_per_player = $6, entry_fee = $7,
-          director_cost = $8, allow_seven_player_teams = $9
-      WHERE id = $10
+          director_cost = $8, allow_seven_player_teams = $9,
+          allow_shared_management = $10
+      WHERE id = $11
       RETURNING *
     `, [name, date, location, courtsAvailable, minPlayersPerTeam, matchesPerPlayer,
-        entryFee, directorCost, allowSevenPlayerTeams, id]);
+        entryFee, directorCost, allowSevenPlayerTeams, sharedManagement, id]);
     
     res.json(result.rows[0]);
   } catch (error) {
@@ -95,7 +111,7 @@ router.post('/', authenticateToken, async (req, res) => {
     const {
       name, date, location, courtsAvailable = 3, minPlayersPerTeam = 5,
       matchesPerPlayer = 4, entryFee = 0, directorCost = 0,
-      allowSevenPlayerTeams = false
+      allowSevenPlayerTeams = false, allowSharedManagement = false
     } = req.body;
 
     if (!name || !date || !location) {
@@ -106,11 +122,12 @@ router.post('/', authenticateToken, async (req, res) => {
       INSERT INTO tournaments (
         name, date, location, courts_available, min_players_per_team,
         matches_per_player, entry_fee, director_cost, allow_seven_player_teams,
-        created_by
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        allow_shared_management, created_by
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
       RETURNING *
     `, [name, date, location, courtsAvailable, minPlayersPerTeam, matchesPerPlayer,
-        entryFee, directorCost, allowSevenPlayerTeams, req.user.id]);
+        entryFee, directorCost, allowSevenPlayerTeams,
+        allowSharedManagement === true, req.user.id]);
     
     await client.query('COMMIT');
     res.status(201).json(result.rows[0]);
@@ -303,7 +320,13 @@ router.get('/:id', optionalAuth, async (req, res) => {
     });
 
     res.json({
-      tournament: req.user ? tournament : withoutFinancials(tournament),
+      tournament: {
+        ...(req.user ? tournament : withoutFinancials(tournament)),
+        // Lets the UI show management controls only to someone who can
+        // actually use them, instead of offering buttons that 403.
+        can_manage: canManageTournament(tournament, req.user),
+        can_toggle_sharing: canToggleSharing(tournament, req.user)
+      },
       players: playersResult.rows,
       rounds: roundsResult.rows,
       matches
@@ -315,7 +338,7 @@ router.get('/:id', optionalAuth, async (req, res) => {
 });
 
 // Add player to tournament
-router.post('/:id/players', authenticateToken, async (req, res) => {
+router.post('/:id/players', authenticateToken, requireTournamentManager, async (req, res) => {
   try {
     const { id } = req.params;
     const { name, gender, skillLevel, isSetter = false } = req.body;
@@ -359,7 +382,7 @@ router.post('/:id/players', authenticateToken, async (req, res) => {
 });
 
 // Update player in tournament
-router.put('/:id/players/:playerId', authenticateToken, async (req, res) => {
+router.put('/:id/players/:playerId', authenticateToken, requireTournamentManager, async (req, res) => {
   try {
     const { id, playerId } = req.params;
     const { name, gender, skillLevel, isSetter = false } = req.body;
@@ -409,7 +432,7 @@ router.put('/:id/players/:playerId', authenticateToken, async (req, res) => {
 });
 
 // Remove player from tournament
-router.delete('/:id/players/:playerId', authenticateToken, async (req, res) => {
+router.delete('/:id/players/:playerId', authenticateToken, requireTournamentManager, async (req, res) => {
   try {
     const { id, playerId } = req.params;
     
@@ -446,7 +469,7 @@ router.delete('/:id/players/:playerId', authenticateToken, async (req, res) => {
 // FIXED VERSION of the Start Tournament Route
 // Replace the existing router.post('/:id/start', ...) route with this updated version
 
-router.post('/:id/start', authenticateToken, async (req, res) => {
+router.post('/:id/start', authenticateToken, requireTournamentManager, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -759,7 +782,7 @@ router.put('/:id/matches/:matchId/scores', async (req, res) => {
 });
 
 // Complete tournament - ALSO FIXED
-router.post('/:id/complete', authenticateToken, async (req, res) => {
+router.post('/:id/complete', authenticateToken, requireTournamentManager, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -830,7 +853,7 @@ router.post('/:id/complete', authenticateToken, async (req, res) => {
 });
 
 // Delete tournament (authenticated users only)
-router.delete('/:id', authenticateToken, async (req, res) => {
+router.delete('/:id', authenticateToken, requireTournamentManager, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -868,7 +891,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
 // FIXED VERSION of the Regenerate Teams Route
 // Replace the existing router.post('/:id/regenerate', ...) route with this updated version
 
-router.post('/:id/regenerate', authenticateToken, async (req, res) => {
+router.post('/:id/regenerate', authenticateToken, requireTournamentManager, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');

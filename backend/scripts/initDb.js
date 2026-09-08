@@ -170,6 +170,38 @@ async function runMigrations() {
       } else {
         console.log('✓ 7-player team option already exists');
       }
+
+      // Check for the shared-management opt-in
+      const sharedColumnExists = await checkColumnExists('tournaments', 'allow_shared_management');
+
+      if (!sharedColumnExists) {
+        console.log('Adding shared management option to existing database...');
+
+        // FALSE for existing rows too: every tournament already in the
+        // database becomes manageable only by whoever created it (plus super
+        // admins), which is the point of the option.
+        await pool.query(`
+          ALTER TABLE tournaments
+          ADD COLUMN allow_shared_management BOOLEAN DEFAULT FALSE
+        `);
+        console.log('✓ Added allow_shared_management column');
+
+        await pool.query(`
+          COMMENT ON COLUMN tournaments.allow_shared_management IS 'When true, any signed-in user may manage this tournament. Off by default, leaving it to its creator and super admins.'
+        `);
+        console.log('✓ Added column comment');
+
+        // Rows with no creator would otherwise be manageable by super admins
+        // only, with no way to hand them to anyone else.
+        const orphaned = await pool.query('SELECT COUNT(*) FROM tournaments WHERE created_by IS NULL');
+        if (Number(orphaned.rows[0].count) > 0) {
+          console.log(`⚠  ${orphaned.rows[0].count} tournament(s) have no created_by and are now super-admin only`);
+        }
+
+        console.log('Shared management migration completed successfully!');
+      } else {
+        console.log('✓ Shared management option already exists');
+      }
     }
 
   } catch (error) {

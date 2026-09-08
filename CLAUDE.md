@@ -49,6 +49,7 @@ backend/
 │   └── users.js              # User management (super admin only)
 ├── middleware/auth.js        # JWT verification
 ├── middleware/rateLimit.js   # Per-account throttling on password endpoints
+├── middleware/tournamentAccess.js  # requireTournamentManager: creator/super admin/shared
 ├── utils/passwordPolicy.js   # Password rules (mirrored in frontend/src/utils/passwordPolicy.js)
 ├── utils/teamGenerator.js    # Team balancing algorithm
 └── database/
@@ -78,6 +79,10 @@ Recent commits have focused heavily on improving team balance fairness.
 ## Key Implementation Details
 
 - JWT authentication with super admin role for user management
+- Tournament management is restricted to the creator (`tournaments.created_by`) and super admins.
+  `tournaments.allow_shared_management` (default FALSE) opens it to any signed-in user; only the
+  creator or a super admin may change that flag. Guard is `requireTournamentManager`, applied to the
+  8 management routes; score entry stays public and reads stay `optionalAuth`
 - Passwords: min 9 chars, 3 of 4 character classes. Enforced by `backend/utils/passwordPolicy.js`;
   `frontend/src/utils/passwordPolicy.js` mirrors it for live form feedback and must stay in sync
 - Tokens carry a `pwc` claim holding the `users.password_changed_at` they were signed against, so
