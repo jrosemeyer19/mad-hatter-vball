@@ -170,7 +170,9 @@ Tournament viewing and score entry are intentionally public; everything else nee
 | `POST` | `/api/tournaments` | required |
 | `PUT` | `/api/tournaments/:id` | manager |
 | `DELETE` | `/api/tournaments/:id` | manager |
+| `GET` | `/api/tournaments/:id/roster-sources` | manager |
 | `POST` | `/api/tournaments/:id/players` | manager |
+| `POST` | `/api/tournaments/:id/players/copy` | manager (of both tournaments) |
 | `PUT` | `/api/tournaments/:id/players/:playerId` | manager |
 | `DELETE` | `/api/tournaments/:id/players/:playerId` | manager |
 | `POST` | `/api/tournaments/:id/start` | manager |
@@ -178,6 +180,23 @@ Tournament viewing and score entry are intentionally public; everything else nee
 | `POST` | `/api/tournaments/:id/complete` | manager |
 | `GET`/`POST`/`DELETE` | `/api/users`, `/api/users/:id` | super admin |
 | `PUT` | `/api/users/:id/password` | super admin (reset someone else's) |
+
+### Reusing a roster
+
+Players belong to a single tournament (`players.tournament_id`), so **Copy Players From a Previous
+Tournament** on the setup screen brings a roster forward instead of re-entering forty people. It
+copies name, gender, skill level, and setter flag; points, matches played, and point differential
+start fresh.
+
+The copy is a single `INSERT ... SELECT`, so a full roster is one round trip. `DISTINCT ON` collapses
+names duplicated within the source, and an anti-join drops anyone already on the target's list,
+compared case-insensitively — so running it twice, or after adding a few people by hand, adds each
+person exactly once and leaves the existing spelling alone. The response reports how many were added
+and how many were skipped.
+
+Only tournaments you could manage yourself are offered as sources, and the copy re-checks that on
+the way in. Skill ratings are director-only, so without that rule this would be a way to lift
+another director's ratings out of their event.
 
 ### Who can manage a tournament
 

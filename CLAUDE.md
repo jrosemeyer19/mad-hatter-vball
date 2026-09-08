@@ -45,7 +45,7 @@ backend/
 ├── server.js                 # Express app entry
 ├── routes/
 │   ├── auth.js               # POST /api/auth/login, GET /api/auth/verify, POST /api/auth/change-password
-│   ├── tournaments.js        # Tournament CRUD + team generation + scoring
+│   ├── tournaments.js        # Tournament CRUD + team generation + scoring + roster copy
 │   └── users.js              # User management (super admin only)
 ├── middleware/auth.js        # JWT verification
 ├── middleware/rateLimit.js   # Per-account throttling on password endpoints
@@ -83,6 +83,9 @@ Recent commits have focused heavily on improving team balance fairness.
   `tournaments.allow_shared_management` (default FALSE) opens it to any signed-in user; only the
   creator or a super admin may change that flag. Guard is `requireTournamentManager`, applied to the
   8 management routes; score entry stays public and reads stay `optionalAuth`
+- Rosters are per-tournament; `POST /api/tournaments/:id/players/copy` brings one forward from
+  another tournament the user manages. Dedupes case-insensitively against the target, so it is safe
+  to re-run. Sources are restricted to manageable tournaments because skill ratings are director-only
 - Passwords: min 9 chars, 3 of 4 character classes. Enforced by `backend/utils/passwordPolicy.js`;
   `frontend/src/utils/passwordPolicy.js` mirrors it for live form feedback and must stay in sync
 - Tokens carry a `pwc` claim holding the `users.password_changed_at` they were signed against, so

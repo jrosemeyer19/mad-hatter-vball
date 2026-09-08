@@ -337,6 +337,116 @@ router.get('/:id', optionalAuth, async (req, res) => {
   }
 });
 
+// Tournaments whose roster can be copied into this one.
+//
+// Players belong to a single tournament, so without this every event starts by
+// re-entering the same forty-odd people. Only tournaments the user could manage
+// themselves are offered: skill ratings are director-only, and this would
+// otherwise be a way to lift another director's ratings out of their event.
+router.get('/:id/roster-sources', authenticateToken, requireTournamentManager, async (req, res) => {
+  try {
+    // The join means only tournaments that actually have a roster come back.
+    // Every selected column is listed in GROUP BY rather than leaning on
+    // Postgres resolving them from the grouped primary key, which keeps the
+    // statement portable and its intent obvious.
+    const result = await pool.query(`
+      SELECT t.id, t.name, t.date, t.status, t.created_at,
+             t.created_by, t.allow_shared_management,
+             COUNT(p.id)::int AS player_count
+      FROM tournaments t
+      JOIN players p ON p.tournament_id = t.id
+      WHERE t.id <> $1
+      GROUP BY t.id, t.name, t.date, t.status, t.created_at,
+               t.created_by, t.allow_shared_management
+      ORDER BY t.date DESC, t.created_at DESC
+    `, [req.params.id]);
+
+    res.json(
+      result.rows
+        .filter(row => canManageTournament(row, req.user))
+        .map(({ created_by, allow_shared_management, ...tournament }) => tournament)
+    );
+  } catch (error) {
+    console.error('Error fetching roster sources:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Copy a roster from another tournament into this one
+router.post('/:id/players/copy', authenticateToken, requireTournamentManager, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { sourceTournamentId } = req.body;
+
+    if (!sourceTournamentId) {
+      return res.status(400).json({ message: 'Source tournament is required' });
+    }
+
+    if (Number(sourceTournamentId) === Number(id)) {
+      return res.status(400).json({ message: 'Cannot copy a roster onto itself' });
+    }
+
+    if (req.tournament.status !== 'setup') {
+      return res.status(400).json({ message: 'Cannot add players to started tournament' });
+    }
+
+    const sourceResult = await pool.query(
+      'SELECT * FROM tournaments WHERE id = $1', [sourceTournamentId]
+    );
+
+    if (sourceResult.rows.length === 0) {
+      return res.status(404).json({ message: 'Source tournament not found' });
+    }
+
+    if (!canManageTournament(sourceResult.rows[0], req.user)) {
+      return res.status(403).json({
+        message: 'You can only copy a roster from a tournament you manage'
+      });
+    }
+
+    // Copied in one statement so a 40-player roster is one round trip rather
+    // than 40. Only the roster fields come across — points, matches played and
+    // point differential keep their column defaults, since this is a different
+    // event.
+    //
+    // DISTINCT ON collapses names duplicated within the source, keeping the
+    // earliest row. The anti-join then drops anyone already on this
+    // tournament's list, compared case-insensitively, so running this twice or
+    // after adding a few people by hand adds each person exactly once and
+    // leaves the existing spelling alone.
+    const inserted = await pool.query(`
+      INSERT INTO players (tournament_id, name, gender, skill_level, is_setter)
+      SELECT $1::int, source.name, source.gender, source.skill_level, source.is_setter
+      FROM (
+        SELECT DISTINCT ON (LOWER(name)) name, gender, skill_level, is_setter
+        FROM players
+        WHERE tournament_id = $2::int
+        ORDER BY LOWER(name), id
+      ) source
+      LEFT JOIN players existing
+        ON existing.tournament_id = $1::int
+       AND LOWER(existing.name) = LOWER(source.name)
+      WHERE existing.id IS NULL
+      RETURNING *
+    `, [id, sourceTournamentId]);
+
+    const availableResult = await pool.query(
+      'SELECT COUNT(DISTINCT LOWER(name))::int AS total FROM players WHERE tournament_id = $1::int',
+      [sourceTournamentId]
+    );
+
+    res.status(201).json({
+      added: inserted.rows.length,
+      skipped: availableResult.rows[0].total - inserted.rows.length,
+      sourceName: sourceResult.rows[0].name,
+      players: inserted.rows
+    });
+  } catch (error) {
+    console.error('Error copying roster:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // Add player to tournament
 router.post('/:id/players', authenticateToken, requireTournamentManager, async (req, res) => {
   try {

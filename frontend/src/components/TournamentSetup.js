@@ -34,6 +34,12 @@ function TournamentSetup({ isEditing = false }) {
   const [generateCount, setGenerateCount] = useState(20);
   const [isGenerating, setIsGenerating] = useState(false);
 
+  // Copying a roster in from a previous tournament
+  const [rosterSources, setRosterSources] = useState([]);
+  const [selectedSource, setSelectedSource] = useState('');
+  const [isCopyingRoster, setIsCopyingRoster] = useState(false);
+  const [copyNotice, setCopyNotice] = useState('');
+
   const [step, setStep] = useState(isEditing ? 2 : 1); // Skip to step 2 if editing
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -85,6 +91,59 @@ function TournamentSetup({ isEditing = false }) {
       fetchTournamentData();
     }
   }, [isEditing, id]);
+
+  useEffect(() => {
+    if (step !== 2 || !tournamentId) return;
+
+    let cancelled = false;
+
+    const fetchRosterSources = async () => {
+      try {
+        const response = await axios.get(`/api/tournaments/${tournamentId}/roster-sources`);
+        if (!cancelled) setRosterSources(response.data);
+      } catch (error) {
+        // Not worth an error banner: the rest of the player screen works fine
+        // without this, and the section hides itself when the list is empty.
+        console.error('Error fetching roster sources:', error);
+      }
+    };
+
+    fetchRosterSources();
+    return () => { cancelled = true; };
+  }, [step, tournamentId]);
+
+  const copyRoster = async () => {
+    if (!selectedSource) return;
+
+    setError('');
+    setCopyNotice('');
+    setIsCopyingRoster(true);
+
+    try {
+      const response = await axios.post(
+        `/api/tournaments/${tournamentId}/players/copy`,
+        { sourceTournamentId: Number(selectedSource) }
+      );
+
+      const { added, skipped, sourceName } = response.data;
+
+      const refreshed = await axios.get(`/api/tournaments/${tournamentId}`);
+      setPlayers(refreshed.data.players || []);
+
+      if (added === 0) {
+        setCopyNotice(`Everyone from "${sourceName}" is already on this list.`);
+      } else {
+        setCopyNotice(
+          `Added ${added} player${added === 1 ? '' : 's'} from "${sourceName}"` +
+          (skipped > 0 ? `, skipping ${skipped} already on the list.` : '.')
+        );
+      }
+    } catch (error) {
+      setError(error.response?.data?.message || 'Failed to copy roster');
+    } finally {
+      setIsCopyingRoster(false);
+    }
+  };
 
   const fetchTournamentData = async () => {
     try {
@@ -779,6 +838,58 @@ function TournamentSetup({ isEditing = false }) {
             </div>
           </div>
         </div>
+
+        {/* Copy a roster from a previous tournament. Hidden when there is
+            nothing to copy from, so a first-ever tournament is not cluttered
+            with a dropdown that cannot do anything. */}
+        {rosterSources.length > 0 && (
+          <div
+            className="card"
+            style={{ backgroundColor: 'var(--c-warn-soft)', border: '2px solid var(--c-warn)' }}
+          >
+            <h3>Copy Players From a Previous Tournament</h3>
+            <p style={{ fontSize: '0.9rem', color: '#666', marginBottom: '1rem' }}>
+              Brings over each player's name, gender, skill level, and setter flag.
+              Anyone already on this tournament's list is skipped, so it is safe to
+              run after adding a few people by hand.
+            </p>
+
+            <div style={{ display: 'flex', gap: '1rem', alignItems: 'end', flexWrap: 'wrap' }}>
+              <div className="form-group" style={{ minWidth: '260px', flex: '1 1 260px', marginBottom: 0 }}>
+                <label htmlFor="rosterSource">Tournament:</label>
+                <select
+                  id="rosterSource"
+                  value={selectedSource}
+                  onChange={(e) => { setSelectedSource(e.target.value); setCopyNotice(''); }}
+                  disabled={isCopyingRoster}
+                >
+                  <option value="">Select a tournament…</option>
+                  {rosterSources.map((source) => (
+                    <option key={source.id} value={source.id}>
+                      {source.name} — {source.date.split('T')[0]} ({source.player_count} players)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={copyRoster}
+                disabled={isCopyingRoster || !selectedSource || !tournamentId}
+                style={{ height: 'fit-content' }}
+              >
+                {isCopyingRoster ? 'Copying...' : 'Copy Players'}
+              </button>
+            </div>
+
+            {copyNotice && (
+              <div className="success-message" style={{ marginTop: '1rem', marginBottom: 0 }}>
+                {copyNotice}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Import Players from CSV Section */}
         <div className="card" style={{ backgroundColor: '#f0fff0', border: '2px solid #27ae60' }}>
