@@ -207,6 +207,13 @@ The polling itself is trivial; the care is all in not disturbing someone mid-tas
 Cancelling an edit now discards the draft as well as leaving edit mode — `startEditingMatch`
 prefills the fields, so without that the pause would latch on permanently after one cancelled edit.
 
+### Scoring after a tournament ends
+
+Once a tournament is `completed`, score submissions are refused — a phone still sitting on the page
+cannot reorder standings after the money is handed out. The director (or a super admin) can still
+correct a genuine mistake, and the score log records that they did. `/results` derives standings and
+payouts live from the players table, so a correction is reflected without re-completing.
+
 ### Score change log
 
 Score entry is open by design — players enter their own results from the share link — which means an
@@ -329,6 +336,7 @@ backend/
 ├── middleware/tournamentAccess.js  # Who may manage a given tournament
 ├── utils/passwordPolicy.js   # Password rules (authoritative copy)
 ├── utils/rosterRebalance.js  # Re-spreads teams after a mid-tournament withdrawal
+├── utils/standings.js        # Final standings + payout split (shared by complete & results)
 ├── utils/teamGenerator.js    # The draw: balancing, rotation, byes, courts
 ├── scripts/initDb.js         # Schema creation + incremental migrations
 └── database/

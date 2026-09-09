@@ -52,6 +52,7 @@ backend/
 ├── middleware/tournamentAccess.js  # requireTournamentManager: creator/super admin/shared
 ├── utils/passwordPolicy.js   # Password rules (mirrored in frontend/src/utils/passwordPolicy.js)
 ├── utils/rosterRebalance.js  # Post-withdrawal rebalancing (does NOT call the generator)
+├── utils/standings.js        # Shared standings query + payout split
 ├── utils/teamGenerator.js    # Team balancing algorithm
 └── database/
     ├── db.js                 # PostgreSQL connection pool
@@ -90,6 +91,13 @@ Recent commits have focused heavily on improving team balance fairness.
   fresh matches render fields inline without setting it), skips hidden tabs, refreshes on
   visibilitychange, discards out-of-order responses via a `fetchSeq` ref, and fails silently for
   background fetches. Only `in_progress` polls
+- `utils/standings.js` owns the standings query and payout split; both `POST /:id/complete` and
+  `GET /:id/results` use it. They previously had separate copies and drifted
+- Scoring is refused on a `completed` tournament unless the requester can manage it
+- Route params are validated numeric via `router.param`, so a bad id is a 400 rather than a
+  Postgres type error surfacing as a 500
+- Validation and status checks run BEFORE `client.query('BEGIN')` in every transactional route. An
+  early `return` after BEGIN releases the client to the pool with the transaction still open
 - Every score submission is logged to `match_score_events` with the values it replaced, inside the
   same transaction as the score. `GET /api/tournaments/:id/score-events` is manager-only and backs a
   director-only "Score log" tab. Scoring needs no account, so identity is a signed-in director's

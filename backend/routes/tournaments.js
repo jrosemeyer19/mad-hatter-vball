@@ -7,9 +7,24 @@ const {
   requireTournamentManager
 } = require('../middleware/tournamentAccess');
 const { rebalanceUnplayedMatches } = require('../utils/rosterRebalance');
+const { fetchStandings, calculatePayouts } = require('../utils/standings');
 const { generateTeams, generateAllRounds, balancePlayerMatches, calculateMatchBalance } = require('../utils/teamGenerator');
 
 const router = express.Router();
+
+// Route params reach the database as integers. Without this a request for
+// /api/tournaments/abc got as far as Postgres, which raised a type error the
+// handler could only report as a 500.
+const requireNumericParam = (name, label) => (req, res, next, value) => {
+  if (!/^[0-9]+$/.test(value)) {
+    return res.status(400).json({ message: `Invalid ${label}` });
+  }
+  next();
+};
+
+router.param('id', requireNumericParam('id', 'tournament id'));
+router.param('playerId', requireNumericParam('playerId', 'player id'));
+router.param('matchId', requireNumericParam('matchId', 'match id'));
 
 // Entry fee and director cost are the director's business, not the players'.
 // Stripped from every anonymous response so the numbers are absent from the
@@ -105,19 +120,23 @@ router.put('/:id', authenticateToken, requireTournamentManager, async (req, res)
 
 // Create new tournament (authenticated users only)
 router.post('/', authenticateToken, async (req, res) => {
+  const {
+    name, date, location, courtsAvailable = 3, minPlayersPerTeam = 5,
+    matchesPerPlayer = 4, entryFee = 0, directorCost = 0,
+    allowSevenPlayerTeams = false, allowSharedManagement = false
+  } = req.body;
+
+  // Checked before a connection is taken. This used to return from inside the
+  // transaction without rolling back, so the client went back to the pool with
+  // the transaction still open.
+  if (!name || !date || !location) {
+    return res.status(400).json({ message: 'Name, date, and location are required' });
+  }
+
   const client = await pool.connect();
+
   try {
     await client.query('BEGIN');
-
-    const {
-      name, date, location, courtsAvailable = 3, minPlayersPerTeam = 5,
-      matchesPerPlayer = 4, entryFee = 0, directorCost = 0,
-      allowSevenPlayerTeams = false, allowSharedManagement = false
-    } = req.body;
-
-    if (!name || !date || !location) {
-      return res.status(400).json({ message: 'Name, date, and location are required' });
-    }
 
     const result = await client.query(`
       INSERT INTO tournaments (
@@ -162,89 +181,24 @@ router.get('/:id/results', optionalAuth, async (req, res) => {
       return res.status(400).json({ message: 'Tournament is not completed yet' });
     }
     
-    // Get final standings with point differential
-    // Withdrawn players keep the place their points earned them, so the
-    // leaderboard matches what everyone remembers of the day. payout_rank is
-    // ranked over eligible players only, which slides the prize money down to
-    // the next person who played the whole tournament rather than leaving it
-    // unclaimed.
-    const standingsResult = await pool.query(`
-      SELECT name, gender, total_points, point_differential, matches_played, is_withdrawn,
-        RANK() OVER (
-          PARTITION BY gender
-          ORDER BY total_points DESC, point_differential DESC
-        ) as rank,
-        CASE WHEN is_withdrawn THEN NULL ELSE
-          RANK() OVER (
-            PARTITION BY gender, is_withdrawn
-            ORDER BY total_points DESC, point_differential DESC
-          )
-        END as payout_rank
-      FROM players 
-      WHERE tournament_id = $1
-      ORDER BY gender, total_points DESC, point_differential DESC
-    `, [id]);
-    
-    console.log('Standings found:', standingsResult.rows.length, 'players');
-    
-    // Calculate payouts - FIXED CALCULATION
-    // Everyone who entered counts toward the pool, including anyone who left
-    // partway through — they still paid.
-    const totalEntryFees = standingsResult.rows.length * parseFloat(tournament.entry_fee || 0);
-    const directorCost = parseFloat(tournament.director_cost || 0);
-    const totalPool = Math.max(0, totalEntryFees - directorCost);
-    
-    console.log('Payout calculation:');
-    console.log('- Players:', standingsResult.rows.length);
-    console.log('- Entry fee per player:', tournament.entry_fee);
-    console.log('- Total entry fees:', totalEntryFees);
-    console.log('- Director cost:', directorCost);
-    console.log('- Total pool:', totalPool);
-    
-    let payouts;
-    
-    if (totalPool <= 0) {
-      // No money to distribute
-      payouts = {
-        first: 0,
-        second: 0,
-        third: 0
-      };
-      console.log('No prize pool - entry fee is $0 or too low');
-    } else {
-      // Calculate percentage-based payouts, rounded down to nearest $5
-      const firstPlace = totalPool * 0.30;
-      const secondPlace = totalPool * 0.15;
-      const thirdPlace = totalPool * 0.05;
-      
-      payouts = {
-        first: Math.floor(firstPlace / 5) * 5, // Round down to nearest $5
-        second: Math.floor(secondPlace / 5) * 5,
-        third: Math.floor(thirdPlace / 5) * 5
-      };
-      
-      console.log('Calculated payouts:');
-      console.log('- 1st place (30%):', payouts.first);
-      console.log('- 2nd place (15%):', payouts.second);
-      console.log('- 3rd place (5%):', payouts.third);
-      
-      // Calculate remaining money
-      const distributedMoney = (payouts.first + payouts.second + payouts.third) * 2; // Both male and female divisions
-      const remainingMoney = totalPool - distributedMoney;
-      console.log('- Money distributed:', distributedMoney);
-      console.log('- Remaining for director:', remainingMoney);
-    }
-    
+    const standings = await fetchStandings(pool, id);
+
+    const { payouts, totalPool, hasPayouts } = calculatePayouts({
+      playerCount: standings.length,
+      entryFee: tournament.entry_fee,
+      directorCost: tournament.director_cost
+    });
+
     // Standings are public; the money is not
     const results = {
       tournament: req.user ? tournament : withoutFinancials(tournament),
-      standings: standingsResult.rows
+      standings
     };
 
     if (req.user) {
       results.payouts = payouts;
       results.totalPool = totalPool;
-      results.hasPayouts = totalPool > 0;
+      results.hasPayouts = hasPayouts;
     }
 
     res.json(results);
@@ -847,31 +801,31 @@ router.delete('/:id/players/:playerId', authenticateToken, requireTournamentMana
 // Replace the existing router.post('/:id/start', ...) route with this updated version
 
 router.post('/:id/start', authenticateToken, requireTournamentManager, async (req, res) => {
+  const { id } = req.params;
+  const { finalByePlayerName } = req.body;
+
+  // requireTournamentManager already loaded and authorised the row, so the
+  // lookup that used to be here was redundant
+  const tournament = req.tournament;
+
+  if (tournament.status !== 'setup') {
+    return res.status(400).json({ message: 'Tournament already started' });
+  }
+
+  // Read and validate the roster before opening a transaction. These refusals
+  // used to return from inside one without rolling back, handing the pool a
+  // client with the transaction still open.
+  const playersResult = await pool.query('SELECT * FROM players WHERE tournament_id = $1', [id]);
+  const players = playersResult.rows;
+
+  if (players.length < tournament.min_players_per_team * 2) {
+    return res.status(400).json({ message: 'Not enough players to start tournament' });
+  }
+
   const client = await pool.connect();
+
   try {
     await client.query('BEGIN');
-
-    const { id } = req.params;
-    const { finalByePlayerName } = req.body;
-
-    // Get tournament and validate
-    const tournamentResult = await client.query('SELECT * FROM tournaments WHERE id = $1', [id]);
-    if (tournamentResult.rows.length === 0) {
-      return res.status(404).json({ message: 'Tournament not found' });
-    }
-
-    const tournament = tournamentResult.rows[0];
-    if (tournament.status !== 'setup') {
-      return res.status(400).json({ message: 'Tournament already started' });
-    }
-
-    // Get players
-    const playersResult = await client.query('SELECT * FROM players WHERE tournament_id = $1', [id]);
-    const players = playersResult.rows;
-
-    if (players.length < tournament.min_players_per_team * 2) {
-      return res.status(400).json({ message: 'Not enough players to start tournament' });
-    }
 
     // Generate all rounds at once
     const settings = {
@@ -1095,9 +1049,11 @@ router.put('/:id/matches/:matchId/scores', optionalAuth, async (req, res) => {
     const existingMatchResult = await client.query(`
       SELECT m.id, m.team1_game1_score, m.team1_game2_score,
              m.team2_game1_score, m.team2_game2_score, m.is_completed,
-             r.tournament_id, r.round_number, m.court
+             r.tournament_id, r.round_number, m.court,
+             t.status AS tournament_status, t.created_by, t.allow_shared_management
       FROM matches m
       JOIN rounds r ON r.id = m.round_id
+      JOIN tournaments t ON t.id = r.tournament_id
       WHERE m.id = $1::integer
       FOR UPDATE OF m
     `, [parseInt(matchId, 10)]);
@@ -1114,6 +1070,18 @@ router.put('/:id/matches/:matchId/scores', optionalAuth, async (req, res) => {
     if (Number(existingMatch.tournament_id) !== Number(id)) {
       await client.query('ROLLBACK');
       return res.status(404).json({ message: 'Match not found in this tournament' });
+    }
+
+    // Standings decide the payouts, so once a tournament is finished a stray
+    // submission from a phone still sitting on the page must not reorder them.
+    // The director keeps the ability to correct a genuine mistake, and the
+    // score log records that they did.
+    if (existingMatch.tournament_status === 'completed' &&
+        !canManageTournament(existingMatch, req.user)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        message: 'This tournament is completed — scores can no longer be changed'
+      });
     }
 
     // If match has any existing scores, we need to subtract them before adding new scores
@@ -1256,65 +1224,45 @@ router.put('/:id/matches/:matchId/scores', optionalAuth, async (req, res) => {
 
 // Complete tournament - ALSO FIXED
 router.post('/:id/complete', authenticateToken, requireTournamentManager, async (req, res) => {
+  const { id } = req.params;
+
+  // requireTournamentManager already loaded and authorised the tournament, so
+  // the old lookup here was redundant - and its 404 returned from inside the
+  // transaction without rolling back, handing an open transaction to the pool.
+  if (req.tournament.status !== 'in_progress') {
+    return res.status(400).json({
+      message: req.tournament.status === 'completed'
+        ? 'Tournament is already completed'
+        : 'Tournament has not been started yet'
+    });
+  }
+
   const client = await pool.connect();
+
   try {
     await client.query('BEGIN');
-    
-    const { id } = req.params;
-    
-    // Get tournament details
-    const tournamentResult = await client.query('SELECT * FROM tournaments WHERE id = $1', [id]);
-    if (tournamentResult.rows.length === 0) {
-      return res.status(404).json({ message: 'Tournament not found' });
-    }
-    
-    const tournament = tournamentResult.rows[0];
-    
-    // Get final standings with point differential
-    const standingsResult = await client.query(`
-      SELECT name, gender, total_points, point_differential, matches_played,
-        RANK() OVER (PARTITION BY gender ORDER BY total_points DESC, point_differential DESC) as rank
-      FROM players 
-      WHERE tournament_id = $1
-      ORDER BY gender, total_points DESC, point_differential DESC
-    `, [id]);
-    
-    // Calculate payouts using the same fixed logic
-    const totalEntryFees = standingsResult.rows.length * parseFloat(tournament.entry_fee || 0);
-    const directorCost = parseFloat(tournament.director_cost || 0);
-    const totalPool = Math.max(0, totalEntryFees - directorCost);
-    
-    let payouts;
-    
-    if (totalPool <= 0) {
-      payouts = {
-        first: 0,
-        second: 0,
-        third: 0
-      };
-    } else {
-      const firstPlace = totalPool * 0.30;
-      const secondPlace = totalPool * 0.15;
-      const thirdPlace = totalPool * 0.05;
-      
-      payouts = {
-        first: Math.floor(firstPlace / 5) * 5,
-        second: Math.floor(secondPlace / 5) * 5,
-        third: Math.floor(thirdPlace / 5) * 5
-      };
-    }
-    
-    // Update tournament status
+
+    // Same standings and payout code the results endpoint uses. Keeping a
+    // second copy here is what previously left this response without the
+    // payout_rank and is_withdrawn columns the results panel reads.
+    const standings = await fetchStandings(client, id);
+
+    const { payouts, totalPool, hasPayouts } = calculatePayouts({
+      playerCount: standings.length,
+      entryFee: req.tournament.entry_fee,
+      directorCost: req.tournament.director_cost
+    });
+
     await client.query('UPDATE tournaments SET status = $1 WHERE id = $2', ['completed', id]);
-    
+
     await client.query('COMMIT');
-    
+
     res.json({
       message: 'Tournament completed successfully',
-      standings: standingsResult.rows,
+      standings,
       payouts,
       totalPool,
-      hasPayouts: totalPool > 0
+      hasPayouts
     });
   } catch (error) {
     await client.query('ROLLBACK');
@@ -1327,25 +1275,19 @@ router.post('/:id/complete', authenticateToken, requireTournamentManager, async 
 
 // Delete tournament (authenticated users only)
 router.delete('/:id', authenticateToken, requireTournamentManager, async (req, res) => {
+  const { id } = req.params;
+
+  // requireTournamentManager has already loaded the row, and checking before
+  // BEGIN means a refusal cannot leave an open transaction in the pool.
+  if (req.tournament.status === 'completed') {
+    return res.status(400).json({ message: 'Cannot delete completed tournaments' });
+  }
+
   const client = await pool.connect();
+
   try {
     await client.query('BEGIN');
-    
-    const { id } = req.params;
-    
-    // Check if tournament exists and get its status
-    const tournamentResult = await client.query('SELECT * FROM tournaments WHERE id = $1', [id]);
-    if (tournamentResult.rows.length === 0) {
-      return res.status(404).json({ message: 'Tournament not found' });
-    }
-    
-    const tournament = tournamentResult.rows[0];
-    
-    // Only allow deletion if tournament is not completed
-    if (tournament.status === 'completed') {
-      return res.status(400).json({ message: 'Cannot delete completed tournaments' });
-    }
-    
+
     // Delete tournament (cascade will handle related records)
     await client.query('DELETE FROM tournaments WHERE id = $1', [id]);
     
@@ -1365,27 +1307,34 @@ router.delete('/:id', authenticateToken, requireTournamentManager, async (req, r
 // Replace the existing router.post('/:id/regenerate', ...) route with this updated version
 
 router.post('/:id/regenerate', authenticateToken, requireTournamentManager, async (req, res) => {
+  const { id } = req.params;
+  const { finalByePlayerName } = req.body;
+
+  const tournament = req.tournament;
+
+  if (tournament.status === 'completed') {
+    return res.status(400).json({ message: 'Cannot regenerate completed tournaments' });
+  }
+
+  if (tournament.status === 'setup') {
+    return res.status(400).json({ message: 'Tournament has not been started yet' });
+  }
+
+  // The roster is read and checked before anything is deleted. This check used
+  // to sit *after* the rounds had been wiped and returned without rolling back,
+  // so a tournament that failed it was left destroyed inside an abandoned
+  // transaction - the worst of the leaks.
+  const playersResult = await pool.query('SELECT * FROM players WHERE tournament_id = $1', [id]);
+  const players = playersResult.rows;
+
+  if (players.length < tournament.min_players_per_team * 2) {
+    return res.status(400).json({ message: 'Not enough players to regenerate tournament' });
+  }
+
   const client = await pool.connect();
+
   try {
     await client.query('BEGIN');
-
-    const { id } = req.params;
-    const { finalByePlayerName } = req.body;
-
-    // Get tournament and validate
-    const tournamentResult = await client.query('SELECT * FROM tournaments WHERE id = $1', [id]);
-    if (tournamentResult.rows.length === 0) {
-      return res.status(404).json({ message: 'Tournament not found' });
-    }
-
-    const tournament = tournamentResult.rows[0];
-    if (tournament.status === 'completed') {
-      return res.status(400).json({ message: 'Cannot regenerate completed tournaments' });
-    }
-
-    if (tournament.status === 'setup') {
-      return res.status(400).json({ message: 'Tournament has not been started yet' });
-    }
 
     console.log(`\n=== Regenerating Tournament ${id} ===`);
 
@@ -1400,15 +1349,7 @@ router.post('/:id/regenerate', authenticateToken, requireTournamentManager, asyn
 
     console.log('Cleared existing tournament structure and reset player stats');
 
-    // Step 3: Get players for regeneration
-    const playersResult = await client.query('SELECT * FROM players WHERE tournament_id = $1', [id]);
-    const players = playersResult.rows;
-
-    if (players.length < tournament.min_players_per_team * 2) {
-      return res.status(400).json({ message: 'Not enough players to regenerate tournament' });
-    }
-
-    // Step 4: Generate new tournament structure
+    // Step 3: Generate new tournament structure
     const settings = {
       courtsAvailable: tournament.courts_available,
       minPlayersPerTeam: tournament.min_players_per_team,
