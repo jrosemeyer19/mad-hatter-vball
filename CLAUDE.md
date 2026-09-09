@@ -85,6 +85,11 @@ Recent commits have focused heavily on improving team balance fairness.
   `tournaments.allow_shared_management` (default FALSE) opens it to any signed-in user; only the
   creator or a super admin may change that flag. Guard is `requireTournamentManager`, applied to the
   8 management routes; score entry stays public and reads stay `optionalAuth`
+- A running tournament polls `GET /api/tournaments/:id` every 20s (`POLL_INTERVAL_MS` in
+  `TournamentDetail.js`). Polling pauses on any unsubmitted score input (not just `editingMatch` —
+  fresh matches render fields inline without setting it), skips hidden tabs, refreshes on
+  visibilitychange, discards out-of-order responses via a `fetchSeq` ref, and fails silently for
+  background fetches. Only `in_progress` polls
 - Every score submission is logged to `match_score_events` with the values it replaced, inside the
   same transaction as the score. `GET /api/tournaments/:id/score-events` is manager-only and backs a
   director-only "Score log" tab. Scoring needs no account, so identity is a signed-in director's

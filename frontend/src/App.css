@@ -227,6 +227,16 @@ a {
   text-decoration: line-through;
 }
 
+/* ===== Live update indicator ============================================= */
+
+/* Quiet by design: it should be findable when someone wonders whether the page
+   is current, and ignorable the rest of the time. */
+.live-status {
+  margin: calc(-1 * var(--s-2)) 0 var(--s-3);
+  font-size: 0.78rem;
+  color: var(--c-text-faint);
+}
+
 /* ===== Score log ========================================================= */
 
 /* A submission that replaced an already-final match is the one a director

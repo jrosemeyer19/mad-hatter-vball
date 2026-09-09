@@ -183,6 +183,30 @@ Tournament viewing and score entry are intentionally public; everything else nee
 | `GET`/`POST`/`DELETE` | `/api/users`, `/api/users/:id` | super admin |
 | `PUT` | `/api/users/:id/password` | super admin (reset someone else's) |
 
+### Live updates
+
+A running tournament refreshes itself every 20 seconds, so someone watching the standings from a
+bench sees other courts come in without reloading. A quiet line under the tabs reads
+`Scores update automatically · updated just now` and ages if refreshes stop, so a stale page says so
+rather than pretending to be current.
+
+The polling itself is trivial; the care is all in not disturbing someone mid-task:
+
+- **Paused while scores are being entered.** `MatchCard` derives its shape from the match row — an
+  anonymous scorer's game 1 fields lock once game 1 exists — so a refresh landing while someone else
+  submits the same match would swap the card to the "game 2 needed" layout and the half-typed fields
+  would vanish. The pause keys off *any* unsubmitted input, not just edit mode, because typing into a
+  match with no scores yet never sets `editingMatch`.
+- **Background polls fail silently.** Gym wifi drops constantly, and an error banner over a working
+  page is worse than data twenty seconds old, so a failed poll keeps the last good data.
+- **Out-of-order responses are discarded.** Two polls in flight, or a poll racing the refetch after a
+  submit, can return newest-first; anything that is no longer the latest request is dropped.
+- **Hidden tabs do not poll**, and returning to the tab refreshes immediately.
+- **Only `in_progress` tournaments poll.** Setup has no rounds; completed is final.
+
+Cancelling an edit now discards the draft as well as leaving edit mode — `startEditingMatch`
+prefills the fields, so without that the pause would latch on permanently after one cancelled edit.
+
 ### Score change log
 
 Score entry is open by design — players enter their own results from the share link — which means an

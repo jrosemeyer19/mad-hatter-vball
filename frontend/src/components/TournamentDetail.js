@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { getScorerId } from '../utils/scorerId';
@@ -11,6 +11,28 @@ import { PlayerLegend } from './tournament/PlayerChip';
 import PrintSchedule from './tournament/PrintSchedule';
 import PlayerScheduleModal from './tournament/PlayerScheduleModal';
 import { buildPlayerSchedule } from './tournament/playerSchedule';
+
+// Scores are entered by players on their own phones, so a viewer's page would
+// otherwise sit stale until they thought to reload.
+const POLL_INTERVAL_MS = 20000;
+
+// The label only needs to age visibly; it is re-rendered on this cadence.
+const CLOCK_TICK_MS = 15000;
+
+function formatRelative(from, now) {
+  if (!from) return 'not yet';
+
+  const seconds = Math.max(0, Math.round((now - from) / 1000));
+
+  // A live page refreshes every 20s, so "just now" covers the normal case and
+  // anything older is a real signal that updates have stopped.
+  if (seconds < 45) return 'just now';
+
+  const minutes = Math.max(1, Math.round(seconds / 60));
+  if (minutes < 60) return `${minutes}m ago`;
+
+  return `${Math.round(minutes / 60)}h ago`;
+}
 
 function TournamentDetail({ user }) {
   const { id } = useParams();
@@ -33,6 +55,13 @@ function TournamentDetail({ user }) {
   const [showDetails, setShowDetails] = useState(false);
   const [showRegenerateModal, setShowRegenerateModal] = useState(false);
   const [selectedPlayerId, setSelectedPlayerId] = useState(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  // Identifies the most recently started request. Two polls in flight, or a
+  // poll racing the refetch after someone submits, can come back out of order;
+  // anything that is no longer the latest is discarded rather than written.
+  const fetchSeq = useRef(0);
   const [finalByePlayerName, setFinalByePlayerName] = useState('');
 
   useEffect(() => {
@@ -40,22 +69,36 @@ function TournamentDetail({ user }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  const fetchTournamentData = async () => {
+  // background:true is a poll rather than something the user asked for, so a
+  // failure stays silent and leaves the last good data on screen. Gym wifi
+  // drops constantly, and an error banner over a working page is worse than
+  // showing data that is twenty seconds old.
+  const fetchTournamentData = async ({ background = false } = {}) => {
+    const seq = ++fetchSeq.current;
+
     try {
       const response = await axios.get(`/api/tournaments/${id}`);
+
+      if (seq !== fetchSeq.current) return;
+
       setTournament(response.data.tournament);
       setPlayers(response.data.players);
       setRounds(response.data.rounds);
       setMatches(response.data.matches);
+      setLastUpdatedAt(Date.now());
 
       if (response.data.tournament.status === 'completed') {
         await fetchTournamentResults();
       }
     } catch (err) {
-      setError('Failed to load tournament data');
-      console.error('Error fetching tournament:', err);
+      if (seq !== fetchSeq.current) return;
+
+      if (!background) {
+        setError('Failed to load tournament data');
+        console.error('Error fetching tournament:', err);
+      }
     } finally {
-      setLoading(false);
+      if (!background) setLoading(false);
     }
   };
 
@@ -91,6 +134,57 @@ function TournamentDetail({ user }) {
   useEffect(() => {
     if (tournament?.status === 'completed') setActiveTab('results');
   }, [tournament?.status]);
+
+  // Only a running tournament changes underneath you: setup has no rounds yet,
+  // and a completed one is final (and would re-fetch results on every tick).
+  const isLive = tournament?.status === 'in_progress';
+
+  // Typing into a match that has no scores yet never sets editingMatch - those
+  // fields render inline - so an edit flag alone would miss the common case.
+  const hasUnsubmittedInput = useMemo(
+    () => Object.values(scoreInputs).some(fields =>
+      fields && Object.values(fields).some(v => v !== '' && v !== null && v !== undefined)
+    ),
+    [scoreInputs]
+  );
+
+  // Nothing may move while someone is mid-entry. MatchCard's shape is derived
+  // from the match row, so if another person submits the same match a refresh
+  // would swap the card to the "game 2 needed" layout and the half-typed fields
+  // would disappear from view. Pausing outright is a smaller promise to keep
+  // than merging carefully, and the indicator says it is paused.
+  const pausedForEditing = editingMatch !== null || hasUnsubmittedInput;
+
+  useEffect(() => {
+    if (!isLive || pausedForEditing) return;
+
+    const tick = () => {
+      // A phone in someone's pocket should not poll all afternoon
+      if (document.hidden) return;
+      fetchTournamentData({ background: true });
+    };
+
+    const interval = setInterval(tick, POLL_INTERVAL_MS);
+
+    // Coming back to the tab is exactly when stale data is most obvious, so
+    // refresh straight away rather than waiting out the interval.
+    const onVisibilityChange = () => { if (!document.hidden) tick(); };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLive, pausedForEditing, id]);
+
+  // Ages the "updated" label. Runs even while polling is paused, so a stale
+  // page says so instead of claiming to be current.
+  useEffect(() => {
+    if (!isLive) return;
+    const clock = setInterval(() => setNow(Date.now()), CLOCK_TICK_MS);
+    return () => clearInterval(clock);
+  }, [isLive]);
 
   const formatDate = dateString =>
     new Date(dateString).toLocaleDateString('en-US', {
@@ -154,6 +248,23 @@ function TournamentDetail({ user }) {
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to submit scores');
     }
+  };
+
+  // Cancelling discards the draft as well as leaving edit mode. startEditingMatch
+  // prefills scoreInputs from the match, so without this those values linger and
+  // the live-update pause below - which keys off unsubmitted input - would latch
+  // on for good after a single cancelled edit.
+  const cancelEditingMatch = () => {
+    const matchId = editingMatch;
+    setEditingMatch(null);
+
+    if (matchId === null || matchId === undefined) return;
+
+    setScoreInputs(prev => {
+      const next = { ...prev };
+      delete next[matchId];
+      return next;
+    });
   };
 
   const startEditingMatch = match => {
@@ -500,6 +611,16 @@ function TournamentDetail({ user }) {
             )}
           </div>
 
+          {isLive && (
+            <p className="live-status">
+              {pausedForEditing ? (
+                <>Paused while you enter scores</>
+              ) : (
+                <>Scores update automatically · updated {formatRelative(lastUpdatedAt, now)}</>
+              )}
+            </p>
+          )}
+
           {activeTab === 'rounds' && (
             <div className="stack">
               <div className="segmented">
@@ -530,7 +651,7 @@ function TournamentDetail({ user }) {
                   onScoreChange={handleScoreChange}
                   onSubmit={submitScores}
                   onStartEdit={startEditingMatch}
-                  onCancelEdit={() => setEditingMatch(null)}
+                  onCancelEdit={cancelEditingMatch}
                   onSelectPlayer={openPlayerSchedule}
                 />
               )}
