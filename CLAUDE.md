@@ -17,6 +17,7 @@ npm install          # Install dependencies
 npm run dev          # Development with nodemon
 npm start            # Production
 npm run init-db      # Initialize database schema + default admin
+npm run test-tournaments -- --url <site> --user <name> --start 10 --end 45   # Bulk-create test tournaments over the API (--help)
 ```
 
 ### Frontend (from `/frontend`)
