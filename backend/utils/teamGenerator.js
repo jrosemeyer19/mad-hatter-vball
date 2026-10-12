@@ -318,6 +318,7 @@ function generateAllRounds(players, settings) {
     const minTeamSize = structure.constraintOverrides?.minTeamSizeUsed || settings.minPlayersPerTeam;
 
     const round = generateFlexibleRound(playingPlayers, byePlayers, structure.courtsUsed, minTeamSize, roundNum, maxTeamSize);
+    reduceTeammateRepeats(round);
     allRounds.push(round);
     
     round.teams.forEach(team => {
@@ -2981,6 +2982,115 @@ function refineTeamBalance(teams, teamPairs) {
   } else {
     console.log(`  ✓ No beneficial swaps found - teams already well balanced`);
   }
+}
+
+// Teammate rotation pass. Runs once per round, after the round's teams and
+// pairings are final and before its teammates are recorded into history.
+//
+// Team building only consults teammate history as a late tiebreaker, and the
+// balance swaps above ignore it, so on their own they repeat teammates exactly
+// as often as random teams would. This pass swaps same-gender players between
+// any two teams in the round (team sizes and male counts can't move) and keeps
+// a swap only if it lowers repeat-teammate cost plus match imbalance together.
+// A hard cap stops it from pushing any match past the "excellent" band that it
+// was inside, so variety is never bought with a lopsided match.
+const TEAMMATE_REPEAT_WEIGHT = 3;
+
+function teamRepeatCost(players) {
+  let cost = 0;
+  for (let i = 0; i < players.length; i++) {
+    const history = tournamentTeammateHistory[players[i].id];
+    if (!history) continue;
+    for (let j = i + 1; j < players.length; j++) {
+      const times = history[players[j].id] || 0;
+      // Squared, so a third pairing costs far more than a second
+      cost += times * times;
+    }
+  }
+  return cost;
+}
+
+// isSwapValid will let a 1–1 split of female setters or B players become 2–0.
+// Balance swaps need that latitude; rotation swaps don't, so they may only
+// move those counts toward even.
+function keepsSpreadEven(teamA, teamB, playerA, playerB) {
+  // Swaps are same-gender, so the B rule is the B rule for that gender
+  const traits = [
+    p => p.gender === 'female' && p.is_setter,
+    p => p.skill_level === 'B' && p.gender === playerA.gender
+  ];
+  return traits.every(has => {
+    if (has(playerA) === has(playerB)) return true;
+    const countA = teamA.players.filter(has).length;
+    const countB = teamB.players.filter(has).length;
+    const delta = has(playerA) ? -1 : 1;
+    return Math.abs((countA + delta) - (countB - delta)) < Math.abs(countA - countB);
+  });
+}
+
+function matchImbalanceCost(match) {
+  const skillDiff = Math.abs(match.team1.stats.skillRating - match.team2.stats.skillRating);
+  const netDiff = Math.abs(calculateNetStrength(match.team1.players) - calculateNetStrength(match.team2.players));
+  return { skillDiff, netDiff, cost: skillDiff * skillDiff + 0.8 * netDiff * netDiff };
+}
+
+function reduceTeammateRepeats(round) {
+  const teams = round.teams.filter(t => !t.is_bye_team);
+  if (teams.length < 2) return;
+
+  const matchOf = new Map();
+  round.matches.forEach(m => { matchOf.set(m.team1.id, m); matchOf.set(m.team2.id, m); });
+
+  const skillCap = MATCH_BALANCE_THRESHOLDS.skill.excellent;
+  const netCap = MATCH_BALANCE_THRESHOLDS.net.excellent;
+  const repeatsBefore = teams.reduce((sum, t) => sum + teamRepeatCost(t.players), 0);
+  let swaps = 0;
+
+  for (let sweep = 0; sweep < 50; sweep++) {
+    let best = null;
+
+    for (let a = 0; a < teams.length; a++) {
+      for (let b = a + 1; b < teams.length; b++) {
+        const teamA = teams[a];
+        const teamB = teams[b];
+        const affected = [...new Set([matchOf.get(teamA.id), matchOf.get(teamB.id)])].filter(Boolean);
+        const balanceBefore = affected.map(matchImbalanceCost);
+        const costBefore = TEAMMATE_REPEAT_WEIGHT * (teamRepeatCost(teamA.players) + teamRepeatCost(teamB.players)) +
+          balanceBefore.reduce((sum, m) => sum + m.cost, 0);
+
+        for (const playerA of [...teamA.players]) {
+          for (const playerB of [...teamB.players]) {
+            if (playerA.gender !== playerB.gender) continue;
+            if (!keepsSpreadEven(teamA, teamB, playerA, playerB)) continue;
+            if (!isSwapValid(teamA, teamB, playerA, playerB, teams)) continue;
+
+            executeSwap(teamA, teamB, playerA, playerB);
+            const balanceAfter = affected.map(matchImbalanceCost);
+            const withinCaps = balanceAfter.every((m, i) =>
+              m.skillDiff <= Math.max(balanceBefore[i].skillDiff, skillCap) + 1e-9 &&
+              m.netDiff <= Math.max(balanceBefore[i].netDiff, netCap) + 1e-9
+            );
+            const costAfter = TEAMMATE_REPEAT_WEIGHT * (teamRepeatCost(teamA.players) + teamRepeatCost(teamB.players)) +
+              balanceAfter.reduce((sum, m) => sum + m.cost, 0);
+            executeSwap(teamA, teamB, playerB, playerA);
+
+            const gain = costBefore - costAfter;
+            if (withinCaps && gain > 1e-9 && (!best || gain > best.gain)) {
+              best = { teamA, teamB, playerA, playerB, gain };
+            }
+          }
+        }
+      }
+    }
+
+    if (!best) break;
+    executeSwap(best.teamA, best.teamB, best.playerA, best.playerB);
+    swaps++;
+  }
+
+  const repeatsAfter = teams.reduce((sum, t) => sum + teamRepeatCost(t.players), 0);
+  console.log(`\n=== Teammate Rotation Pass (Round ${round.roundNumber}) ===`);
+  console.log(`  ${swaps} swap(s), repeat cost ${repeatsBefore} -> ${repeatsAfter}`);
 }
 
 // Find a swap that would improve skill and/or gender balance while maintaining constraints
