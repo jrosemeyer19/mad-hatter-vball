@@ -288,11 +288,11 @@ function TournamentDetail({ user }) {
     if (!window.confirm('End this tournament? This cannot be undone.')) return;
 
     try {
-      const response = await axios.post(`/api/tournaments/${id}/complete`);
-      const results = response.data;
+      await axios.post(`/api/tournaments/${id}/complete`);
+      // The refetch sees status 'completed' and loads GET /results. Don't keep
+      // the /complete response instead: it has no `tournament`, which
+      // ResultsPanel reads, so storing it crashed the page to blank.
       await fetchTournamentData();
-      // Set results after the refetch so it is not overwritten by it
-      setCompletionResults(results);
       setActiveTab('results');
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to complete tournament');
