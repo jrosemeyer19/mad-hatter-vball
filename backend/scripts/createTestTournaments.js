@@ -30,6 +30,8 @@ Player counts (pick one):
 
 Tournament settings:
   --female-pct <0-100>   Percentage of players who are female       (default 50)
+  --random-ratio         Give each tournament its own random female share,
+                         between 33% and 67%, instead of --female-pct
   --courts <n>           Courts available                           (default 3)
   --matches <n>          Guaranteed matches per player              (default 4)
   --min-team <n>         Minimum players per team                   (default 5)
@@ -37,6 +39,8 @@ Tournament settings:
   --setter-pct <0-100>   Percentage of players flagged as setters   (default 20)
   --setters <n>          Exact number of setters instead of a percentage
                          (capped at the player count for small tournaments)
+  --female-setters-only  Only flag women as setters. --setter-pct is still a
+                         share of all players; capped at the number of women
   --prefix <text>        Tournament name prefix                     (default "TEST")
   --location <text>      Tournament location                        (default "Test")
   --date <YYYY-MM-DD>    Tournament date                            (default today)
@@ -86,12 +90,14 @@ function readOptions() {
         start: { type: 'string' },
         end: { type: 'string' },
         'female-pct': { type: 'string' },
+        'random-ratio': { type: 'boolean', default: false },
         courts: { type: 'string' },
         matches: { type: 'string' },
         'min-team': { type: 'string' },
         'allow-seven': { type: 'boolean', default: false },
         'setter-pct': { type: 'string' },
         setters: { type: 'string' },
+        'female-setters-only': { type: 'boolean', default: false },
         prefix: { type: 'string', default: 'TEST' },
         location: { type: 'string', default: 'Test' },
         date: { type: 'string' },
@@ -141,6 +147,8 @@ function readOptions() {
     user: values.user || process.env.VT_USER,
     counts,
     femalePct: intOption(values, 'female-pct', { min: 0, max: 100, fallback: 50 }),
+    randomRatio: values['random-ratio'],
+    femaleSettersOnly: values['female-setters-only'],
     setterPct: intOption(values, 'setter-pct', { min: 0, max: 100, fallback: 20 }),
     setterCount: intOption(values, 'setters', { min: 0 }),
     courts: intOption(values, 'courts', { min: 1, fallback: 3 }),
@@ -158,6 +166,9 @@ function readOptions() {
 
   if (options.setterCount !== undefined && values['setter-pct'] !== undefined) {
     fail('use either --setters or --setter-pct, not both');
+  }
+  if (options.randomRatio && values['female-pct'] !== undefined) {
+    fail('use either --random-ratio or --female-pct, not both');
   }
 
   // A cleanup dry run still has to sign in to find what it would delete
@@ -205,21 +216,31 @@ function describeRoster(roster) {
   return `${f}F/${roster.length - f}M, ${s} setters, ${mix}`;
 }
 
-function buildRoster(count, { femalePct, setterPct, setterCount }) {
-  const females = Math.round(count * femalePct / 100);
-  const setters = setterCount !== undefined
-    ? Math.min(setterCount, count)
-    : Math.round(count * setterPct / 100);
+// Neither gender drops below a third of the roster
+function randomFemaleCount(count) {
+  const lowest = Math.ceil(count * 0.33);
+  const highest = Math.floor(count * 0.67);
+  return lowest + Math.floor(Math.random() * (highest - lowest + 1));
+}
+
+function buildRoster(count, { femalePct, randomRatio, setterPct, setterCount, femaleSettersOnly }) {
+  const females = randomRatio ? randomFemaleCount(count) : Math.round(count * femalePct / 100);
+  const eligible = femaleSettersOnly ? females : count;
+  const setters = Math.min(
+    setterCount !== undefined ? setterCount : Math.round(count * setterPct / 100),
+    eligible
+  );
   const weights = randomSkillWeights();
   const genders = shuffle(Array.from({ length: count }, (_, i) => (i < females ? 'female' : 'male')));
-  const setterFlags = shuffle(Array.from({ length: count }, (_, i) => i < setters));
+  const candidates = shuffle(genders.map((gender, i) => i).filter(i => !femaleSettersOnly || genders[i] === 'female'));
+  const setterIndexes = new Set(candidates.slice(0, setters));
   const width = String(count).length;
 
   return genders.map((gender, i) => ({
     name: `Test ${gender === 'female' ? 'F' : 'M'}${String(i + 1).padStart(width, '0')}`,
     gender,
     skillLevel: pickSkill(weights),
-    isSetter: setterFlags[i]
+    isSetter: setterIndexes.has(i)
   }));
 }
 
@@ -432,9 +453,10 @@ async function main() {
   const setterText = options.setterCount !== undefined
     ? `${options.setterCount} setters`
     : `${options.setterPct}% setters`;
+  const genderText = options.randomRatio ? 'random 33–67% female' : `${options.femalePct}% female`;
 
   console.log(`${counts.length} tournament(s): ${counts[0]}${counts.length > 1 ? `–${counts[counts.length - 1]}` : ''} players, ` +
-    `${options.femalePct}% female, ${setterText}, ${options.courts} courts, ${options.matches} matches/player, ` +
+    `${genderText}, ${setterText}${options.femaleSettersOnly ? ' (female only)' : ''}, ${options.courts} courts, ${options.matches} matches/player, ` +
     `min ${options.minTeam}/team${options.allowSeven ? ', 7-player teams allowed' : ''}` +
     `${options.setupOnly ? ', setup only' : ''}`);
 
