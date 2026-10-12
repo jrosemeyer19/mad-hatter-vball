@@ -10,6 +10,7 @@
  *
  * Or with custom parameters:
  *   node test-team-generator.js --players 25 --min-gender 5 --courts 3 --matches 4 --min-team-size 5
+ *   node test-team-generator.js --players 36 --random-ratio --runs 50 --female-setters-only
  */
 
 const {
@@ -29,7 +30,10 @@ function parseArgs() {
     matchesPerPlayer: 4,
     minPlayersPerTeam: 5,
     verbose: false,
-    onlyFailing: false
+    onlyFailing: false,
+    femaleSettersOnly: false,
+    randomRatio: false,
+    runs: 20
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -56,6 +60,15 @@ function parseArgs() {
       case '--only-failing':
         config.onlyFailing = true;
         break;
+      case '--female-setters-only':
+        config.femaleSettersOnly = true;
+        break;
+      case '--random-ratio':
+        config.randomRatio = true;
+        break;
+      case '--runs':
+        config.runs = parseInt(args[++i]);
+        break;
       case '--help':
       case '-h':
         console.log(`
@@ -71,6 +84,10 @@ Options:
   --min-team-size <n>  Minimum players per team (default: 5)
   --verbose, -v        Show detailed output for each test
   --only-failing       Only show tests that fail
+  --female-setters-only  Never mark men as setters
+  --random-ratio       Instead of sweeping every gender ratio, give each run a
+                       random male share between 33% and 67%
+  --runs <n>           Number of runs with --random-ratio (default: 20)
   --help, -h           Show this help message
 
 Examples:
@@ -82,6 +99,9 @@ Examples:
 
   # Only show failures
   node test-team-generator.js --players 37 --only-failing
+
+  # 50 random rosters of 36 with realistic gender mixes and female-only setters
+  node test-team-generator.js --players 36 --random-ratio --runs 50 --female-setters-only
         `);
         process.exit(0);
     }
@@ -91,7 +111,7 @@ Examples:
 }
 
 // Generate mock players with specified gender distribution
-function generatePlayers(totalPlayers, maleCount) {
+function generatePlayers(totalPlayers, maleCount, { femaleSettersOnly = false } = {}) {
   const players = [];
   const femaleCount = totalPlayers - maleCount;
 
@@ -118,7 +138,7 @@ function generatePlayers(totalPlayers, maleCount) {
       name: `Male${i + 1}`,
       gender: 'male',
       skill_level: skillLevel,
-      is_setter: Math.random() < 0.15 // ~15% are setters
+      is_setter: !femaleSettersOnly && Math.random() < 0.15 // ~15% are setters
     });
   }
 
@@ -213,6 +233,7 @@ function validateTournament(players, result, settings) {
 function suppressConsoleLogs() {
   const originalLog = console.log;
   const originalError = console.error;
+  const originalWarn = console.warn;
   const logs = [];
 
   console.log = (...args) => {
@@ -223,10 +244,15 @@ function suppressConsoleLogs() {
     logs.push({ type: 'error', args });
   };
 
+  console.warn = (...args) => {
+    logs.push({ type: 'warn', args });
+  };
+
   return {
     restore: () => {
       console.log = originalLog;
       console.error = originalError;
+      console.warn = originalWarn;
     },
     logs
   };
@@ -235,11 +261,7 @@ function suppressConsoleLogs() {
 // Run a single test configuration
 function runTest(totalPlayers, maleCount, settings, verbose = false) {
   const femaleCount = totalPlayers - maleCount;
-  const players = generatePlayers(totalPlayers, maleCount);
-
-  // Reset global tracking state
-  resetSpecial37PlayerTracking();
-  resetTeammateTracking();
+  const players = generatePlayers(totalPlayers, maleCount, { femaleSettersOnly: settings.femaleSettersOnly });
 
   const testSettings = {
     courtsAvailable: settings.courtsAvailable,
@@ -256,6 +278,10 @@ function runTest(totalPlayers, maleCount, settings, verbose = false) {
     if (!verbose) {
       consoleSuppressor = suppressConsoleLogs();
     }
+
+    // Reset global tracking state
+    resetSpecial37PlayerTracking();
+    resetTeammateTracking();
 
     const startTime = Date.now();
     result = generateAllRounds(players, testSettings);
@@ -290,7 +316,8 @@ function runTest(totalPlayers, maleCount, settings, verbose = false) {
 
 // Run comprehensive test suite
 function runTestSuite(config) {
-  const { totalPlayers, minGenderCount, courtsAvailable, matchesPerPlayer, minPlayersPerTeam, verbose, onlyFailing } = config;
+  const { totalPlayers, minGenderCount, courtsAvailable, matchesPerPlayer, minPlayersPerTeam, verbose, onlyFailing,
+    femaleSettersOnly = false, randomRatio = false, runs = 20 } = config;
 
   console.log('╔════════════════════════════════════════════════════════════════╗');
   console.log('║        Team Generator Comprehensive Testing Suite             ║');
@@ -302,21 +329,34 @@ function runTestSuite(config) {
   console.log(`  Courts Available:    ${courtsAvailable}`);
   console.log(`  Matches Per Player:  ${matchesPerPlayer}`);
   console.log(`  Min Team Size:       ${minPlayersPerTeam}`);
+  console.log(`  Setters:             ${femaleSettersOnly ? 'female only' : 'male and female'}`);
   console.log('');
 
-  const maxGenderCount = totalPlayers - minGenderCount;
-  const testCount = maxGenderCount - minGenderCount + 1;
-
-  console.log(`Testing ${testCount} gender ratio combinations (${minGenderCount}M-${maxGenderCount}F to ${maxGenderCount}M-${minGenderCount}F)\n`);
+  const maleCounts = [];
+  if (randomRatio) {
+    // Neither gender below a third of the roster
+    const lowest = Math.ceil(totalPlayers * 0.33);
+    const highest = Math.floor(totalPlayers * 0.67);
+    for (let i = 0; i < runs; i++) {
+      maleCounts.push(lowest + Math.floor(Math.random() * (highest - lowest + 1)));
+    }
+    console.log(`Testing ${runs} random gender ratios (${lowest}M-${totalPlayers - lowest}F to ${highest}M-${totalPlayers - highest}F)\n`);
+  } else {
+    for (let maleCount = minGenderCount; maleCount <= totalPlayers - minGenderCount; maleCount++) {
+      maleCounts.push(maleCount);
+    }
+    console.log(`Testing ${maleCounts.length} gender ratio combinations (${minGenderCount}M-${totalPlayers - minGenderCount}F to ${totalPlayers - minGenderCount}M-${minGenderCount}F)\n`);
+  }
+  const testCount = maleCounts.length;
 
   const results = [];
-  const settings = { courtsAvailable, matchesPerPlayer, minPlayersPerTeam };
+  const settings = { courtsAvailable, matchesPerPlayer, minPlayersPerTeam, femaleSettersOnly };
 
   // Progress bar
   const progressBarWidth = 50;
   let testsCompleted = 0;
 
-  for (let maleCount = minGenderCount; maleCount <= maxGenderCount; maleCount++) {
+  for (const maleCount of maleCounts) {
     const result = runTest(totalPlayers, maleCount, settings, verbose);
     results.push(result);
 
