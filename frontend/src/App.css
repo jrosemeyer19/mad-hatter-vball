@@ -237,6 +237,77 @@ a {
   color: var(--c-text-faint);
 }
 
+/* ===== "This is me" panel ================================================ */
+
+/* The first thing a player sees on their phone once they have picked their
+   name: where to be next. Accent edge so it reads as "yours", not as data. */
+.my-match {
+  border-left: 4px solid var(--c-primary);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.my-match.is-picker select { width: 100%; min-height: var(--touch); font-size: 1rem; }
+.my-match.is-picker .field-hint { margin: 0; }
+
+.my-match-where { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
+.my-match-court { font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.my-match-line { margin: 0; }
+
+.my-match-actions { display: flex; gap: var(--s-2); flex-wrap: wrap; }
+.my-match-actions .btn { flex: 1 1 10rem; min-height: var(--touch); }
+
+.match-card.is-mine {
+  border-color: var(--c-primary);
+  box-shadow: 0 0 0 2px var(--c-primary-soft);
+}
+
+/* ===== Round status strip ================================================ */
+
+/* Which courts have reported. Each pill jumps to its match. A row for an
+   earlier round still missing a score is tinted so it is not mistaken for
+   the round being played. */
+.round-status { display: flex; flex-direction: column; gap: var(--s-2); }
+
+.round-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+}
+
+.round-status-row.is-straggler { background: var(--c-warn-soft); border-color: var(--c-warn); }
+
+.round-status-text { font-weight: 600; font-size: 0.92rem; }
+
+.round-status-courts { display: flex; gap: var(--s-2); flex-wrap: wrap; }
+
+.court-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: var(--touch);
+  padding: 0 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--c-border-strong);
+  background: var(--c-surface-2);
+  color: var(--c-text);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.court-pill-court { font-weight: 700; font-variant-numeric: tabular-nums; }
+.court-pill.is-done    { background: var(--c-success-soft); border-color: var(--c-success); color: var(--c-success); }
+.court-pill.is-game2   { background: var(--c-warn-soft);    border-color: var(--c-warn);    color: var(--c-warn); }
+.court-pill.is-waiting .court-pill-state { color: var(--c-text-muted); }
+
 /* ===== Score log ========================================================= */
 
 /* A submission that replaced an already-final match is the one a director

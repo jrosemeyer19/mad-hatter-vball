@@ -11,6 +11,10 @@ import { PlayerLegend } from './tournament/PlayerChip';
 import PrintSchedule from './tournament/PrintSchedule';
 import PlayerScheduleModal from './tournament/PlayerScheduleModal';
 import { buildPlayerSchedule } from './tournament/playerSchedule';
+import MyMatchPanel from './tournament/MyMatchPanel';
+import RoundStatus from './tournament/RoundStatus';
+import { currentRoundNumber, openRounds } from './tournament/roundProgress';
+import { loadMyPlayerId, saveMyPlayer } from '../utils/myPlayer';
 
 // Scores are entered by players on their own phones, so a viewer's page would
 // otherwise sit stale until they thought to reload.
@@ -57,6 +61,11 @@ function TournamentDetail({ user }) {
   const [selectedPlayerId, setSelectedPlayerId] = useState(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState(null);
   const [now, setNow] = useState(() => Date.now());
+  // "This is me" on this phone: undefined until the roster loads and storage
+  // has been checked, then a player id or null
+  const [myPlayerId, setMyPlayerId] = useState(undefined);
+  // A match to scroll to once its round has rendered
+  const [scrollTarget, setScrollTarget] = useState(null);
 
   // Identifies the most recently started request. Two polls in flight, or a
   // poll racing the refetch after someone submits, can come back out of order;
@@ -411,6 +420,60 @@ function TournamentDetail({ user }) {
     [selectedPlayer, rounds, matches, players]
   );
 
+  // Resolve "this is me" once per tournament, after the roster arrives. Later
+  // polls do not re-run it, so "Not you?" sticks.
+  useEffect(() => {
+    if (myPlayerId !== undefined || players.length === 0) return;
+    setMyPlayerId(loadMyPlayerId(id, players));
+  }, [id, players, myPlayerId]);
+
+  const me = useMemo(
+    () => players.find(p => p.id === myPlayerId) || null,
+    [players, myPlayerId]
+  );
+
+  const mySchedule = useMemo(
+    () => (me ? buildPlayerSchedule(me.id, rounds, matches, players) : []),
+    [me, rounds, matches, players]
+  );
+
+  const liveRounds = useMemo(() => openRounds(sortedRounds, matches), [sortedRounds, matches]);
+  const nowRound = useMemo(() => currentRoundNumber(sortedRounds, matches), [sortedRounds, matches]);
+
+  const pickMe = player => {
+    saveMyPlayer(id, player);
+    setMyPlayerId(player.id);
+  };
+
+  const forgetMe = () => {
+    saveMyPlayer(id, null);
+    setMyPlayerId(null);
+  };
+
+  // Show a round and bring one match into view. Without a match id, it is
+  // this phone's own match in that round.
+  const jumpTo = (roundNumber, matchId = null) => {
+    let target = matchId;
+    if (target === null && me) {
+      const round = rounds.find(r => r.round_number === roundNumber);
+      const myTeam = round?.teams?.find(
+        t => !t.is_bye_team && (t.players || []).some(p => p.id === me.id)
+      );
+      const match = myTeam && matches.find(m => m.team1_id === myTeam.id || m.team2_id === myTeam.id);
+      target = match?.id ?? null;
+    }
+    setActiveTab('rounds');
+    setActiveRound(roundNumber);
+    setScrollTarget(target);
+  };
+
+  useEffect(() => {
+    if (scrollTarget === null) return;
+    const el = document.getElementById(`match-${scrollTarget}`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setScrollTarget(null);
+  }, [scrollTarget, activeRound, activeTab]);
+
   const progress = useMemo(() => {
     const total = matches.length;
     const completed = matches.filter(m => m.is_completed).length;
@@ -585,6 +648,21 @@ function TournamentDetail({ user }) {
         </div>
       )}
 
+      {isLive && rounds.length > 0 && myPlayerId !== undefined && (
+        <MyMatchPanel
+          players={players}
+          me={me}
+          schedule={mySchedule}
+          currentRound={nowRound}
+          onPick={pickMe}
+          onForget={forgetMe}
+          onJump={roundNumber => jumpTo(roundNumber)}
+          onOpenSchedule={() => me && openPlayerSchedule(me)}
+        />
+      )}
+
+      {isLive && <RoundStatus rounds={liveRounds} onJump={jumpTo} />}
+
       {/* ---- Tabs ---- */}
       {rounds.length > 0 && (
         <>
@@ -661,6 +739,7 @@ function TournamentDetail({ user }) {
                   onStartEdit={startEditingMatch}
                   onCancelEdit={cancelEditingMatch}
                   onSelectPlayer={openPlayerSchedule}
+                  myPlayerId={me ? me.id : null}
                 />
               )}
             </div>

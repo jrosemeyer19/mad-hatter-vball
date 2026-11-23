@@ -14,7 +14,8 @@ function RoundView({
   onSubmit,
   onStartEdit,
   onCancelEdit,
-  onSelectPlayer
+  onSelectPlayer,
+  myPlayerId = null
 }) {
   const teams = round.teams || [];
   const playingTeams = teams.filter(t => !t.is_bye_team);
@@ -75,6 +76,11 @@ function RoundView({
                 onStartEdit={onStartEdit}
                 onCancelEdit={onCancelEdit}
                 onSelectPlayer={onSelectPlayer}
+                isMine={
+                  myPlayerId !== null &&
+                  [...playersOf(match.team1_id), ...playersOf(match.team2_id)]
+                    .some(p => p.id === myPlayerId)
+                }
               />
             ))}
         </div>

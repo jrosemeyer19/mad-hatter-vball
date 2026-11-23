@@ -64,7 +64,8 @@ function MatchCard({
   onSubmit,
   onStartEdit,
   onCancelEdit,
-  onSelectPlayer
+  onSelectPlayer,
+  isMine = false
 }) {
   const t1Label = `Team ${team1?.team_number ?? 1}`;
   const t2Label = `Team ${team2?.team_number ?? 2}`;
@@ -221,9 +222,15 @@ function MatchCard({
   };
 
   return (
-    <div className={`match-card${match.is_completed ? ' is-complete' : ''}`}>
+    <div
+      id={`match-${match.id}`}
+      className={`match-card${match.is_completed ? ' is-complete' : ''}${isMine ? ' is-mine' : ''}`}
+    >
       <div className="match-top">
-        <span className="match-court">Court {match.court}</span>
+        <span className="match-court">
+          Court {match.court}
+          {isMine && <span className="badge badge-primary">You</span>}
+        </span>
         <span className={`badge ${status.cls}`}>{status.label}</span>
       </div>
 
