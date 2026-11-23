@@ -54,6 +54,12 @@ CREATE TABLE players (
     point_differential INTEGER DEFAULT 0
 );
 
+-- Optional: this player's match is always put on court 1 (the director runs the
+-- event from a laptop by court 1). Added here rather than in CREATE TABLE
+-- tournaments because players is created after it.
+ALTER TABLE tournaments
+    ADD COLUMN court_one_player_id INTEGER REFERENCES players(id) ON DELETE SET NULL;
+
 -- Rounds table
 CREATE TABLE rounds (
     id SERIAL PRIMARY KEY,

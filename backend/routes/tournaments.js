@@ -694,7 +694,10 @@ router.post('/:id/players/:playerId/withdraw', authenticateToken, requireTournam
       try {
         outcome = rebalanceUnplayedMatches(pairs, {
           minPlayersPerTeam: req.tournament.min_players_per_team,
-          teammateHistory
+          teammateHistory,
+          lockedPlayerIds: req.tournament.court_one_player_id != null
+            ? [req.tournament.court_one_player_id]
+            : []
         });
       } catch (rebalanceError) {
         // Reached before any statement has modified a row, so this leaves the
@@ -744,6 +747,11 @@ router.post('/:id/players/:playerId/withdraw', authenticateToken, requireTournam
     }
 
     await client.query('UPDATE players SET is_withdrawn = TRUE WHERE id = $1', [player.id]);
+
+    // A pinned player who leaves no longer has a match to keep on court 1
+    if (req.tournament.court_one_player_id === player.id) {
+      await client.query('UPDATE tournaments SET court_one_player_id = NULL WHERE id = $1', [id]);
+    }
 
     await client.query('COMMIT');
 
@@ -796,6 +804,20 @@ router.delete('/:id/players/:playerId', authenticateToken, requireTournamentMana
   }
 });
 
+// The optional court 1 pin arrives as a player id from the start / regenerate
+// dialogs. Resolved against the roster already loaded, so a stale or foreign id
+// is refused before any transaction opens. Returns { id } or { error }.
+function resolveCourtOnePlayer(rawId, players) {
+  if (rawId === undefined || rawId === null || rawId === '') return { id: null };
+
+  const id = Number(rawId);
+  const player = Number.isInteger(id) ? players.find(p => p.id === id) : null;
+
+  if (!player) return { error: 'The court 1 player is not on this tournament\'s roster' };
+  if (player.is_withdrawn) return { error: `${player.name} has withdrawn and cannot be pinned to court 1` };
+  return { id };
+}
+
 // Start tournament (generate all teams and rounds at once) - FIXED TO NOT PRE-COUNT MATCHES
 // FIXED VERSION of the Start Tournament Route
 // Replace the existing router.post('/:id/start', ...) route with this updated version
@@ -822,6 +844,11 @@ router.post('/:id/start', authenticateToken, requireTournamentManager, async (re
     return res.status(400).json({ message: 'Not enough players to start tournament' });
   }
 
+  const courtOne = resolveCourtOnePlayer(req.body.courtOnePlayerId, players);
+  if (courtOne.error) {
+    return res.status(400).json({ message: courtOne.error });
+  }
+
   const client = await pool.connect();
 
   try {
@@ -833,8 +860,15 @@ router.post('/:id/start', authenticateToken, requireTournamentManager, async (re
       minPlayersPerTeam: tournament.min_players_per_team,
       matchesPerPlayer: tournament.matches_per_player,
       allowSevenPlayerTeams: tournament.allow_seven_player_teams === true,
-      finalByePlayerName: finalByePlayerName || null
+      finalByePlayerName: finalByePlayerName || null,
+      courtOnePlayerId: courtOne.id
     };
+
+    // Saved so that a later withdrawal rebalance knows to keep this player put
+    await client.query(
+      'UPDATE tournaments SET court_one_player_id = $1 WHERE id = $2',
+      [courtOne.id, id]
+    );
     
     console.log(`\n=== Starting Tournament Generation ===`);
     console.log(`Players: ${players.length}, Courts: ${settings.courtsAvailable}, Min per team: ${settings.minPlayersPerTeam}, Matches per player: ${settings.matchesPerPlayer}`);
@@ -1331,6 +1365,11 @@ router.post('/:id/regenerate', authenticateToken, requireTournamentManager, asyn
     return res.status(400).json({ message: 'Not enough players to regenerate tournament' });
   }
 
+  const courtOne = resolveCourtOnePlayer(req.body.courtOnePlayerId, players);
+  if (courtOne.error) {
+    return res.status(400).json({ message: courtOne.error });
+  }
+
   const client = await pool.connect();
 
   try {
@@ -1355,8 +1394,15 @@ router.post('/:id/regenerate', authenticateToken, requireTournamentManager, asyn
       minPlayersPerTeam: tournament.min_players_per_team,
       matchesPerPlayer: tournament.matches_per_player,
       allowSevenPlayerTeams: tournament.allow_seven_player_teams === true,
-      finalByePlayerName: finalByePlayerName || null
+      finalByePlayerName: finalByePlayerName || null,
+      courtOnePlayerId: courtOne.id
     };
+
+    // Saved so that a later withdrawal rebalance knows to keep this player put
+    await client.query(
+      'UPDATE tournaments SET court_one_player_id = $1 WHERE id = $2',
+      [courtOne.id, id]
+    );
     
     console.log(`Regenerating with ${players.length} players`);
     

@@ -46,6 +46,7 @@ function TournamentSetup({ isEditing = false }) {
   const [tournamentId, setTournamentId] = useState(isEditing ? id : null);
   const [showStartModal, setShowStartModal] = useState(false);
   const [finalByePlayerName, setFinalByePlayerName] = useState('');
+  const [courtOnePlayerId, setCourtOnePlayerId] = useState('');
   const [editingPlayerId, setEditingPlayerId] = useState(null);
   const [editedPlayer, setEditedPlayer] = useState({});
   const [sortBy, setSortBy] = useState('name'); // 'name', 'gender', 'skill', 'setter'
@@ -553,9 +554,11 @@ function TournamentSetup({ isEditing = false }) {
     setShowStartModal(false);
     try {
       await axios.post(`/api/tournaments/${tournamentId}/start`, {
-        finalByePlayerName: finalByePlayerName || null
+        finalByePlayerName: finalByePlayerName || null,
+        courtOnePlayerId: courtOnePlayerId || null
       });
       setFinalByePlayerName(''); // Reset selection
+      setCourtOnePlayerId('');
       navigate(`/tournament/${tournamentId}`);
     } catch (error) {
       setError(error.response?.data?.message || 'Failed to start tournament');
@@ -566,6 +569,7 @@ function TournamentSetup({ isEditing = false }) {
   const cancelStart = () => {
     setShowStartModal(false);
     setFinalByePlayerName('');
+    setCourtOnePlayerId('');
   };
 
   const getPlayerCounts = () => {
@@ -1208,6 +1212,35 @@ function TournamentSetup({ isEditing = false }) {
               </select>
               <div style={{ fontSize: '0.85rem', color: '#666', marginTop: '0.25rem' }}>
                 Select a player to guarantee they get a bye in the final round
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '1.5rem' }}>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+                Always on Court 1 (Optional)
+              </label>
+              <select
+                value={courtOnePlayerId}
+                onChange={(e) => setCourtOnePlayerId(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  fontSize: '1rem'
+                }}
+              >
+                <option value="">No preference (courts spread automatically)</option>
+                {[...players]
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map(player => (
+                    <option key={player.id} value={player.id}>
+                      {player.name}
+                    </option>
+                  ))}
+              </select>
+              <div style={{ fontSize: '0.85rem', color: '#666', marginTop: '0.25rem' }}>
+                Every match this player is in goes on court 1. Teams and matchups are not affected.
               </div>
             </div>
 

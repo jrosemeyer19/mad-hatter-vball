@@ -19,6 +19,8 @@
  *    extra match, and standings are cumulative points — more matches is an
  *    advantage. Every remaining player keeps exactly the match count they were
  *    scheduled for; only the person who withdrew plays fewer.
+ *  - A locked player (the court 1 pin) stays on their team. Courts belong to
+ *    matches, so swapping them into another match would move their court.
  *  - Rounds, courts and who-plays-whom are never changed. This does not
  *    re-solve the tournament; it only decides who stands on which side.
  */
@@ -85,7 +87,7 @@ function arrangementCost(pairs, teammateHistory) {
  * teams into undersized ones, picking whichever move costs least each time.
  * Runs before the swap pass, which cannot change sizes.
  */
-function normalizeSizes(teams, targetByTeamId, pairs, teammateHistory) {
+function normalizeSizes(teams, targetByTeamId, pairs, teammateHistory, isLocked) {
   const oversized = () => teams.filter(t => t.players.length > targetByTeamId.get(t.id));
   const undersized = () => teams.filter(t => t.players.length < targetByTeamId.get(t.id));
 
@@ -97,6 +99,7 @@ function normalizeSizes(teams, targetByTeamId, pairs, teammateHistory) {
     for (const from of oversized()) {
       for (const to of undersized()) {
         for (let i = 0; i < from.players.length; i++) {
+          if (isLocked(from.players[i])) continue;
           const [moved] = from.players.splice(i, 1);
           to.players.push(moved);
 
@@ -122,7 +125,7 @@ function normalizeSizes(teams, targetByTeamId, pairs, teammateHistory) {
  * Swap players between teams until no single swap improves the arrangement.
  * Sizes are fixed by this point, so every player keeps exactly one slot.
  */
-function improveBySwapping(teams, pairs, teammateHistory, maxPasses = 200) {
+function improveBySwapping(teams, pairs, teammateHistory, isLocked, maxPasses = 200) {
   let passes = 0;
   let improved = true;
 
@@ -136,7 +139,9 @@ function improveBySwapping(teams, pairs, teammateHistory, maxPasses = 200) {
         const t2 = teams[y];
 
         for (let i = 0; i < t1.players.length; i++) {
+          if (isLocked(t1.players[i])) continue;
           for (let j = 0; j < t2.players.length; j++) {
+            if (isLocked(t2.players[j])) continue;
             const before = arrangementCost(pairs, teammateHistory);
 
             [t1.players[i], t2.players[j]] = [t2.players[j], t1.players[i]];
@@ -166,11 +171,16 @@ function improveBySwapping(teams, pairs, teammateHistory, maxPasses = 200) {
  *        minimum. A withdrawal may take one team to minPlayersPerTeam - 1, but
  *        no lower; below that the caller is told to regenerate instead.
  * @param {Object} [options.teammateHistory] - { playerId: { otherId: count } }
+ * @param {Array}  [options.lockedPlayerIds] - players who must stay on the team
+ *        they are on, e.g. the court 1 pin: courts are fixed per match, so
+ *        moving that player to another match would move them off court 1.
  * @returns {{ changed: boolean, smallestTeam: number, passes: number,
  *             worstSkillGapBefore: number, worstSkillGapAfter: number }}
  */
 function rebalanceUnplayedMatches(pairs, options) {
-  const { minPlayersPerTeam, teammateHistory } = options;
+  const { minPlayersPerTeam, teammateHistory, lockedPlayerIds = [] } = options;
+  const locked = new Set(lockedPlayerIds);
+  const isLocked = player => locked.has(player.id);
 
   if (pairs.length === 0) {
     return { changed: false, smallestTeam: null, passes: 0,
@@ -201,8 +211,8 @@ function rebalanceUnplayedMatches(pairs, options) {
   const byDescendingSize = [...teams].sort((a, b) => b.players.length - a.players.length);
   const targetByTeamId = new Map(byDescendingSize.map((t, i) => [t.id, targets[i]]));
 
-  normalizeSizes(teams, targetByTeamId, pairs, teammateHistory);
-  const passes = improveBySwapping(teams, pairs, teammateHistory);
+  normalizeSizes(teams, targetByTeamId, pairs, teammateHistory, isLocked);
+  const passes = improveBySwapping(teams, pairs, teammateHistory, isLocked);
 
   return {
     changed: true,

@@ -63,6 +63,7 @@ function TournamentDetail({ user }) {
   // anything that is no longer the latest is discarded rather than written.
   const fetchSeq = useRef(0);
   const [finalByePlayerName, setFinalByePlayerName] = useState('');
+  const [courtOnePlayerId, setCourtOnePlayerId] = useState('');
 
   useEffect(() => {
     fetchTournamentData();
@@ -382,7 +383,8 @@ function TournamentDetail({ user }) {
       setLoading(true);
       setShowRegenerateModal(false);
       await axios.post(`/api/tournaments/${id}/regenerate`, {
-        finalByePlayerName: finalByePlayerName || null
+        finalByePlayerName: finalByePlayerName || null,
+        courtOnePlayerId: courtOnePlayerId || null
       });
       setFinalByePlayerName('');
       await fetchTournamentData();
@@ -488,7 +490,13 @@ function TournamentDetail({ user }) {
             {tournament.status === 'in_progress' && isAdmin && (
               <button
                 className="btn btn-secondary btn-sm"
-                onClick={() => setShowRegenerateModal(true)}
+                onClick={() => {
+                  // Keep the current pin unless the director changes it
+                  setCourtOnePlayerId(
+                    tournament.court_one_player_id != null ? String(tournament.court_one_player_id) : ''
+                  );
+                  setShowRegenerateModal(true);
+                }}
                 disabled={loading}
               >
                 Re-generate teams
@@ -720,6 +728,30 @@ function TournamentDetail({ user }) {
               </select>
               <p className="field-hint">
                 Pick someone who needs to leave early and they are guaranteed the final-round bye.
+              </p>
+            </div>
+
+            <div className="form-group">
+              <label className="field-label" htmlFor="court-one-player">
+                Always on court 1 (optional)
+              </label>
+              <select
+                id="court-one-player"
+                value={courtOnePlayerId}
+                onChange={e => setCourtOnePlayerId(e.target.value)}
+              >
+                <option value="">No preference — spread courts automatically</option>
+                {[...players]
+                  .filter(player => !player.is_withdrawn)
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map(player => (
+                    <option key={player.id} value={player.id}>
+                      {player.name}
+                    </option>
+                  ))}
+              </select>
+              <p className="field-hint">
+                Every match this player is in goes on court 1. Teams and matchups are not affected.
               </p>
             </div>
 

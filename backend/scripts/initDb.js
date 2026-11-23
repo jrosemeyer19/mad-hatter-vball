@@ -271,6 +271,29 @@ async function runMigrations() {
       } else {
         console.log('✓ Shared management option already exists');
       }
+
+      // Check for the court 1 player pin
+      const courtOneExists = await checkColumnExists('tournaments', 'court_one_player_id');
+
+      if (!courtOneExists) {
+        console.log('Adding court 1 player option to existing database...');
+
+        // NULL for existing rows: no tournament has a pinned player until one is picked
+        await pool.query(`
+          ALTER TABLE tournaments
+          ADD COLUMN court_one_player_id INTEGER REFERENCES players(id) ON DELETE SET NULL
+        `);
+        console.log('✓ Added court_one_player_id column');
+
+        await pool.query(`
+          COMMENT ON COLUMN tournaments.court_one_player_id IS 'Optional player whose match is always assigned to court 1, chosen when teams are generated. Withdrawal rebalancing keeps this player on their team so the pin survives.'
+        `);
+        console.log('✓ Added column comment');
+
+        console.log('Court 1 player migration completed successfully!');
+      } else {
+        console.log('✓ Court 1 player option already exists');
+      }
     }
 
   } catch (error) {

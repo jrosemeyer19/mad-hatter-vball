@@ -282,6 +282,9 @@ function generateAllRounds(players, settings) {
   if (settings.finalByePlayerName) {
     console.log(`Final Bye Player Requested: ${settings.finalByePlayerName}`);
   }
+  if (settings.courtOnePlayerId != null) {
+    console.log(`Court 1 Player Requested: id ${settings.courtOnePlayerId}`);
+  }
 
   initializeTeammateTracking(players);
   initializeBPlayerSupportTracking(players);
@@ -329,7 +332,7 @@ function generateAllRounds(players, settings) {
     });
   });
 
-  assignCourtsAcrossRounds(allRounds);
+  assignCourtsAcrossRounds(allRounds, settings.courtOnePlayerId);
 
   console.log('\n=== PRE-VALIDATION PLAYER MATCH ANALYSIS ===');
   const playerMatchCount = {};
@@ -4213,7 +4216,13 @@ function createSimpleMatches(teams) {
 // court most of the day. Courts are not equal at every facility, so once the
 // pairings are locked in we relabel which pair plays where. This changes nothing
 // about who plays whom - only the court sign above the match.
-function assignCourtsAcrossRounds(allRounds) {
+//
+// courtOnePlayerId optionally pins one player's match to court 1 in every round
+// they play (the director keeps their laptop and equipment by court 1). It is a
+// constraint on the search rather than a swap afterwards, so the other matches
+// are still spread across the remaining courts with the pin in view. Rounds the
+// player sits out are assigned as normal.
+function assignCourtsAcrossRounds(allRounds, courtOnePlayerId = null) {
   console.log('\n=== Court Assignment ===');
 
   // playerId -> { courtNumber: timesPlayedThere }
@@ -4243,11 +4252,27 @@ function assignCourtsAcrossRounds(allRounds) {
   const totalCost = (matches, assignment) =>
     matches.reduce((sum, match, index) => sum + assignmentCost(match, assignment[index]), 0);
 
-  const pickAssignment = matches => {
-    const courts = matches.map((_, index) => index + 1);
-    return matches.length <= 6
+  const searchCourts = (matches, courts) =>
+    matches.length <= 6
       ? bestCourtPermutation(matches, courts, assignmentCost)
       : greedyCourtAssignment(matches, courts, assignmentCost);
+
+  const pinnedMatchIndex = matches =>
+    courtOnePlayerId == null
+      ? -1
+      : matches.findIndex(match =>
+          [...match.team1.players, ...match.team2.players]
+            .some(player => player.id === courtOnePlayerId));
+
+  const pickAssignment = matches => {
+    const courts = matches.map((_, index) => index + 1);
+    const pinned = pinnedMatchIndex(matches);
+    if (pinned === -1) return searchCourts(matches, courts);
+
+    // Court 1 is taken by the pinned match; everything else competes for the rest
+    const others = matches.filter((_, index) => index !== pinned);
+    const rest = others.length > 0 ? searchCourts(others, courts.slice(1)) : [];
+    return [...rest.slice(0, pinned), 1, ...rest.slice(pinned)];
   };
 
   const matchesFor = round => round.matches || [];
